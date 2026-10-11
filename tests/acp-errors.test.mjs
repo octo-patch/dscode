@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { acpFailure, deepSeekTransportMessage, patchAcpErrors, patchDeepSeekErrors } from '../scripts/patch-acp-errors.mjs';
 import { createTestRuntime } from '../scripts/test-runtime.mjs';
 import { readFileSync } from 'node:fs';
+import { patchAcpStatus } from '../scripts/patch-acp-status.mjs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -40,7 +41,7 @@ test('DeepSeek transport diagnostics preserve safe nested codes and elapsed time
 test('runtime error patches apply to pinned upstream and are idempotent', () => {
   const fixture = createTestRuntime({ runtime: true, patched: false });
   try {
-    for (const [pkg, patch] of [['dsh-acp', patchAcpErrors], ['dsh-llm-deepseek', patchDeepSeekErrors]]) {
+    for (const [pkg, patch] of [['dsh-acp', patchAcpErrors], ['dsh-acp', patchAcpStatus], ['dsh-llm-deepseek', patchDeepSeekErrors]]) {
       const source = readFileSync(join(fixture.root, 'node_modules/@deepseek-ai', pkg, 'lib/index.js'), 'utf8');
       const result = patch(source);
       assert.notEqual(result, source);

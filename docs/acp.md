@@ -18,6 +18,14 @@ The ACP model picker lists models from providers with configured credentials or 
 
 The current model remains listed even when its credentials are missing, so an explicit selection or resumed session is never silently switched to another model. This exception retains only the current model, not that provider's entire catalog. Configured credentials do not prove that a key is valid, credits remain, the endpoint is reachable, or every advertised model is permitted; filtering makes no inference requests. After changing credentials, reconnect the ACP client to refresh its picker. Saved custom service changes also refresh options in connected sessions.
 
+## Current credential balance
+
+Send `/status` as a standalone text message. The command is advertised to clients and returns the selected provider, model, balance information and query time without a model turn. It also works after switching models or resuming a session. Attachments and ordinary text mentioning `/status` remain normal model input. Arguments are rejected with usage guidance.
+
+DeepSeek API keys show the official account balance and currency; DeepSeek account login shows recharge and bonus wallets separately. OpenRouter shows account credits and the current key's remaining spending limit separately, plus the effective budget when provided. A key without a spending cap does **not** mean unlimited account funds. If OpenRouter denies account-credit access but permits key inspection, the key information remains available. Only the active inference credential is used, never a separate management key.
+
+Each invocation makes a fresh query using the selected route's configured credential reference. Keys and raw provider errors are not printed. Missing credentials, failed queries and timeouts are reported explicitly; they are not shown as zero. The lookup waits at most eight seconds and supports cancellation. Other providers, including custom API endpoints and subscription routes, currently report that balance lookup is unsupported. An overridden DeepSeek/OpenRouter endpoint is not queried through the official billing API. The result is sent to the client without adding a model-history turn; replay of that display depends on the client.
+
 For a source checkout, the equivalent executable is `node` with arguments `["/absolute/path/to/dscode/bin/dscode.mjs", "acp"]`. Source and npm installations use their existing, separate state directories. `--patch FILE` adds a trusted composition overlay and can be repeated. `dscode acp --help` prints usage without starting the runtime or installing a profile.
 
 ## Behavior and limits
@@ -27,7 +35,7 @@ For a source checkout, the equivalent executable is `node` with arguments `["/ab
 - New and resumed ACP agents mount the `dscode` preset, including its tools and provider adapters. The bridge reuses DSH's native ACP implementation rather than translating terminal output.
 - ACP sessions use the `ask` permission preset. Tool requests requiring approval are sent to the ACP client; the client can allow once, reject, or cancel. Normal sandbox rules still apply. The terminal's automatic model review is not the approval decision maker for these sessions.
 - Standard session creation, prompts, cancellation, model configuration, listing, resume, close and MCP attachment are inherited from the pinned DSH bridge. Resume reconnects a session without replaying its transcript.
-- The inherited bridge identifies itself as `deepseek-harness-acp`. It does not advertise `session/load`, modes, slash commands, terminal delegation, client filesystem operations or interactive question forms. Clients requiring those features need additional integration; a successful protocol handshake does not establish full editor compatibility.
+- The inherited bridge identifies itself as `deepseek-harness-acp`. It advertises `/status`; other terminal slash commands are not exposed. It does not advertise `session/load`, modes, terminal delegation, client filesystem operations or interactive question forms. Clients requiring those features need additional integration; a successful protocol handshake does not establish full editor compatibility.
 - Title generation, session-card generation and memory generation are disabled in this transport. Configured providers, tools and other integrations remain available; ACP is not an offline mode.
 - Stdout is reserved for protocol frames. First-install progress and launcher diagnostics go to stderr. Trusted custom patches must also respect this rule.
 - Closing stdin shuts down the runtime. SIGTERM is forwarded by the launcher. Sessions persist in the same installation's state directory, and a running ACP process holds the normal installation lock against upgrades.

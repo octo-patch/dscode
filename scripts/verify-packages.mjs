@@ -39,6 +39,8 @@ try {
       assert.equal(pkg.dependencies['@agentclientprotocol/sdk'], lock.packages['node_modules/@agentclientprotocol/sdk'].version, 'vendored ACP must carry its SDK dependency directly');
       assert.match(readFileSync(join(destination, 'plugins/acp/index.mjs'), 'utf8'), /from '\.\.\/\.\.\/vendor\/acp\/index\.js'/);
       assert.match(readFileSync(join(destination, 'vendor/acp/index.js'), 'utf8'), /dscode-acp-errors-v1/);
+      assert.match(readFileSync(join(destination, 'vendor/acp/index.js'), 'utf8'), /dscode-acp-status-v1/);
+      assert(existsSync(join(destination, 'plugins/status/index.mjs')));
       assert.match(readFileSync(join(destination, 'vendor/deepseek/index.js'), 'utf8'), /dscode-transport-diagnostics-v1/);
       for (const dependency of Object.keys(terminal.dependencies)) {
         const version = lock.packages['node_modules/' + dependency]?.version;

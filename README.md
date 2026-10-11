@@ -184,6 +184,7 @@ dscode update 0.7.29           # an exact version
 |---|---|
 | `/login` | Paste the DeepSeek API key into a hidden input; saved under `~/.dscode/` and loaded at startup |
 | `/account` | Sign in to a DeepSeek account in the browser instead of pasting a key; also its identity, balance and sign-out |
+| `/status` | Current provider, model and credential balance; DeepSeek and OpenRouter supported, also available in [ACP](docs/acp.md#current-credential-balance) |
 | `/model`, `/effort` | Choose a model (type to search) or configure other credentials; models with four levels use a horizontal effort bar |
 | `/new` | Start a fresh session; the TUI is fixed to the `dscode` preset, including resumed conversations |
 | `/status`, `/doctor` | Session state and runtime diagnostics |

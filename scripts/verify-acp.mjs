@@ -79,6 +79,22 @@ try {
   const session = await request('session/new', { cwd: root, mcpServers: [] });
   assert(session.sessionId);
   verifyModels(session);
+  const hasStatusCommand = messages => messages.some(m => m.params?.sessionId === session.sessionId && m.params?.update?.sessionUpdate === 'available_commands_update' && m.params.update.availableCommands.some(c => c.name === 'status' && c.description));
+  assert(hasStatusCommand(updates), 'new sessions advertise /status before the first user prompt');
+  const verifyStatus = async model => {
+    const start = updates.length;
+    const calls = stderr.split('ACP_INFERENCE_CALL').length;
+    const status = await request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: '/status' }] });
+    assert.equal(status.stopReason, 'end_turn');
+    const text = updates.slice(start).map(m => m.params?.update?.content?.text ?? '').join('');
+    assert(text.includes('custom-acp') && text.includes(model), text);
+    assert.match(text, /not supported|暂不支持/);
+    assert.equal(stderr.split('ACP_INFERENCE_CALL').length, calls, '/status never calls the model');
+    assert(!updates.slice(start).some(m => m.params?.update?.sessionUpdate === 'tool_call'));
+  };
+  await verifyStatus('llama');
+  await request('session/set_config_option', { sessionId: session.sessionId, configId: 'model', value: JSON.stringify(['custom-acp', 'llama-alt']) });
+  await verifyStatus('llama-alt');
   await assert.rejects(request('session/set_config_option', { sessionId: session.sessionId, configId: 'model', value: JSON.stringify(['custom-acp-missing', 'llama']) }), /unknown model/);
   verifyModels(await request('session/set_config_option', { sessionId: session.sessionId, configId: 'model', value: JSON.stringify(['custom-acp', 'llama']) }));
   const result = await request('session/prompt', { sessionId: session.sessionId, prompt: [{ type: 'text', text: 'USE_TOOL then answer' }] });
@@ -114,7 +130,10 @@ try {
   await request('session/close', { sessionId: session.sessionId });
   const listed = await request('session/list', {});
   assert(listed.sessions.some(s => s.sessionId === session.sessionId));
+  const beforeResume = updates.length;
   verifyModels(await request('session/resume', { sessionId: session.sessionId, cwd: root, mcpServers: [] }));
+  assert(hasStatusCommand(updates.slice(beforeResume)), 'resumed sessions advertise /status again before the next user prompt');
+  await verifyStatus('llama');
   const updateCount = updates.length;
   providers[0].auth = 'bearer';
   saveProviders();
@@ -136,7 +155,7 @@ try {
   child.stdin.end();
   assert.equal(await exited, 0, stderr);
   assert.equal(protocolFailure, undefined);
-  console.log(`ACP_PROBE_PASSED: configured model filtering, selection, current-model retention, handshake, custom API, DSCODE tool call, allow/reject, cancellation, failure notice and error response, reply, list, resume, close and EOF; ${approvals.length} permission requests`);
+  console.log(`ACP_PROBE_PASSED: /status discovery and execution without inference before/after model switch and resume; configured model filtering, selection, current-model retention, handshake, custom API, DSCODE tool call, allow/reject, cancellation, failure notice and error response, reply, list, resume, close and EOF; ${approvals.length} permission requests`);
 } finally {
   clearTimeout(timeout);
   if (child.exitCode === null) child.kill('SIGTERM');

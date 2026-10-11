@@ -10,6 +10,7 @@ export function apply(ctx) {
   ctx.credentials.describe = async ref => refs.has(ref) ? { configured: ref === keyRef('custom-acp-keyed') } : describe(ref);
   ctx.on('tools/pre-execute', (exec, next) => exec.name === 'bash' ? { kind: 'ask', reason: 'ACP fixture approval' } : next(), { prepend: true });
   ctx.get('dscodeCustom').adapter.fetch = async (_url, options) => {
+    process.stderr.write('ACP_INFERENCE_CALL\n');
     const body = JSON.parse(options.body);
     if (process.env.DSCODE_ACP_VERIFY_VERBOSE) process.stderr.write('ACP_BODY ' + JSON.stringify(body.messages.map(m => ({ role: m.role, calls: m.tool_calls?.length, content: JSON.stringify(m.content)?.slice(0, 160) }))) + '\n');
     const userText = JSON.stringify(body.messages.filter(m => m.role === 'user'));

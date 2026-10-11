@@ -1,4 +1,5 @@
 import { getCustomProviders } from '../../../plugins/custom/index.mjs'
+import { registerStatusSelection } from '../../../plugins/status/selection.mjs'
 /**
  * @deepseek-ai/dsh-code — the interactive terminal driver. The bundle patch
  * rides over dsh-base without Host, HTTP, or browser plugins; this runner
@@ -693,6 +694,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
         assembled: undefined,
       }
       installModelSelection(agentCtx, selection)
+      registerStatusSelection(agent, () => selection.current)
     }
     // AgentOptions seed the loop's fallback route; effort rides the selection
     // ref (installModelSelection), so only the provider/model pair is seeded.

@@ -186,6 +186,7 @@ dscode update 0.7.29           # 指定版本
 |---|---|
 | `/login` | 在隐藏输入框粘贴 DeepSeek API key，保存到 `~/.dscode/`，启动自动加载 |
 | `/account` | 用浏览器登录 DeepSeek 账号代替粘贴 key，并查看身份、余额与退出登录 |
+| `/status` | 查看当前服务商、模型和凭据余额；支持 DeepSeek 和 OpenRouter，也可在 [ACP](docs/acp.md#current-credential-balance) 中使用 |
 | `/model`、`/effort` | 选择模型（直接输入即可搜索）、配置其他凭据；支持四档的模型用横向 bar 调整 effort |
 | `/new` | 新建会话；TUI 固定使用 `dscode` preset，恢复旧会话时也使用该 preset |
 | `/status`、`/doctor` | 会话状态与运行时诊断 |

@@ -8,6 +8,12 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.40] - 2026-10-12
+
+### Added
+
+- `/status` in the TUI and ACP reports the selected provider, model, currency and a fresh balance without model inference. DeepSeek and OpenRouter report explicit unavailable, unsupported, timeout and failure states; account funds and key spending limits remain distinct.
+
 ### Fixed
 
 - Invalidate cached footer and Desktop balances when credentials change or are removed, and reject obsolete query completions. Resolve the credential service at refresh time, including when it becomes available after plugin startup. Native credential updates clear old readings immediately; cached amounts retain their currency and distinguish account balances from fallback key spending limits. Malformed amounts remain unknown instead of becoming zero. `/status` continues to query fresh data independently.

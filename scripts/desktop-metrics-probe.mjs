@@ -29,11 +29,11 @@ async function run(ctx) {
     }
   }
   ctx.llm.registerAdapter(['desktop-metrics-fixture'], new Adapter());
-  const make = async (id, preset, resume = false) => {
+  const make = async (id, preset, resume = false, target = { provider: 'desktop-metrics-fixture', model: 'fixture' }) => {
     const setup = async (scope, agent) => { await ctx.agentPresets.mount(scope, preset);
       installModelSelection(scope, { get current() { return agent.session.requestHeader()?.config ?? agent.options; }, assembled: undefined }); };
     const handle = resume ? await ctx.agents.resume({ resumeSessionId: id, setup }) : await ctx.agents.create({ sessionId: id,
-      meta: { cwd: process.cwd(), agentPreset: preset }, agentOptions: { provider: 'desktop-metrics-fixture', model: 'fixture' }, setup });
+      meta: { cwd: process.cwd(), agentPreset: preset }, agentOptions: target, setup });
     handles.push(handle); return handle.agent;
   };
   const agent = await make('desktop-usage-current', 'dscode', phase !== 'generate');
@@ -44,7 +44,7 @@ async function run(ctx) {
   const request = (sessionId = agent.id, headers = { Cookie: cookie, Origin: origin }) => fetch(origin + '/api/dscode-metrics', {
     method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method: 'dscode-metrics', payload: { action: 'status', sessionId } }),
   });
-  const status = async () => { const response = await request(); assert.equal(response.headers.get('cache-control'), 'no-store');
+  const status = async (sessionId = agent.id) => { const response = await request(sessionId); assert.equal(response.headers.get('cache-control'), 'no-store');
     const body = await response.json(); assert(body.result.ok, body.result.error?.message); return body.result.value; };
   try {
     if (phase === 'generate') {
@@ -65,6 +65,70 @@ async function run(ctx) {
     assert.equal(snapshot.turns.length, 1); assert.equal(snapshot.turns[0].cost, 0.012);
     assert.equal(snapshot.calls, 2); assert.equal(snapshot.pending, 0);
     assert(!JSON.stringify(snapshot).includes('Desktop usage fixture')); assert(!snapshot.turns.some(turn => turn.cost === 900));
+    const credentials = ctx.get('credentials'), nativeFetch = globalThis.fetch;
+    const credentialUpdates = [];
+    ctx.on('credentials/reference-updated', ref => credentialUpdates.push(ref));
+    let releaseLate, lateBodyRead = false, balanceRequests = 0, lastReading;
+    const balanceBody = amount => Response.json({ is_available: true, balance_infos: [{ currency: 'CNY', total_balance: String(amount) }] });
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      const authorization = new Headers(init?.headers).get('authorization');
+      if (url.origin === 'https://api.deepseek.com' && url.pathname === '/user/balance') {
+        balanceRequests++;
+        if (authorization === 'Bearer metrics-late-fixture') return new Promise(resolve => {
+          releaseLate = () => {
+            const response = balanceBody(99), json = response.json.bind(response);
+            response.json = async () => { const body = await json(); lateBodyRead = true; return body; };
+            resolve(response);
+          };
+        });
+        assert(['Bearer metrics-A-fixture', 'Bearer metrics-B-fixture'].includes(authorization), 'Unexpected fixture balance credential');
+        return balanceBody(authorization === 'Bearer metrics-A-fixture' ? 11 : 3);
+      }
+      if (url.origin === 'https://openrouter.ai' && ['/api/v1/credits', '/api/v1/key'].includes(url.pathname)) {
+        assert.equal(authorization, 'Bearer metrics-limited-fixture');
+        return url.pathname.endsWith('/credits') ? Response.json({}, { status: 403 }) : Response.json({ data: { limit_remaining: 2 } });
+      }
+      return nativeFetch(input, init);
+    };
+    const waitFor = async predicate => {
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) { if (await predicate()) return; await delay(10); }
+      assert.fail('Native balance fixture did not settle: ' + JSON.stringify({ balanceRequests, credentialUpdates, lastReading: lastReading && { provider: lastReading.provider, model: lastReading.model, balance: lastReading.balance, currency: lastReading.balanceCurrency } }));
+    };
+    try {
+      const balanceAgent = await make('desktop-balance-' + phase, 'dscode', false, { provider: 'deepseek-official', model: 'deepseek-flash' });
+      const reading = async () => { lastReading = await status(balanceAgent.id); return lastReading; };
+      await credentials.set('DEEPSEEK_API_KEY', 'metrics-A-fixture');
+      await waitFor(async () => (await reading()).balance === 11);
+      await credentials.set('DEEPSEEK_API_KEY', 'metrics-B-fixture');
+      await waitFor(async () => (await reading()).balance === 3);
+      const current = await reading();
+      assert.equal(current.balanceCurrency, 'CNY'); assert.equal(current.balanceSource, 'account');
+      assert(!JSON.stringify(current).includes('metrics-B-fixture'));
+      await credentials.set('DEEPSEEK_API_KEY', 'metrics-late-fixture');
+      await waitFor(() => !!releaseLate);
+      assert.equal((await reading()).balance, null);
+      await credentials.set('DEEPSEEK_API_KEY', 'metrics-B-fixture');
+      await waitFor(async () => (await reading()).balance === 3);
+      releaseLate();
+      await waitFor(() => lateBodyRead);
+      assert.equal((await reading()).balance, 3);
+      await credentials.unset('DEEPSEEK_API_KEY');
+      await waitFor(async () => (await reading()).balance === null);
+      assert.equal((await reading()).balanceCurrency, null);
+      const limitAgent = await make('desktop-limit-' + phase, 'dscode', false, { provider: 'openrouter', model: 'deepseek/deepseek-v4-flash' });
+      await credentials.set('OPENROUTER_API_KEY', 'metrics-limited-fixture');
+      await waitFor(async () => (await status(limitAgent.id)).balance === 2);
+      const limit = await status(limitAgent.id);
+      assert.equal(limit.balanceCurrency, 'USD'); assert.equal(limit.balanceSource, 'key-limit');
+      await credentials.unset('OPENROUTER_API_KEY');
+      await waitFor(async () => (await status(limitAgent.id)).balance === null);
+      assert.equal(modelCalls, phase === 'generate' ? 1 : 0, 'Balance verification must not request inference');
+    } finally {
+      releaseLate?.();
+      globalThis.fetch = nativeFetch;
+    }
     if (phase === 'generate') writeFileSync(join(home, 'metrics-snapshot.json'), JSON.stringify(snapshot));
     else assert.equal(snapshot.cost, JSON.parse(readFileSync(join(home, 'metrics-snapshot.json'))).cost);
     if (phase === 'unload') {
@@ -74,6 +138,7 @@ async function run(ctx) {
     }
     console.log('DESKTOP_METRICS_PASSED ' + JSON.stringify({ phase, authenticatedRpc: true, originEnforced: true,
       presetAndSessionIsolation: true, metadataOnly: true, ledgerProjection: true, noReadSideEffects: true,
+      nativeCredentialBalanceUpdates: true, credentialRemoval: true, obsoleteBalanceRejected: true, balanceCurrencyAndSource: true,
       ...(phase !== 'generate' ? { persistedCost: true } : {}), ...(phase === 'unload' ? { unloadReload: true } : {}) }));
     if (ui) { console.log('DESKTOP_METRICS_UI_READY ' + JSON.stringify({ home, sessionId: agent.id })); return; }
   } finally { if (!ui) for (const handle of handles.reverse()) await handle.dispose(); }

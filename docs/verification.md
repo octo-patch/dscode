@@ -2,6 +2,34 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## Cached balance credential isolation — 2026-10-12 (unreleased)
+
+The local fix for DSCODE issue #16 invalidates balances on native credential
+updates and rejects obsolete query completions. It preserves currency and
+distinguishes account funds from fallback key spending limits. Malformed
+DeepSeek and OpenRouter amounts remain unknown; valid zero balances remain zero.
+
+The first private packed-plugin probe received credential-update notifications
+but made no balance request: the metrics plugin had captured an unavailable
+credential service during startup. Resolving the service per refresh fixes this
+case, with a dedicated late-service regression.
+
+`verify-desktop-metrics.mjs` passed against an independent Harness 0.2.0-rc.2
+Host in generate, resume and unload/reload phases. Each phase uses the real
+temporary credential store and native notifications, with mocked billing
+responses. Authenticated RPC verified credential switching/removal, a delayed
+old response, CNY metadata and a USD key-limit fallback without new inference.
+The receipt is `artifacts/local/desktop-metrics-0.2.0-rc.2.json`.
+
+Mounted Ink checks verified currency and key-limit labels at 48, 80 and 120
+columns without overflow. Desktop React checks verified the same metadata and
+labels. These are rendered-component checks, not a signed Desktop GUI rehearsal.
+The final local `npm run check` passed lint, both TypeScript checks, 1,129
+unit/component cases (80.55% measured first-party `.mjs` coverage), native
+integration, package checks and 63 offline evaluations.
+Real billing endpoints, public installation and live-model behavior are outside
+this evidence. No release or issue closure is established by these local checks.
+
 ## Terminal Harness 0.2.0-rc.2 upgrade — 2026-10-10 (0.7.38)
 
 The terminal now pins the complete Harness graph to `0.2.0-rc.2`, matching the

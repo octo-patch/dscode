@@ -6,8 +6,9 @@ export const OPENROUTER_API = 'https://openrouter.ai/api/v1';
 export const MANAGEMENT_REF = 'OPENROUTER_MANAGEMENT_KEY';
 
 const finite = value => {
+  if (!(typeof value === 'number' || typeof value === 'string' && value.trim())) return undefined;
   const number = Number(value);
-  return value !== null && value !== undefined && value !== '' && Number.isFinite(number) ? number : undefined;
+  return Number.isFinite(number) ? number : undefined;
 };
 
 export class OpenRouterAccountError extends Error {
@@ -45,10 +46,8 @@ export function parseOpenRouterCredits(body) {
 
 /** Remaining USD credit limit from a `/key` body; null when the key has no limit. */
 export function parseOpenRouterKeyRemaining(body) {
-  const remaining = body?.data?.limit_remaining;
-  if (remaining == null) return null;
-  const value = Number(remaining);
-  return Number.isFinite(value) ? Math.max(0, value) : null;
+  const value = finite(body?.data?.limit_remaining);
+  return value === undefined ? null : Math.max(0, value);
 }
 
 function keyOf(raw) {

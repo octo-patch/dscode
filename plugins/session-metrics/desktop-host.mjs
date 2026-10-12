@@ -1,6 +1,6 @@
 import { clientRequestSchema } from '@deepseek-ai/dsh-client-connection';
 import { footerFor, goFooterFact, grokFooterFact } from './view.mjs';
-import { balanceNow } from './balance.mjs';
+import { balanceInfoNow } from './balance.mjs';
 import { canonicalProvider } from '../providers/catalog.mjs';
 import { grokSubscriptionNow } from '../grok/billing.mjs';
 import { goUsageNow } from '../opencode-go/usage.mjs';
@@ -13,12 +13,13 @@ export function desktopMetricsRequest(ctx, payload) {
   if (!agent || ctx.agentPresets.composedPreset(agent.ctx) !== 'dscode') throw Error('Usage is available for an open DSCODE session.');
   const route = agent.session.requestHeader()?.config ?? agent.options;
   const provider = canonicalProvider(route.provider);
+  const balance = balanceInfoNow(provider);
   return footerFor(agent.id, {}, 0, provider, 'en', (summary, context, _columns, rates) => ({
     sessionId: agent.id, provider: route.provider, model: route.model,
     cost: finite(summary.cost), partial: summary.unknown === true, calls: finite(summary.calls), pending: finite(summary.pending),
     contextPercent: finite(context), cachePercent: finite(summary.cache),
     currentTps: finite(rates.current), averageTps: finite(rates.average), requestActive: rates.active === true,
-    balance: finite(balanceNow(provider)),
+    balance: finite(balance?.amount), balanceCurrency: balance?.currency ?? null, balanceSource: balance?.source ?? null,
     subscription: provider === 'grok' ? grokFooterFact(grokSubscriptionNow()) : provider === 'opencode-go' ? goFooterFact(goUsageNow()) : null,
     turns: (summary.turns ?? []).slice(-50).reverse().map(turn => ({ turn: turn.turn, cost: finite(turn.cost), calls: turn.calls, partial: turn.unknown })),
     totalTurns: summary.turns?.length ?? 0, unattributed: finite(summary.unattributed),

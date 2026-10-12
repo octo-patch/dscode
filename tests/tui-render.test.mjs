@@ -19,6 +19,7 @@ import { liveRegionBudget } from '../packages/tui/src/render/inspector.ts';
 import { createTranscriptView } from '../packages/tui/src/render/projection.ts';
 import { DEFAULT_STATUSLINE_ITEMS, STATUS_ITEMS, layoutStatusBar } from '../packages/tui/src/render/status.ts';
 import { formatFooter, setMetricSource } from '../plugins/session-metrics/view.mjs';
+import { refreshBalance, invalidateBalance } from '../plugins/session-metrics/balance.mjs';
 import { watchSkills } from '../packages/tui/src/skills.ts';
 import { dscodeTelemetryParts } from '../packages/tui/src/dscode/telemetry.ts';
 import { createBtwFeed } from '../packages/tui/src/btw.ts';
@@ -193,6 +194,29 @@ test('balance, peak/off-peak and cache move together while a third footer row re
   }
   const chrome = { terminalRows: 30, composerRows: 1, menuRows: 0, gutterRows: 0, notice: false, todo: false, agents: false };
   assert.equal(liveRegionBudget({ ...chrome, statusBarRows: 3 }), liveRegionBudget({ ...chrome, statusBarRows: 2 }) - 1);
+});
+
+test('the mounted terminal labels balance currency and fallback key limits at narrow and wide sizes', async () => {
+  const dispose = setMetricSource(() => ({ events: [], used: 10, capacity: 100 }));
+  try {
+    for (const provider of ['deepseek-official', 'openrouter']) {
+      await refreshBalance({ provider, key: 'render-balance-fixture', managementKey: '', fetch: async url => provider === 'deepseek-official'
+        ? { ok: true, json: async () => ({ balance_infos: [{ currency: 'CNY', total_balance: '80' }] }) }
+        : { ok: !url.endsWith('/credits'), status: 403, json: async () => ({ data: { limit_remaining: 2 } }) } });
+      for (const columns of [48, 80, 120]) {
+        const ui = await mount(StatusLine, {
+          facts: { model: `${provider}/deepseek-flash`, effort: 'high', title: 'Balance', cwd: '', branch: '', sessionId: '', sandbox: '', permission: 'ask', fullSessionId: 'balance-render', skills: 0 },
+          stats: createTranscriptView().stats, busy: false, columns, items: DEFAULT_STATUSLINE_ITEMS, animated: false,
+        }, { columns });
+        try {
+          assertFits(ui);
+          assert.match(ui.frame(), provider === 'deepseek-official' ? /80\.00 CNY/ : /key \$2\.00/);
+          assert.doesNotMatch(ui.frame(), /\$80\.00/);
+        } finally { ui.close(); }
+      }
+      invalidateBalance(provider);
+    }
+  } finally { dispose(); for (const provider of ['deepseek-official', 'openrouter']) invalidateBalance(provider); }
 });
 
 test('the footer keeps its geometry while a turn changes the live figures', () => {

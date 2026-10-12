@@ -2,7 +2,7 @@ globalThis.__ModuleLoader__.load({
   id: '@toddzheng024/dscode-desktop',
   factory: require => {
     const { createElement: h, useState, useEffect, useRef } = require('react');
-    const money = (cost, partial = false) => cost === null || partial && cost === 0 ? 'Unknown' : `$${cost.toFixed(4)}${partial ? '+' : ''}`;
+    const money = (cost, partial = false, currency = 'USD') => cost === null || partial && cost === 0 ? 'Unknown' : (currency === 'USD' ? `$${cost.toFixed(4)}` : `${cost.toFixed(4)} ${currency}`) + (partial ? '+' : '');
     const percent = value => value === null ? 'Unknown' : `${value.toFixed(1)}%`;
     const speed = value => value === null ? 'Unknown' : `${value.toFixed(1)} tokens/s`;
     const control = { padding: '7px 10px', border: '.5px solid var(--dsw-alias-border-l3, #8886)', borderRadius: 'var(--dsw-radius-md, 6px)', background: 'transparent', color: 'inherit', font: 'inherit' };
@@ -33,7 +33,7 @@ globalThis.__ModuleLoader__.load({
             fact('Pending calls', state.pending ?? 'Unknown'), fact('Context estimate', percent(state.contextPercent)),
             fact('Input cache share', percent(state.cachePercent)), fact('Smoothed request speed', speed(state.currentTps)),
             fact('Session average speed', speed(state.averageTps)),
-            state.balance !== null && fact('Cached provider balance', money(state.balance)),
+            state.balance !== null && state.balanceCurrency && fact(state.balanceSource === 'key-limit' ? 'Cached key spending limit' : 'Cached account balance', money(state.balance, false, state.balanceCurrency)),
             state.subscription && fact('Cached subscription usage', state.subscription),
             state.budget && fact('Configured cost budget', `${money(state.budget.spent)} / ${money(state.budget.limit)} · ${state.budget.state}`)),
           h('p', { style: { fontSize: 12 } }, 'Unknown means a reading or price is unavailable. + marks a partial cost. Pending calls have not settled. Cached account figures may lag the provider.'),

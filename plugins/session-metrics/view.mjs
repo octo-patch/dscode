@@ -2,7 +2,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths';
 import { readMetrics } from './store.mjs';
 import { t } from '../i18n/messages.mjs';
 import { estimateCost, peakEmoji } from './pricing.mjs';
-import { balanceNow, trustedNow } from './balance.mjs';
+import { balanceInfoNow, formatBalance, trustedNow } from './balance.mjs';
 import { grokSubscriptionNow } from '../grok/billing.mjs';
 import { goUsageNow } from '../opencode-go/usage.mjs';
 import { canonicalProvider } from '../providers/catalog.mjs';
@@ -166,7 +166,7 @@ function footerFigures(metrics, context, rates, locale = 'en', provider = 'deeps
   const ctx = figure(Number.isFinite(context) ? `${Math.round(context)}%` : '--', FIGURE.percent);
   const cache = figure(metrics.cache === null ? '--' : `${metrics.cache.toFixed(1)}%`, FIGURE.share);
   // The balance belongs to the provider serving the route; only DeepSeek's official one bills by a peak window.
-  const balance = balanceNow(provider);
+  const balance = balanceInfoNow(provider);
   const spend = metrics.unknown && metrics.cost === 0 ? '--' : `$${metrics.cost.toFixed(2)}${metrics.unknown ? '+' : ''}${metrics.pending ? '…' : ''}`;
   // The money is the one live figure whose digits are not reserved: they cross a
   // column a handful of times per session, and reserving them would evict a
@@ -174,7 +174,7 @@ function footerFigures(metrics, context, rates, locale = 'en', provider = 'deeps
   // provider cannot report is left out instead of parked as `$--`.
   const dollars = provider === 'grok' ? grokFooterFact(grokSubscriptionNow(), locale)
     : provider === 'opencode-go' ? goFooterFact(goUsageNow(), locale)
-    : spend + (balance === null ? '' : ' / $' + balance.toFixed(2)) + (provider === 'deepseek-official' ? ' ' + peakEmoji(trustedNow()) : '');
+    : spend + (balance === null ? '' : ' / ' + (balance.source === 'key-limit' ? label('footer.keyLimit') + ' ' : '') + formatBalance(balance)) + (provider === 'deepseek-official' ? ' ' + peakEmoji(trustedNow()) : '');
   // The budget slot rides the money figure: it answers "how much of the session's
   // limit is spent", which is a fact about the cost, not a second cost. A session
   // with no limit renders exactly as before, so the footer only grows by choice.

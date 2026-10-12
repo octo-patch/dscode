@@ -103,3 +103,12 @@ test('the OpenRouter footer balance is the account credits, and a key refused th
   assert.equal(urls.length, 1, 'the same source stays cached');
 });
 
+test('malformed OpenRouter amounts remain unknown instead of becoming zero', () => {
+  for (const value of ['', ' ', false, true, [], {}, null, undefined]) {
+    assert.equal(parseOpenRouterKeyRemaining({ data: { limit_remaining: value } }), null);
+    assert.equal(parseOpenRouterCredits({ data: { total_credits: value, total_usage: 0 } }), null);
+    assert.equal(parseOpenRouterCredits({ data: { total_credits: 10, total_usage: value } }), null);
+  }
+  assert.equal(parseOpenRouterKeyRemaining({ data: { limit_remaining: 0 } }), 0);
+  assert.equal(parseOpenRouterCredits({ data: { total_credits: 0, total_usage: 0 } }), 0);
+});

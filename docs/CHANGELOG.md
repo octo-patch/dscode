@@ -10,6 +10,7 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ### Fixed
 
+- Invalidate cached footer and Desktop balances when credentials change or are removed, and reject obsolete query completions. Resolve the credential service at refresh time, including when it becomes available after plugin startup. Native credential updates clear old readings immediately; cached amounts retain their currency and distinguish account balances from fallback key spending limits. Malformed amounts remain unknown instead of becoming zero. `/status` continues to query fresh data independently.
 - Send a labeled ACP failure notice before the failed prompt response, with bounded error data and retry guidance. Preserve cancellation and normal completion semantics. Include recognized network error codes and elapsed time in DeepSeek transport summaries without copying raw error causes.
 - Guide model output to use correct Markdown delimiters for code containing backticks and literal backslashes, and concise labels for long file links. This guidance does not rewrite generated code or guarantee that every model response is valid Markdown.
 

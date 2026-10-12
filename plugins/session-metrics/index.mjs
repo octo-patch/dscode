@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { appendMetric } from './store.mjs';
 import { estimateCost, priceVersionFor } from './pricing.mjs';
 import { setMetricSource } from './view.mjs';
-import { BALANCE_PROVIDERS, refreshBalance } from './balance.mjs';
+import { BALANCE_PROVIDERS, invalidateBalance, refreshBalance } from './balance.mjs';
 import { refreshOpenRouterModels } from '../openrouter/models.mjs';
 import { REPLAY_KIND } from '../openrouter/wire.mjs';
 import { providerSpec } from '../providers/catalog.mjs';
@@ -35,17 +35,22 @@ export function apply(ctx) {
   // Remaining balance is best-effort decoration: resolve the key lazily (never
   // inject the credentials service, so a missing one cannot fail startup), keep
   // the request on a five-minute cache, and never let it reach the render path.
-  const credentials = ctx.get?.('credentials');
-  const refresh = () => Promise.all(BALANCE_PROVIDERS.map(async provider => {
+  const generations = new Map();
+  let closed = false;
+  const refresh = (providers = BALANCE_PROVIDERS) => Promise.all(providers.map(async provider => {
+    const generation = (generations.get(provider) ?? 0) + 1;
+    generations.set(provider, generation);
     try {
       const spec = providerSpec(provider);
       const secret = async ref => {
         if (!ref) return undefined;
+        const credentials = ctx.get?.('credentials');
         const resolved = await credentials?.resolve?.(ref);
         return (typeof resolved === 'string' ? resolved : resolved?.value) || process.env[ref] || undefined;
       };
       // An OpenRouter management key, when stored, turns the balance into the account's credits.
       const [key, managementKey] = await Promise.all([secret(spec.credentialRef), secret(spec.managementRef)]);
+      if (closed || generations.get(provider) !== generation) return;
       await refreshBalance({ provider, key, managementKey });
       // The listing needs no key, but only a user with an OpenRouter key uses it; the adapter waits for it before its first call.
       if (provider === 'openrouter' && key) await refreshOpenRouterModels({ home });
@@ -53,10 +58,18 @@ export function apply(ctx) {
       /* balance stays unknown */
     }
   }));
+  ctx.on('credentials/reference-updated', ref => {
+    const providers = BALANCE_PROVIDERS.filter(provider => {
+      const spec = providerSpec(provider);
+      return ref === spec.credentialRef || ref === spec.managementRef;
+    });
+    for (const provider of providers) invalidateBalance(provider);
+    return refresh(providers);
+  });
   refresh();
   const balanceTimer = setInterval(refresh, 5 * 60 * 1000);
   if (typeof balanceTimer.unref === 'function') balanceTimer.unref();
-  ctx.effect(() => () => clearInterval(balanceTimer));
+  ctx.effect(() => () => { closed = true; clearInterval(balanceTimer); for (const provider of BALANCE_PROVIDERS) invalidateBalance(provider); });
   const record = (id, entry) => { try { appendMetric(home, id, entry); } catch { ctx.logger.warn('Session cost telemetry could not be saved.'); } };
   ctx.on('llm/stream', async function* (options, next) {
     // Plugin calls made for a session carry no sessionId on the wire; they are charged through the async context.

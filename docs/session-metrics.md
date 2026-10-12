@@ -12,6 +12,15 @@ work. Cost outside recorded turn windows is shown separately. Known cached
 provider balance or subscription figures are included; opening or refreshing the
 panel does not request new account data or start a model turn.
 
+Cached balances retain the provider's currency and identify account funds or a
+fallback key spending limit. USD values use `$`; other reported currencies carry
+their currency code. The terminal marks a fallback limit with `key` (localized),
+and Desktop labels it **Cached key spending limit**. The five-minute balance
+cache is invalidated on native credential updates; removing a credential clears
+its reading, and obsolete queries cannot restore it. Transient lookup failures
+may retain the last reading only for the same credential and balance source.
+Missing or malformed data stays unknown. `/status` makes a separate fresh query.
+
 The panel refreshes once per second while visible and clears its state when
 hidden or switched to another session. Refresh failures clear the old figures
 and display an error. Standard sessions and closed sessions have no DSCODE usage

@@ -9,6 +9,7 @@ import TestRenderer, { act } from 'react-test-renderer';
 import { desktopMetricsRequest } from '../plugins/session-metrics/desktop-host.mjs';
 import { appendMetric } from '../plugins/session-metrics/store.mjs';
 import { setMetricSource } from '../plugins/session-metrics/view.mjs';
+import { refreshBalance, invalidateBalance } from '../plugins/session-metrics/balance.mjs';
 
 test('Desktop usage projects only selected DSCODE metadata and retains partial costs and bounded turn history', t => {
   const home = mkdtempSync(join(tmpdir(), 'desktop-metrics-')), previous = process.env.DSH_HOME;
@@ -40,7 +41,7 @@ test('Desktop usage clears stale data on refresh errors and discards hidden/sess
   runInNewContext(readFileSync(new URL('../plugins/session-metrics/desktop-client.mjs', import.meta.url), 'utf8'), {
     globalThis: { __ModuleLoader__: { load: value => { definition = value; } } }, setInterval: fn => { refresh = fn; return 1; }, clearInterval() {},
   });
-  const status = { provider: 'fixture', model: 'fixture', cost: 0, partial: true, calls: 1, pending: 0, contextPercent: null, cachePercent: null,
+  let status = { provider: 'fixture', model: 'fixture', cost: 0, partial: true, calls: 1, pending: 0, contextPercent: null, cachePercent: null,
     currentTps: null, averageTps: null, requestActive: false, balance: null, subscription: null, budget: null, turns: [], totalTurns: 0, unattributed: 0, unattributedPartial: true };
   definition.factory(() => React).apply({ effect: fn => fn(), sidebarRightTabs: { register: () => () => {} },
     slots: { inject: (_name, fn) => fn(), register: (spec, component) => { inject = spec.inject; Component = component; return () => {}; } },
@@ -50,10 +51,35 @@ test('Desktop usage clears stale data on refresh errors and discards hidden/sess
   await act(async () => { renderer = TestRenderer.create(React.createElement(Component, props)); });
   t.after(async () => { await act(async () => renderer.unmount()); });
   assert(JSON.stringify(renderer.toJSON()).includes('Unknown')); assert(!JSON.stringify(renderer.toJSON()).includes('$0.0000'));
+  status = { ...status, balance: 80, balanceCurrency: 'CNY', balanceSource: 'account' };
+  await act(async () => refresh());
+  assert(JSON.stringify(renderer.toJSON()).includes('80.0000 CNY'));
+  assert(!JSON.stringify(renderer.toJSON()).includes('$80.0000'));
+  status = { ...status, balance: 2, balanceCurrency: 'USD', balanceSource: 'key-limit' };
+  await act(async () => refresh());
+  assert(JSON.stringify(renderer.toJSON()).includes('Cached key spending limit'));
   reject = true; await act(async () => refresh()); assert.equal(renderer.root.findAllByType('dl').length, 0);
   assert(JSON.stringify(renderer.toJSON()).includes('Session closed'));
   await act(async () => renderer.update(React.createElement(Component, { ...props, useTabInfo: () => ({ tab: { visible: false } }) })));
   assert.equal(renderer.toJSON(), null); reject = false;
   await act(async () => renderer.update(React.createElement(Component, { ...inject('two'), useTabInfo: props.useTabInfo })));
-  assert.equal(calls, 3); assert(!JSON.stringify(renderer.toJSON()).includes('Session closed'));
+  assert.equal(calls, 5); assert(!JSON.stringify(renderer.toJSON()).includes('Session closed'));
+});
+
+test('Desktop balance metadata retains currency and source without exporting credential identity', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'desktop-balance-')), previous = process.env.DSH_HOME;
+  process.env.DSH_HOME = home;
+  t.after(() => { invalidateBalance('deepseek-official'); if (previous === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = previous; rmSync(home, { recursive: true, force: true }); });
+  await refreshBalance({ key: 'PRIVATE_BALANCE_FIXTURE', fetch: async () => ({ ok: true, json: async () => ({ balance_infos: [{ total_balance: '80', currency: 'CNY' }] }) }) });
+  const agent = { id: 'selected', ctx: {}, options: { provider: 'deepseek-official', model: 'deepseek-flash' }, session: { requestHeader: () => undefined } };
+  const ctx = { agents: { get: () => agent }, agentPresets: { composedPreset: () => 'dscode' } };
+  const status = desktopMetricsRequest(ctx, { action: 'status', sessionId: agent.id });
+  assert.equal(status.balance, 80);
+  assert.equal(status.balanceCurrency, 'CNY');
+  assert.equal(status.balanceSource, 'account');
+  assert(!JSON.stringify(status).includes('PRIVATE_BALANCE_FIXTURE'));
+  assert(!JSON.stringify(status).includes('identity'));
+  invalidateBalance('deepseek-official');
+  const cleared = desktopMetricsRequest(ctx, { action: 'status', sessionId: agent.id });
+  assert.equal(cleared.balance, null); assert.equal(cleared.balanceCurrency, null); assert.equal(cleared.balanceSource, null);
 });

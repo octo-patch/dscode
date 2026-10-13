@@ -29,16 +29,17 @@ export function newerVersion(candidate, current) {
   return false;
 }
 
-/** Newest launcher version on npm, or undefined when the registry cannot be read. */
-export async function fetchLatestVersion({ fetchImpl = fetch, timeoutMs = 8000 } = {}) {
+/** Newest GitHub application or legacy npm launcher; undefined on lookup failure. */
+export async function fetchLatestVersion({ fetchImpl = fetch, timeoutMs = 8000, standalone = !!process.env.DSCODE_STANDALONE_ROOT } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     // Plain JSON: the registry answers 406 for the abbreviated metadata type on the
     // `/latest` dist-tag endpoint.
-    const response = await fetchImpl(REGISTRY_URL, { headers: { accept: 'application/json' }, signal: controller.signal });
+    const response = await fetchImpl(standalone ? 'https://api.github.com/repos/qiz029/dscode/releases/latest' : REGISTRY_URL, { headers: { accept: 'application/json' }, signal: controller.signal });
     if (!response.ok) return undefined;
-    const version = (await response.json())?.version;
+    const body = await response.json();
+    const version = standalone ? (body.draft || body.prerelease ? undefined : body.tag_name?.replace(/^v/, '')) : body.version;
     return typeof version === 'string' && VERSION_PATTERN.test(version) ? version : undefined;
   } catch { return undefined; }
   finally { clearTimeout(timer); }
@@ -55,6 +56,7 @@ export function stateHome(env = process.env, home = process.env.HOME) {
  */
 export function planUpdate({ moduleUrl, version = 'latest', execPath = process.execPath } = {}) {
   const root = resolve(dirname(fileURLToPath(moduleUrl)), '..', '..');
+  if (existsSync(join(root, '.dscode-standalone.json'))) return { label: `self-contained ${root}`, command: join(root, 'dscode'), args: ['update', version] };
   const entry = join(root, 'bin/dscode.mjs');
   if (existsSync(entry)) return { label: `tar/source ${root}`, command: execPath, args: [entry, 'update', version] };
   if (existsSync(join(root, 'node_modules', LAUNCHER_PACKAGE, 'cli.mjs'))) return { label: 'npm launcher (bundle tree)', command: execPath, args: [join(root, 'node_modules', LAUNCHER_PACKAGE, 'cli.mjs'), 'update', version] };

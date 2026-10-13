@@ -1,5 +1,7 @@
 # DeepSeek account login
 
+For the self-contained terminal, `DSCODE_HOME` defaults to `~/.local/share/dscode-state`. Legacy installations retain their previous paths; see [migration](distribution.md#migration-from-older-dscode-installations).
+
 DSCODE can authenticate the DeepSeek route with a **DeepSeek account** instead of an API key. The sign-in happens in your system browser; the grant is stored on this machine and the model route picks it up automatically.
 
 `/account` is the whole surface:
@@ -41,4 +43,4 @@ Set `DSCODE_ACCOUNT_LOGIN=0` to remove the listener entirely. `/account login` t
 
 ## Where the credential lives
 
-In the same local credential store as your API keys (`~/.dscode/credentials.yaml`, `0600`), under the account provider's own record. It never reaches the model: account state is a client-safe projection with no token in it, tool results and session logs never carry it, and the command's output is redacted like every other DSCODE command result.
+In the same local credential store as your API keys (`$DSCODE_HOME/credentials.yaml`, `0600`), under the account provider's own record. It never reaches the model: account state is a client-safe projection with no token in it, tool results and session logs never carry it, and the command's output is redacted like every other DSCODE command result.

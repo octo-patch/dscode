@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { hookEvents, validateHooks } from './hooks.mjs';
-import { enabledFlag } from './workspace-discovery.mjs';
+import { enabledFlag, isolatedDshPath } from './workspace-discovery.mjs';
 
 // Project hook files layer on top of the installation file by default. They run as
 // the OS user outside tool approval, so a cloned repository can install gates;
@@ -67,6 +67,7 @@ export function resolveHookSources({ root, cwd = root, env = process.env }) {
   if (!projectHooksEnabled(env)) return { sources, skipped };
   for (const file of projectHookFiles) {
     const path = join(cwd, file.path);
+    if (isolatedDshPath(path, env)) continue;
     if (!existsSync(path)) continue;
     let parsed;
     try {

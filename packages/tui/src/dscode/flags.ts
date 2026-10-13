@@ -7,12 +7,12 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { terminalStateDirectory } from '../../../../plugins/i18n/messages.mjs'
 
 /** The directory DSCODE keeps its own terminal state in. */
 function stateDirectory(): string {
-  return join(homedir(), '.dsh', 'dsh-code')
+  return terminalStateDirectory()
 }
 
 /** One persisted boolean; a missing or corrupt file falls back. */

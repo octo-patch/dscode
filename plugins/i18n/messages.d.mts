@@ -19,3 +19,5 @@ export function normalizeLanguage(value: unknown): string | null;
 export function languageName(code: string): string;
 /** One message in one locale, with `{name}` parameters interpolated. */
 export function t(locale: string, key: string, params?: Readonly<Record<string, unknown>>): string;
+/** Package-local user preferences; legacy installs retain their existing location. */
+export function terminalStateDirectory(home?: string, env?: NodeJS.ProcessEnv): string;

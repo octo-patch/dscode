@@ -8,7 +8,7 @@ export const schedulerLabel = home => `ai.dscode.scheduler.${createHash('sha256'
 export const schedulerPath = (home, directory = join(homedir(), 'Library', 'LaunchAgents')) => join(directory, `${schedulerLabel(home)}.plist`);
 
 export function schedulerPlist(home, dscodePath) {
-  const args = [process.execPath, dscodePath, 'trigger', 'scheduler', 'start'];
+  const args = [...(/\.[cm]?js$/.test(dscodePath) ? [process.execPath, dscodePath] : [dscodePath]), 'trigger', 'scheduler', 'start'];
   const log = join(home, 'triggers', 'scheduler.log');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

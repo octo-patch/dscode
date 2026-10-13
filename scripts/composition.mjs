@@ -29,7 +29,7 @@ const expression = value => {
 
 // Both install surfaces share entry IDs, policy defaults and ordering. Only
 // module/path resolution differs between a source checkout and an npm bundle.
-export function composePlugins({ root, bundle, hooks }) {
+export function composePlugins({ root, bundle, hooks, credentialsPath }) {
   if (!!root === !!bundle) throw Error('Choose one composition surface: root or bundle');
   const plugin = name => bundle ? `${bundle}/${name}` : join(root, 'plugins', name, 'index.mjs');
   const inject = bundle ? { inject: ['dscodePaths'] } : {};
@@ -49,6 +49,7 @@ export function composePlugins({ root, bundle, hooks }) {
   // Disable the upstream row and mount ours instead; both surfaces now agree, and the
   // plugin still registers the same `credentials` service.
   const credentials = { id: 'dscode-credentials', name: plugin('credentials') };
+  if (credentialsPath) credentials.config = { path: credentialsPath };
   // DSH 0.1.7's registry declares presets as rows and no longer scans a preset root:
   // the DSCODE declaration is appended to this patch by its own renderer, and only the
   // deployment default belongs to the registry row.

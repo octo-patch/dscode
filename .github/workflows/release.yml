@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish the verified packages to npm and the Hub
+        description: Publish verified self-contained packages and the Desktop plugin
         type: boolean
         default: false
       verify_credentials:
@@ -42,24 +42,65 @@ jobs:
       # `npm run setup` writes into node_modules, and nothing else applies it.
       - run: npm run setup
       - run: npm run check
-      - name: Build the release candidates
-        env:
-          DSCODE_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
+      - name: Build the self-contained release candidates
         run: |
-          npm run build:packages
-          npm run release:hub
           npm run dist
-      - run: npm run verify:hub
+          node scripts/homebrew-formula.mjs
+      - run: node scripts/verify-standalone.mjs
       # One tarball keeps the exact layout: upload-artifact roots the archive at the
       # least common ancestor of its paths, which silently dropped the `artifacts/`
-      # prefix and left the publish job without bundle-pack.json.
+      # prefix and left the publish job without the expected artifact paths.
       - name: Pack the verified artifacts for the publish job
-        run: tar -czf release-candidates.tar.gz artifacts/npm artifacts/local/hub-verification.json artifacts/dscode-*.tar.gz
+        run: tar -czf release-candidates.tar.gz artifacts/dscode-*.tar.gz artifacts/dscode-*.sha256 artifacts/dscode.rb artifacts/local/standalone-*.json
       - uses: actions/upload-artifact@v4
         with:
           name: release-candidates
           if-no-files-found: error
           path: release-candidates.tar.gz
+
+  verify-intel:
+    needs: build
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidates
+      - run: tar -xzf release-candidates.tar.gz
+      - run: node scripts/verify-standalone.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-intel-verification
+          path: artifacts/local/standalone-darwin-x64.json
+
+  publish-terminal:
+    needs: [build, verify-intel]
+    if: github.ref_type == 'tag' || inputs.publish
+    runs-on: macos-14
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidates
+      - run: tar -xzf release-candidates.tar.gz
+      - name: Publish the same complete packages used by installers and Homebrew
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          test -f "docs/releases/$version.md"
+          set -- "artifacts/dscode-$version-darwin-arm64-standalone.tar.gz" "artifacts/dscode-$version-darwin-x64-standalone.tar.gz" artifacts/dscode-*.sha256 artifacts/dscode.rb
+          if gh release view "v$version" >/dev/null 2>&1; then
+            gh release upload "v$version" "$@" --clobber
+          else
+            gh release create "v$version" "$@" --title "DSCODE $version" --notes-file "docs/releases/$version.md"
+          fi
 
   desktop:
     runs-on: macos-14
@@ -85,9 +126,9 @@ jobs:
           if-no-files-found: error
           path: desktop-candidate.tar.gz
 
-  publish:
-    needs: [build, desktop]
-    if: github.ref_type == 'tag' || inputs.publish || inputs.verify_credentials
+  publish-desktop:
+    needs: [desktop, publish-terminal]
+    if: always() && needs.desktop.result == 'success' && (needs.publish-terminal.result == 'success' || inputs.verify_credentials)
     runs-on: macos-14
     timeout-minutes: 60
     environment: release
@@ -102,44 +143,14 @@ jobs:
       - run: npm ci --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
-          name: release-candidates
-      - uses: actions/download-artifact@v4
-        with:
           name: desktop-candidate
-      - name: Restore the verified artifacts
+      - name: Restore and check the Desktop candidate
+        env:
+          NPM_PUBLISH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
+          DSH_HUB_TOKEN: ${{ secrets.DSH_HUB_TOKEN }}
         run: |
-          tar -xzf release-candidates.tar.gz
           tar -xzf desktop-candidate.tar.gz
-          test -f artifacts/npm/bundle-pack.json || { echo "::error::the release candidate archive is incomplete"; exit 1; }
-          test -f artifacts/local/hub-verification.json || { echo "::error::the hub verification record is missing"; exit 1; }
-      # Read-only: both tokens authenticate and this version is still free. A manual
-      # dispatch with verify_credentials stops here.
-      - name: Check the publishing credentials
-        env:
-          NPM_PUBLISH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
-          DSH_HUB_TOKEN: ${{ secrets.DSH_HUB_TOKEN }}
-        run: |
-          test -n "$NPM_PUBLISH_TOKEN" || { echo "::error::add the NPM_PUBLISH_TOKEN secret (granular npm token with bypass 2FA for the launcher, bundle and Desktop package)"; exit 1; }
-          test -n "$DSH_HUB_TOKEN" || { echo "::error::add the DSH_HUB_TOKEN secret (Hub CI token)"; exit 1; }
-          node scripts/check-publish-credentials.mjs
           npm run publish:desktop -- credentials
-      # Never publish the launcher before its Hub release resolves: the three
-      # phases each re-check the artifact hashes they verified above.
-      - name: Publish the bundle to npm
-        if: github.ref_type == 'tag' || inputs.publish
-        env:
-          NPM_PUBLISH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
-        run: npm run publish:hub -- bundle
-      - name: Sync npm and publish the Hub profile
-        if: github.ref_type == 'tag' || inputs.publish
-        env:
-          DSH_HUB_TOKEN: ${{ secrets.DSH_HUB_TOKEN }}
-        run: npm run publish:hub -- profile
-      - name: Publish the launcher to npm
-        if: github.ref_type == 'tag' || inputs.publish
-        env:
-          NPM_PUBLISH_TOKEN: ${{ secrets.NPM_PUBLISH_TOKEN }}
-        run: npm run publish:hub -- launcher
       - name: Publish the qualified Desktop plugin and verify public discovery
         if: github.ref_type == 'tag' || inputs.publish
         env:
@@ -156,20 +167,10 @@ jobs:
           name: desktop-public-verification
           if-no-files-found: error
           path: artifacts/local/desktop-public-install.json
-      # The curl installer, `dscode update` and the README all fetch these tarballs from
-      # the release: the prebuilt ones install without npm, the source one is the fallback.
-      - name: Attach the release tarballs to the GitHub release
+      - name: Attach Desktop assets to the existing release
         if: github.ref_type == 'tag' || inputs.publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          set -- "artifacts/dscode-$version.tar.gz" "artifacts/dscode-$version-darwin-arm64.tar.gz" "artifacts/dscode-$version-darwin-x64.tar.gz" artifacts/desktop/release/*.tgz artifacts/desktop/release/*.sha256 artifacts/desktop/release/*-README.md artifacts/desktop/release/*-release-notes.md
-          for tarball in "$@"; do
-            test -f "$tarball" || { echo "::error::missing $tarball"; exit 1; }
-          done
-          if gh release view "v$version" >/dev/null 2>&1; then
-            gh release upload "v$version" "$@" --clobber
-          else
-            gh release create "v$version" "$@" --title "DSCODE $version" --notes-file "docs/releases/$version.md"
-          fi
+          gh release upload "v$version" artifacts/desktop/release/*.tgz artifacts/desktop/release/*.sha256 artifacts/desktop/release/*-README.md artifacts/desktop/release/*-release-notes.md --clobber

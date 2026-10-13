@@ -15,7 +15,8 @@ export function launchJobWorker({ home, dscodePath, job }) {
   const fd = openSync(join(directory, `${job.id}.log`), 'a', 0o600);
   let child;
   try {
-    child = spawn(process.execPath, [dscodePath, 'trigger', 'run-job', job.id], {
+    const script = /\.[cm]?js$/.test(dscodePath);
+    child = spawn(script ? process.execPath : dscodePath, [...(script ? [dscodePath] : []), 'trigger', 'run-job', job.id], {
       cwd: home, env: { ...process.env, DSH_HOME: home, DSCODE_HOME: home },
       stdio: ['ignore', fd, fd],
     });

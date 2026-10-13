@@ -1,12 +1,22 @@
 # Changelog
 
-All notable changes to DSCODE, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions match the npm launcher and the Hub profile.
+For the self-contained terminal, `DSCODE_HOME` defaults to `~/.local/share/dscode-state`. Legacy installations retain their previous paths; see [migration](distribution.md#migration-from-older-dscode-installations).
+
+All notable changes to DSCODE, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions identify the complete application release.
 
 Per-release notes live in [`docs/releases/`](releases/); the entries below summarise them.
 
 <!-- Add upcoming changes under Unreleased. -->
 
 ## [Unreleased]
+
+## [0.7.41] - 2026-10-12
+
+### Changed
+
+- Ship one self-contained terminal package per Mac architecture with private Node 24.21.0, pinned Harness, compiled TUI and native dependencies. Install and first launch no longer use npm or Hub.
+- Keep terminal data outside the application, isolate existing DSH configuration and terminal preferences, and preserve explicit migration paths for older installations.
+- Replace the complete application only after digest, version, platform and module checks; restore the old program on failed replacement and never move user data. Generate a Homebrew formula for the same archives; external tap publication remains separate.
 
 ## [0.7.40] - 2026-10-12
 
@@ -415,7 +425,7 @@ The 0.7.37 candidate was cancelled before publication after its Node 22.19.0 cov
 ### Fixed
 
 - Code review asks for thinking off instead of the lightest reasoning level. A DeepSeek reviewer spent its whole 90-second deadline reasoning at `low` (24k-56k reasoning tokens per call) and never wrote a verdict, so reviews of a real diff came back incomplete; with thinking off the reviewer so the deadline is spent on the report instead of tokens that never reach it; a model without an `off` level keeps its own default. `DSCODE_REVIEW_EFFORT` still overrides the level.
-- DSCODE's credentials provider mounts again in a source checkout. A patch can only override a row's config keys and is skipped when its `name` differs from the row it targets, so the overlay that pointed the upstream `credentials` row at DSCODE's provider had mounted nothing outside the npm bundle (which rewrites that name at build time). The upstream row is disabled and DSCODE's provider inserted in its place: the shared `~/.dscode/credentials.yaml` store, the read-only Grok CLI login and the per-provider credential facts now agree on both surfaces, and a key saved before this change still resolves through the profile store.
+- DSCODE's credentials provider mounts again in a source checkout. A patch can only override a row's config keys and is skipped when its `name` differs from the row it targets, so the overlay that pointed the upstream `credentials` row at DSCODE's provider had mounted nothing outside the npm bundle (which rewrites that name at build time). The upstream row is disabled and DSCODE's provider inserted in its place: the shared `$DSCODE_HOME/credentials.yaml` store, the read-only Grok CLI login and the per-provider credential facts now agree on both surfaces, and a key saved before this change still resolves through the profile store.
 - The composer no longer rides up on a static flush. Ink clears its repaint ledger every time `<Static>` history is written, so the rows a shrinking frame freed are now kept reserved across that clear (ink.js reports how many rows the static write consumed). The only-ever-pushed-down guarantee covered frames between flushes before this.
 - A running shell command keeps its own output window: every sanitized chunk feeds a per-command buffer, the tool reads that buffer instead of re-reading the shared scrollback on every poll, and a poll without new output no longer replaces the accumulated text with the current viewport. A chatty neighbour on the same terminal — a background job, a release publisher, another session — can no longer make the shell report a dropped beginning for output that was never the command.
 
@@ -495,7 +505,7 @@ The 0.7.37 candidate was cancelled before publication after its Node 22.19.0 cov
 
 - `/model` searches as you type, with no `/` first, and ranks with BM25 on every keystroke: the model name counts most, then the model id, then the provider. The word being typed matches as a prefix (`kim` finds Kimi, `glm5` finds GLM 5.x); rows matching every word come first, and rows matching some words show only when none matches them all. A changed search focuses no row: Enter or an arrow focuses the first match, and Enter on a focused row selects it. Esc clears the search, then closes; Tab still opens providers and retry moves to Ctrl+R, since letters now always search.
 - Pressing Enter on `/provider`, `/login` or `/openrouter` in the slash-command menu opens its picker straight away, instead of leaving the command in the input for another Enter or a typed argument.
-- `/openrouter` shows the OpenRouter account: the balance, this key's limit and its spend today, this week and this month, and, with a management key, every API key's usage and the last 30 days of spend by model and the providers that served it (`r` refreshes, `m` sets the management key). After the OpenRouter API key is saved in `/provider openrouter` or `/login openrouter`, DSCODE offers an optional management key; it is checked against OpenRouter (an inference key is refused account activity), stored beside the other keys in `~/.dscode/credentials.yaml` (or taken from `OPENROUTER_MANAGEMENT_KEY`), and only read from.
+- `/openrouter` shows the OpenRouter account: the balance, this key's limit and its spend today, this week and this month, and, with a management key, every API key's usage and the last 30 days of spend by model and the providers that served it (`r` refreshes, `m` sets the management key). After the OpenRouter API key is saved in `/provider openrouter` or `/login openrouter`, DSCODE offers an optional management key; it is checked against OpenRouter (an inference key is refused account activity), stored beside the other keys in `$DSCODE_HOME/credentials.yaml` (or taken from `OPENROUTER_MANAGEMENT_KEY`), and only read from.
 - A running compaction, automatic or `/compact`, replaces the activity line with a small Tetris bot clearing rows and the message "Compacting context, please wait" (translated with `/language`), plus its elapsed time. A short terminal shows one board row.
 - Picking a model in `/model` (or through `/provider`) whose route would compact the current context asks first: it shows the context size, the new model's threshold and window, and whether the next request overflows. `y` switches, `n`/Esc goes back.
 
@@ -551,7 +561,7 @@ The 0.7.37 candidate was cancelled before publication after its Node 22.19.0 cov
 
 ### Changed
 
-- `/login [deepseek|openrouter]` stores either key; without an argument it targets the current provider. `OPENROUTER_API_KEY` joins `DEEPSEEK_API_KEY` in the shared `~/.dscode/credentials.yaml`, with the same environment precedence. An argument that is not a provider name is refused without being echoed.
+- `/login [deepseek|openrouter]` stores either key; without an argument it targets the current provider. `OPENROUTER_API_KEY` joins `DEEPSEEK_API_KEY` in the shared `$DSCODE_HOME/credentials.yaml`, with the same environment precedence. An argument that is not a provider name is refused without being echoed.
 - The footer follows the active provider: its balance is that provider's (OpenRouter: credits minus usage from `/api/v1/credits`), OpenRouter calls are estimated from the pinned pi-ai catalog's list prices (ledger `priceVersion` `openrouter-pi-ai-0.85.1`), and the 🔥/❄️ peak marker shows only for DeepSeek. `/status` names the wire effort Ultra sends on each route, and a missing-credential error now points at `/login`.
 
 - `dscode exec` ships in the npm launcher. It runs the installed profile's exec runner with the same options, stdin prompt and exit codes as the source checkout; the argument parser and overlay moved to `plugins/exec/cli.mjs` so both entry points share them.
@@ -607,7 +617,7 @@ Interface languages, copyable text, a verbose view, accurate TPS figures, and st
 
 ### Added
 
-- `/language` switches the interface between English, Simplified Chinese, Traditional Chinese, Japanese, Korean and Spanish. The choice is stored in `~/.dsh/dsh-code/language.json`, with `DSCODE_LANGUAGE` as a temporary override. The activity line, agents line, welcome box labels, footer telemetry labels, input placeholders, hints and the doctor report are all translated.
+- `/language` switches the interface between English, Simplified Chinese, Traditional Chinese, Japanese, Korean and Spanish. The choice is stored in `$DSCODE_HOME/tui/language.json`, with `DSCODE_LANGUAGE` as a temporary override. The activity line, agents line, welcome box labels, footer telemetry labels, input placeholders, hints and the doctor report are all translated.
 - `/verbose` (Ctrl/Alt+R) shows each step's `· Thinking:`, `· Tool Call:` and `Output:` in a dim style, with up to 8 lines of thinking and a pointer to Ctrl+O for the full history. The toggle is persisted.
 - npm publish tokens can be kept in the macOS keychain via `pbpaste | npm run publish:token store`.
 

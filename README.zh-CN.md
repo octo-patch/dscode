@@ -9,10 +9,9 @@
 ![观看 DSCODE 90 秒演示](assets/demo.gif)
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?logo=apple&logoColor=white)
-![Node.js](https://img.shields.io/badge/Node.js-22.19%2B%20%7C%2024%2B-43853D?logo=node.js&logoColor=white)
-![DSH](https://img.shields.io/badge/DSH-0.1.5--rc.2-2563EB)
+![Bundled Node.js](https://img.shields.io/badge/Node.js-bundled-43853D?logo=node.js&logoColor=white)
+![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2-2563EB)
 ![License](https://img.shields.io/badge/license-MIT-green)
-[![npm](https://img.shields.io/npm/v/@toddzheng024/dscode)](https://www.npmjs.com/package/@toddzheng024/dscode)
 [![Release](https://img.shields.io/github/v/release/qiz029/dscode?color=111827&label=release)](https://github.com/qiz029/dscode/releases)
 [![Stars](https://img.shields.io/github/stars/qiz029/dscode?color=111827)](https://github.com/qiz029/dscode/stargazers)
 [![Discussions](https://img.shields.io/github/discussions/qiz029/dscode?color=111827&label=discussions)](https://github.com/qiz029/dscode/discussions)
@@ -55,6 +54,8 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 🆕 最新变化
 
+**0.7.41** — 终端改为一个自包含包，自带运行环境和原生依赖。安装与升级不再依赖 npm 或 Hub；用户数据独立保存，与已有 DSH 安装互不依赖。详见[发布说明](docs/releases/0.7.41.md)。
+
 **0.7.40** — 凭据变更或删除后清除余额缓存，保留币种并区分账户余额与 key 限额；TUI 和 ACP 新增实时查询的 `/status`。ACP 同时按已配置凭据筛选模型，并在失败时提供重试提示。详见[发布说明](docs/releases/0.7.40.md)。
 
 **0.7.39** — 修复发布包中的 DeepSeek provider 启动问题。终端升级到 Harness `0.2.0-rc.2` 和 Computer Use `0.3.3`，适配原生提醒投递与 `/schedule` 列表，并提供可选的 Atomic Mail MCP 配置。未配置或禁用时，不向模型上下文加入 Atomic Mail 工具和服务器指令。详见[发布说明](docs/releases/0.7.39.md)。
@@ -85,31 +86,48 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 🚀 快速开始
 
-需要 **macOS 14+、Node 22.19+（22.x）或 24+、npm 和 Git；浏览器任务另需 Google Chrome**。
+需要 **macOS 14+**；浏览器任务另需 Google Chrome，Git 用于代码仓库及补丁操作。**无需安装 Node、npm、pnpm 或 DSH。**
+
+**一条命令安装：**
 
 ```sh
-npm install -g @toddzheng024/dscode
-cd /path/to/project
-dscode
+curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
 ```
 
-其余安装方式安装的是同一套固定版本：
+安装器自动识别 Apple 芯片或 Intel，下载最新的自包含发布包并验证 SHA-256 校验和。完整程序安装到 `~/.local/share/dscode-app`，命令链接位于 `~/.local/bin/dscode`。安装后，在项目目录运行 `dscode` 即可。如果 `~/.local/bin` 不在 PATH 中，请将下面这行加入 shell 配置，并在当前终端执行一次：
 
-| 方式 | 做法 |
-|---|---|
-| npm / Hub | 上面的命令；launcher 会从 [DSH Plugin Hub](https://dshpluginhub.ai) 安装固定版本的 profile |
-| Homebrew | `brew tap qiz029/tap && brew trust qiz029/tap && brew install dscode`（Homebrew 7 会拒绝未信任的第三方 tap）；该方式装的是同一个 launcher，`dscode update` 只更新 profile，launcher 由 `brew upgrade dscode` 负责 |
-| GitHub release，一行命令 | `curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh \| sh` |
-| release tar 包 | 从 [Releases](https://github.com/qiz029/dscode/releases) 下载 `dscode-<version>-darwin-arm64.tar.gz`（或 `-darwin-x64`），解包后执行 `sh dscode-install/install.sh` |
-| 源码 checkout | `git clone https://github.com/qiz029/dscode.git && cd dscode && npm ci --ignore-scripts && npm run setup` |
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
 
-一行安装器会解析最新 release、校验 GitHub 为其 tarball 公布的 sha256 摘要，然后执行该 tar 包自带的安装流程；`sh -s -- <版本号>` 可固定精确版本而不跟随最新版。所有方式都需要 Node 和 Git。GitHub release 的两种方式不再需要别的：预构建 tar 包（`dscode-<version>-darwin-arm64.tar.gz` 或 `-darwin-x64`）已经带上锁定版本的 `node_modules`，安装时不需要 npm，也不访问任何 npm registry——公司 registry 代理拦截 npm 时就用它。不带平台后缀的 `dscode-<version>.tar.gz` 是源码 tar 包，用 `npm ci` 安装自己的 lockfile；当前平台没有预构建包时安装器会回退到它，也可用 `DSCODE_INSTALL_SOURCE=1` 显式指定。npm 方式则从 Hub 安装固定版本的 profile。
+包内自带固定版本的 Node、Harness、TUI、插件及原生依赖，首次启动不会通过 npm 或 Hub 安装运行环境。已有的 `dsh` 命令和 `~/.dsh` 保持不变；DSCODE 的数据独立保存在 `~/.local/share/dscode-state`。
 
-首次启动会从 [DSH Plugin Hub](https://dshpluginhub.ai) 安装固定版本的完整 preset——无需手动拼装插件，也不需要全局安装 pnpm。之后输入 `/login`，在隐藏输入框中粘贴 DeepSeek API key：密钥以 `0600` 权限保存在本机 `~/.dscode/credentials.yaml`，不同项目和安装版本共用，不会发送给 agent。已设置的 `DEEPSEEK_API_KEY` 环境变量优先。想使用 OpenRouter，输入 `/provider openrouter`：DSCODE 会提示输入 OpenRouter key（同样保存在本机，或读取 `OPENROUTER_API_KEY`），并把当前会话切到对应的 DeepSeek 模型；`/model` 随后只列出精选清单，而不是整个目录——DeepSeek、GLM、Kimi、Qwen、MiMo 的当前主力型号，加上 Anthropic、OpenAI、Google、xAI 的旗舰线——直接输入即可搜索。前五家经过适配和测试，后四家的旗舰尽力可用。清单外的模型在已有会话里仍可继续运行。`/provider deepseek` 切回，`/login openrouter` 可更换 key。[OpenCode Go](docs/opencode-go.md) 订阅用法相同：`/opencode login` 用 OpenCode 账号登录，之后 `/provider opencode-go` 即可使用 Go 的 DeepSeek、GLM、Kimi、MiMo、LongCat、Hy 和 Space Bunny 模型。用 `/model` 选择模型或配置其他提供方，用 `/effort` 调整推理强度；默认路由是 `deepseek-official/deepseek-flash`。 TUI 启动时会检查 npm 上的新版本，`/update` 可在退出后自动完成整个安装的升级。
+**直接升级：**
+
+```sh
+dscode update             # 升级到最新的自包含发布版
+dscode update 0.7.41      # 安装指定的自包含发布版
+```
+
+先退出正在运行的 DSCODE 会话和调度器。升级器校验后整体替换程序，保留设置、凭据和会话；替换失败会恢复旧程序。在 TUI 中输入 `/update`，会安排在退出后执行同一个升级器。再次运行安装命令，也会升级由该安装器管理的安装。
+
+**从旧安装迁移？** 旧 npm/Hub 版本需要迁移一次，旧版 `dscode update` 不会自动切换到新分发方式。安装器不会覆盖其他安装所拥有的 `dscode` 命令。Homebrew 管理的包使用 `brew upgrade dscode`；外部 tap 采用新配方前，请使用直接安装器或压缩包。迁移步骤见[分发说明](docs/distribution.md)。上述命令需要已发布的自包含包，不会回退到旧版安装包。
+
+**也可以直接下载：** 从 [Releases](https://github.com/qiz029/dscode/releases) 选择一个包：Apple 芯片选择 `darwin-arm64`，Intel 选择 `darwin-x64`。例如：
+
+```sh
+mkdir dscode-app
+tar -xzf dscode-0.7.41-darwin-arm64-standalone.tar.gz -C dscode-app
+./dscode-app/dscode
+```
+
+解压后请保留整个目录：`dscode` 会使用同目录内的私有运行时和依赖。
+
+运行 `/login`，在隐藏输入框中粘贴 DeepSeek API key：密钥以 `0600` 权限保存在本机 `~/.local/share/dscode-state/credentials.yaml`，不同项目和安装版本共用，不会发送给 agent。已设置的 `DEEPSEEK_API_KEY` 环境变量优先。想使用 OpenRouter，输入 `/provider openrouter`：DSCODE 会提示输入 OpenRouter key（同样保存在本机，或读取 `OPENROUTER_API_KEY`），并把当前会话切到对应的 DeepSeek 模型；`/model` 随后只列出精选清单，而不是整个目录——DeepSeek、GLM、Kimi、Qwen、MiMo 的当前主力型号，加上 Anthropic、OpenAI、Google、xAI 的旗舰线——直接输入即可搜索。前五家经过适配和测试，后四家的旗舰尽力可用。清单外的模型在已有会话里仍可继续运行。`/provider deepseek` 切回，`/login openrouter` 可更换 key。[OpenCode Go](docs/opencode-go.md) 订阅用法相同：`/opencode login` 用 OpenCode 账号登录，之后 `/provider opencode-go` 即可使用 Go 的 DeepSeek、GLM、Kimi、MiMo、LongCat、Hy 和 Space Bunny 模型。用 `/model` 选择模型或配置其他提供方，用 `/effort` 调整推理强度；默认路由是 `deepseek-official/deepseek-flash`。 TUI 启动时会检查 GitHub 上的新版本，`/update` 可在退出后自动完成整个安装的升级。
 
 使用 `/provider custom` 添加自托管或私有 API，支持 Chat Completions、Responses 和 Anthropic Messages。配置地址及可选密钥，发现或手动添加模型，设置上下文窗口，并测试流式工具调用。支持视觉的模型可开启 **Input → Text and images** 来接收截图和图片附件；默认仅接收文本。已保存的服务会按名称显示在 `/provider` 中，按 Enter 即可切换到其模型。详见[自定义模型服务](docs/custom-providers.md)。
 
-**默认英文，界面支持 6 种语言。** `/language` 打开选择器，`/language ja` 可直接切换；也可以直接写「中文」「日本語」「한국어」。支持 English、简体中文、繁體中文、日本語、한국어、Español。选择按机器保存在 `~/.dsh/dsh-code/language.json`，`DSCODE_LANGUAGE=es` 可覆盖单次运行。
+**默认英文，界面支持 6 种语言。** `/language` 打开选择器，`/language ja` 可直接切换；也可以直接写「中文」「日本語」「한국어」。支持 English、简体中文、繁體中文、日本語、한국어、Español。选择按机器保存在 `$DSCODE_HOME/tui/language.json`（默认位于 `~/.local/share/dscode-state`），`DSCODE_LANGUAGE=es` 可覆盖单次运行。
 
 ```sh
 dscode --continue                 # 继续上次会话
@@ -120,7 +138,7 @@ dscode doctor                     # 分析近期运行日志和 session trace
 dscode --version                  # 输出 DSCODE 版本
 ```
 
-npm 启动器会核对已安装 bundle 与 Harness 依赖的推荐版本组合；版本不一致时集中显示一次 warning 并继续运行，不会修改依赖，也不会自动降级。浏览器工具按需加载：请 agent 使用浏览器，或运行 `/browser start`。CSS 规则检查使用快照中的元素 ID，并要求全局及对应站点的 Developer 授权。专用持久 profile、连接已有 Chrome、通过实验性扩展共享选定标签页、标签页保留，以及实验性的 Desktop 侧栏预览、点选批注和站点权限控件见[浏览器操作](docs/browser-use.md)。侧栏可见且空闲时会同步其他地方的权限变更，清除受影响的预览并保留批注草稿。预览已通过隔离的本地测试，在共享 Web 客户端和官方 macOS Electron 应用中验证。桌面工具通过 skill 渐进加载，截图理解需要支持图片的模型；MCP bridge 支持 tools 和 resources；Computer Use 的辅助功能和录屏权限需在 macOS 中单独授予。其他 MCP server 可在 `config/mcp.local.yml` 中添加。
+自包含包使用自身固定的运行时，不复用或修改用户安装的 DSH。浏览器工具按需加载：请 agent 使用浏览器，或运行 `/browser start`。CSS 规则检查使用快照中的元素 ID，并要求全局及对应站点的 Developer 授权。专用持久 profile、连接已有 Chrome、通过实验性扩展共享选定标签页、标签页保留，以及实验性的 Desktop 侧栏预览、点选批注和站点权限控件见[浏览器操作](docs/browser-use.md)。侧栏可见且空闲时会同步其他地方的权限变更，清除受影响的预览并保留批注草稿。预览已通过隔离的本地测试，在共享 Web 客户端和官方 macOS Electron 应用中验证。桌面工具通过 skill 渐进加载，截图理解需要支持图片的模型；MCP bridge 支持 tools 和 resources；Computer Use 的辅助功能和录屏权限需在 macOS 中单独授予。其他 MCP server 可在 `config/mcp.local.yml` 中添加。
 
 实验性 Desktop 组合包可向官方应用添加 DSCODE 预设、自定义模型与账户设置、浏览器预览、持久化会话通信、跨会话记忆及按需启用的任务调度。**Settings → DSCODE → Schedules** 可管理任务，并在 Desktop 保持运行时投递。构建及本地安装步骤见[浏览器操作](docs/browser-use.md#install-the-experimental-combined-desktop-package)。启用调度后的原生安装、升级、移除和重新安装，以及账户和调度界面的实际交互，已在 macOS Desktop 0.2.0-rc.2 上验证；验证边界见[触发器](docs/triggers.md#experimental-desktop-scheduling)。该包还包含实验性的[原生 Computer Use 接入](docs/computer-use.md)；窗口观察和输入操作仍待获得 macOS 辅助功能权限后验证。持久化的[时间上下文](docs/session-communication.md#time-context-for-delayed-work)会向 DSCODE agent 提供消息到达时间、转发等待时长和上一轮结束时间，普通聊天正文保持简洁。带独立命令前缀的 [Desktop 诊断](docs/tui-commands.md#experimental-desktop-diagnostics)可检查所选会话、技能与 Host MCP 条目，匹配版本的使用指南随包提供。[Desktop 邮件收件箱](docs/email.md#experimental-desktop-inbox)可预览共享本地邮件、连接 IMAP 或 Gmail OAuth，并将所选邮件加入 DSCODE 会话。背景同步需手动启用；发信沿用现有审批与回执规则。[Session usage 侧栏](docs/session-metrics.md#experimental-desktop-usage)展示 DSCODE 的费用、上下文、缓存、请求速度及逐回合估算。[Delegation board 侧栏](docs/tui-commands.md#experimental-desktop-delegation-board)展示所选主会话的任务、依赖、worktree 和验证依据。Desktop 插件与终端包分别分发；终端弹窗及终端专属命令继续使用现有界面。
 
@@ -129,11 +147,13 @@ Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑
 **Settings → DSCODE** 中的使用说明、Models、Accounts、Schedules 保持同级；**Plugins → DSCODE · Community** 打开相同页面。DSCODE 浏览器工具仅用于 DSCODE 会话。已有桌面模型和账户可直接在正常模型选择器中使用，额外提供方配置使用原生凭据存储。启用 **Show coding view** 和 **Agent presets**，完全重启后在新会话选择 DSCODE。
 
 <details>
-<summary><b>其他安装方式、升级与回退</b></summary>
+<summary><b>升级、数据目录与源码开发</b></summary>
 
-Desktop 包为 DSCODE 的持久 shell、子任务 shell 和新建 shell 提供支持标准 unified diff 的 `apply_patch` 命令，不修改 Host 的 PATH 或原生 Standard shell provider。
+`dscode update [精确版本号]` 下载并校验完整发布包，通过包内检查后再整体替换。升级要求先退出运行中的会话；失败会保留或恢复旧程序，旧包另存为同级备份。自包含包不会回退到 npm 安装。由新 Homebrew 配方安装的包统一由 `brew upgrade dscode` 整包升级。
 
-**从源码运行**
+会话、凭据及本地配置位于包外的 `~/.local/share/dscode-state`，可用绝对路径 `DSCODE_HOME` 覆盖。程序启动会隔离继承的 DSH 配置和 Node 注入选项；现有 `dsh` 命令及 `~/.dsh` 不会被替换。旧安装的数据迁移需要主动进行，见[分发说明](docs/distribution.md)。
+
+源码开发仍使用 Node 和 npm：
 
 ```sh
 git clone https://github.com/qiz029/dscode.git
@@ -141,44 +161,7 @@ cd dscode
 npm ci --ignore-scripts
 npm run setup
 npm start
-
-# 操作另一个项目
-npm start -- --cwd /path/to/project
 ```
-
-也可复制 `.env.example` 为 `.env`，仅在本机填写密钥；此方式会优先于 `/login` 保存的凭据。
-
-**一行安装** —— 安装器直接来自仓库并自行获取 release；在 `--` 之后给出精确版本号即可固定版本，而不是跟随最新版：
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.29
-```
-
-**tar 包安装** —— 从 [GitHub Releases](https://github.com/qiz029/dscode/releases/latest) 下载预构建的 `dscode-<version>-darwin-arm64.tar.gz`（Apple 芯片）或 `dscode-<version>-darwin-x64.tar.gz`（Intel），然后执行：
-
-```sh
-mkdir dscode-install
-tar -xzf dscode-<version>-darwin-arm64.tar.gz -C dscode-install
-sh dscode-install/install.sh
-```
-
-默认命令位于 `~/.local/bin/dscode`，请确保该目录在 PATH 中。再次运行可让 tar 安装保持最新：旧版本交给它自己的 `dscode update` 原地升级，版本相同或更新则只报告、不做改动；其他情况——不是 DSCODE 安装的目录，或属于另一个安装的 `dscode` 命令——会带着它找到的路径拒绝执行。
-
-**若 npm 包名查询暂时返回 404**，可直接安装同一版本的官方 registry tarball：
-
-```sh
-npm install -g https://registry.npmjs.org/@toddzheng024/dscode/-/dscode-0.7.29.tgz
-```
-
-**升级** —— `dscode update [精确版本号]` 一步完成整个安装的更新，且要求没有正在运行的 DSCODE 会话。npm/Hub 安装会先用 npm 替换 launcher 本体，再把已安装的 profile 升到同一版本；tar 安装会下载 release tar 包（release 带有当前平台的预构建包时取它，升级同样不需要 npm）、按发布方 sha256 校验、原位换目录并迁移 `.runtime`、`.env` 和本地 `config/`，旧安装保留为同级备份目录。源码检出同样一条命令更新：先对它跟踪的分支执行 `git pull --ff-only`，再跑 `npm ci --ignore-scripts` 和 `npm run setup`；工作区中有未提交的改动时会先拒绝，避免更新只做一半。
-
-```sh
-dscode update                  # 最新版本
-dscode update 0.7.29           # 指定版本
-```
-
-`dscode history` 查看保留的版本记录，`dscode rollback` 回到上个 preset 版本（npm/Hub 安装）。带 `dscode update` 之前的旧 tar 安装，请把新 tar 包装到新目录并手动迁移一次状态。源码、tar 与 npm/Hub 使用不同的数据目录，会话和凭据不会互相迁移。详见 [tar 分发说明](docs/distribution.md) 与 [npm + Hub 分发指南](docs/hub-distribution.md)。
 
 </details>
 
@@ -186,7 +169,7 @@ dscode update 0.7.29           # 指定版本
 
 | 命令 | 作用 |
 |---|---|
-| `/login` | 在隐藏输入框粘贴 DeepSeek API key，保存到 `~/.dscode/`，启动自动加载 |
+| `/login` | 在隐藏输入框粘贴 DeepSeek API key，保存到 `$DSCODE_HOME/credentials.yaml`，启动自动加载 |
 | `/account` | 用浏览器登录 DeepSeek 账号代替粘贴 key，并查看身份、余额与退出登录 |
 | `/status` | 查看当前服务商、模型和凭据余额；支持 DeepSeek 和 OpenRouter，也可在 [ACP](docs/acp.md#current-credential-balance) 中使用 |
 | `/model`、`/effort` | 选择模型（直接输入即可搜索）、配置其他凭据；支持四档的模型用横向 bar 调整 effort |
@@ -218,9 +201,10 @@ dscode update 0.7.29           # 指定版本
 
 | 安装方式 | 会话、凭据与统计 | 本地配置 |
 |---|---|---|
-| npm / Hub | `~/.local/share/dscode-hub`，可用 `DSCODE_HOME` 覆盖 | 数据目录的 `.env` 和 `config/` |
+| 自包含包 | `~/.local/share/dscode-state`，可用 `DSCODE_HOME` 覆盖 | 数据目录的 `.env` 和 `config/` |
+| Legacy npm / Hub | `~/.local/share/dscode-hub`，可用 `DSCODE_HOME` 覆盖 | 数据目录的 `.env` 和 `config/` |
 | 源码 | 仓库 `.runtime/` | 仓库 `.env` 和 `config/` |
-| tar | 安装目录 `.runtime/` | 安装目录 `.env` 和 `config/` |
+| Legacy tar | 安装目录 `.runtime/` | 安装目录 `.env` 和 `config/` |
 
 支持 `config/hooks.local.json`、`config/mcp.local.yml` 和 `config/harness.local.yml`；这些本地配置、密钥与会话不会打入发布包。Skills 会发现目标项目的 `.agents/skills`、`.dsh/skills`，以及隔离的用户 skill 目录；用 `/skills conflicts` 排查同名覆盖。默认会把项目的 `.codex/hooks.json`、`.dsh/hooks.json`、`.claude/settings.json` 叠加到 `config/hooks.local.json` 之上；设置 `DSCODE_PROJECT_HOOKS=0` 可只加载安装级配置。Skills 来自项目的 `.dsh/skills`、`.agents/skills` 与用户根；默认还会发现当前目录到 home 之间每一层的 `.dsh/skills`、`.agents/skills`、`.claude/skills`，同名以更近的目录为准；设置 `DSCODE_SKILL_ANCESTORS=0` 可只保留项目与用户根。这些祖先目录里的 `AGENTS.md`/`CLAUDE.md` 会并入工作区指令。
 
@@ -230,21 +214,13 @@ dscode update 0.7.29           # 指定版本
 npm test                    # 单元与契约测试（隔离上游依赖）
 npm run check               # 覆盖率、集成、TUI 与打包检查
 npm run doctor              # 本地确定性 agent 集成检查
-npm run build:packages      # 构建 launcher 与完整 bundle 的 npm tgz
-npm run release:hub         # 构建 Hub release 和 .dshprofile
-npm run verify:hub          # 临时安装、agent 检查、失败升级与回退
-npm run dist                # 构建备用 tar 安装包
+npm run dist                # 构建含私有 Node 的自包含发布包
+node scripts/verify-standalone.mjs # 验证本机平台的完整发布包
 ```
 
-`make release` 按同样顺序执行整个 build job——版本校验、`npm run check`、三个构建步骤、`verify:hub`，最后打包 `release-candidates.tar.gz`；`make publish` 按顺序执行 publish job 的各阶段。`make help` 列出全部 target；workflow 本身不调用 make。
+`make release` 运行版本校验、完整检查、单包构建、本机安装验证及候选包归档。CI 另外在 Intel runner 上验证 x64 包。`make publish` 将终端包上传至 GitHub Release；Desktop 继续独立构建、验证和发布。`node scripts/homebrew-formula.mjs` 根据同一批包及其 SHA-256 生成配方；配方仍需同步到 tap。
 
-| 分发组件 | 内容 |
-|---|---|
-| `@toddzheng024/dscode` | `dscode` 命令、首次安装引导与 Hub 版本管理 |
-| `@toddzheng024/dscode-bundle` | 基础层、Computer Use、自定义插件与修改后的 TUI/runtime |
-| Hub profile `dscode` | 固定 bundle/runtime 版本与完整性哈希 |
-
-Bundle 在构建阶段生成修改后的模块，不在使用者机器上改第三方源码。DSH 依赖统一固定到 `0.2.0-rc.2`；TUI 基于 `dsh-code@1.2.0`，Computer Use 为 `0.3.3`。完整流程——先发布 bundle，再上线 Hub release，最后发布 launcher——见 [分发指南](docs/hub-distribution.md)。上下文压缩评测位于 [`eval/`](eval/README.md)，用 `npm run eval:compaction` 运行。
+DSH 固定为 `0.2.0-rc.2`，内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-code@1.2.0`，Computer Use 为 `0.3.3`。运行时补丁在构建阶段应用。当前流程见[分发说明](docs/distribution.md)；旧 npm/Hub 构建流程保留在[旧分发指南](docs/hub-distribution.md)。上下文压缩评测位于 [`eval/`](eval/README.md)。
 
 ## 📚 文档
 
@@ -272,7 +248,7 @@ Bundle 在构建阶段生成修改后的模块，不在使用者机器上改第�
 | [Session 指标](docs/session-metrics.md) | 底栏 TPS、context、费用与缓存的统计口径 |
 | [演示指南](docs/demo.md) | Desktop 功能摘要与演示草稿；90 秒终端分镜和录制命令 |
 | [npm + Hub 分发](docs/hub-distribution.md) | bundle、Hub release 与 launcher 流程 |
-| [tar 分发](docs/distribution.md) | 独立 tar 安装器 |
+| [单包分发](docs/distribution.md) | 自包含包、升级、隔离与迁移 |
 | [验证说明](docs/verification.md) | 维护中的检查覆盖范围 |
 
 设计记录不重复上面这些指南：
@@ -290,7 +266,7 @@ Bundle 在构建阶段生成修改后的模块，不在使用者机器上改第�
 
 ## 🤝 参与
 
-欢迎提 issue 和 pull request。改动请先跑 `npm run check`，并保持发布流程不变：先 bundle，再 Hub release，最后 launcher。
+欢迎提 issue 和 pull request。改动请先跑 `npm run check`，保持自包含包与旧 npm/Hub 工具的验证范围清晰。
 
 ## 📄 许可
 

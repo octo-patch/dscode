@@ -512,8 +512,12 @@ export function t(locale, key, params) {
   return text;
 }
 
-export function languageFile(home = homedir()) {
-  return join(home, '.dsh', 'dsh-code', 'language.json');
+export function terminalStateDirectory(home = homedir(), env = process.env) {
+  return env.DSCODE_STANDALONE_ROOT && env.DSCODE_HOME ? join(env.DSCODE_HOME, 'tui') : join(home, '.dsh', 'dsh-code');
+}
+
+export function languageFile(home = homedir(), env = process.env) {
+  return join(terminalStateDirectory(home, env), 'language.json');
 }
 
 /** The stored language, or English; DSCODE_LANGUAGE overrides the file for one process. */
@@ -521,17 +525,17 @@ export function readLanguage({ home = homedir(), env = process.env } = {}) {
   const override = normalizeLanguage(env.DSCODE_LANGUAGE);
   if (override) return override;
   try {
-    const file = languageFile(home);
+    const file = languageFile(home, env);
     if (!existsSync(file)) return 'en';
     return normalizeLanguage(JSON.parse(readFileSync(file, 'utf8')).language) ?? 'en';
   } catch { return 'en'; }
 }
 
-export function saveLanguage(code, { home = homedir() } = {}) {
+export function saveLanguage(code, { home = homedir(), env = process.env } = {}) {
   const normalized = normalizeLanguage(code);
   if (!normalized) throw new Error(`Unknown language: ${code}`);
-  const file = languageFile(home);
-  mkdirSync(join(home, '.dsh', 'dsh-code'), { recursive: true });
+  const file = languageFile(home, env);
+  mkdirSync(terminalStateDirectory(home, env), { recursive: true });
   writeFileSync(file, JSON.stringify({ language: normalized }, null, 2) + '\n');
   return normalized;
 }

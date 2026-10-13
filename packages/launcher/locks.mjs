@@ -72,6 +72,7 @@ export async function registerRun(home) {
     if (released) return;
     released = true;
     closeSync(fd);
-    remove(path);
+    // A descendant may still own this descriptor after its launcher exits.
+    // Only activeRuns, holding the admission gate and the inode lock, may unlink it.
   } };
 }

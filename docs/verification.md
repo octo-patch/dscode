@@ -2,6 +2,50 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## Self-contained terminal distribution — 2026-10-12 (0.7.41 candidate)
+
+The terminal candidate contains private Node 24.21.0, the pinned Harness graph,
+compiled TUI and native modules. State uses a separate DSCODE home and a stable
+`dscode-app` profile; package relocation preserves native model/settings edits.
+Generated defaults are a separate base bundle. Native user overrides remain in
+the profile's `cordis.patch.yml`, which startup must never regenerate. An early
+candidate's preservation probe used `cordis.yml`, an upstream-generated empty
+root; inspecting the native config editor identified the actual persistence
+path. The corrected probe checks that a saved setting remains effective after
+both another launch and relocation, not merely that a file survives.
+Global DSH variables, Node injection options, global skills and terminal UI state
+are isolated. Legacy data import is explicit.
+
+Local regression checks cover installer checksum rejection, foreign-command
+protection, symlink aliases, whole-package replacement and rollback, unchanged
+user data, simultaneous sessions, and admission protection across different
+package locations. Real subprocess tests retain update protection after both a
+launcher crash and a normal launcher exit with a surviving descendant.
+The repository gate passed 1,146 unit/component cases (80.09% measured first-party
+`.mjs` coverage); the additional normal-exit lease regression passed alongside
+the four existing launcher lifecycle cases.
+Lint, both TypeScript configurations, native integration, package checks and all
+63 offline evaluations also passed. After the TUI's startup lookup and `/update`
+routing were unified with the package updater, lint, both TypeScript checks,
+documentation checks and 21 update/standalone regressions passed. The keyboard
+dispatch to the deferred updater was inspected; it has no dedicated end-to-end
+interactive test.
+All 28 existing terminal rendering/panel regressions passed after that change.
+
+`scripts/verify-standalone.mjs` qualifies each archive independently: checksum,
+private runtime and native imports, a real PTY, cold profile composition, native
+Host diagnostics, home-directory skill isolation, and a local shell install
+with preservation of native settings. Its environment has deliberately unusable
+foreign Node, npm and DSH commands and checks that existing DSH data is unchanged.
+Receipts at `artifacts/local/standalone-<platform>.json` bind those checks to the
+exact archive digest. Intel qualification on this Apple Silicon workstation uses
+Rosetta; release CI separately requires the same archive on an Intel runner.
+
+These are local release candidates. Public installation, external Homebrew tap
+adoption, live model inference and macOS permission-dialog interaction are not
+established by these checks. The updater supports rollback after detected swap
+failure, not a filesystem transaction across a power loss.
+
 ## Cached balance credential isolation — 2026-10-12 (unreleased)
 
 The local fix for DSCODE issue #16 invalidates balances on native credential

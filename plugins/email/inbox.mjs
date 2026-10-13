@@ -39,7 +39,7 @@ export function emailPrompt(mail) {
   }, null, 2);
 }
 
-export function createEmailInbox({ directory = process.env.DSCODE_EMAIL_DIR || join(homedir(), '.dscode', 'email') } = {}) {
+export function createEmailInbox({ directory = process.env.DSCODE_EMAIL_DIR || join(process.env.DSCODE_STANDALONE_ROOT && process.env.DSCODE_HOME ? process.env.DSCODE_HOME : join(homedir(), '.dscode'), 'email') } = {}) {
   return {
     directory,
     receive(value) {

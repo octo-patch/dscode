@@ -1,5 +1,7 @@
 # OpenCode Go
 
+For the self-contained terminal, `DSCODE_HOME` defaults to `~/.local/share/dscode-state`. Legacy installations retain their previous paths; see [migration](distribution.md#migration-from-older-dscode-installations).
+
 DSCODE can run a session on an [OpenCode Go](https://opencode.ai/docs/go/) subscription: $10 a month for open coding models. You sign in with your OpenCode account; there is no API key to paste. The route is `opencode-go`, next to DeepSeek, OpenRouter and Grok.
 
 ## Setting it up
@@ -10,7 +12,7 @@ DSCODE can run a session on an [OpenCode Go](https://opencode.ai/docs/go/) subsc
 
 `/provider opencode-go` (or `/provider opencode`) before signing in, and `/login opencode-go`, point you to `/opencode login` instead of asking for a key.
 
-**Upgrading from 0.7.31**, which used a console API key: that key is no longer read. Run `/opencode login` once. The stored `OPENCODE_API_KEY` stays in `~/.dscode/credentials.yaml` unused until you remove it.
+**Upgrading from 0.7.31**, which used a console API key: that key is no longer read. Run `/opencode login` once. The stored `OPENCODE_API_KEY` stays in `$DSCODE_HOME/credentials.yaml` unused until you remove it.
 
 ## The account login
 
@@ -21,7 +23,7 @@ DSCODE can run a session on an [OpenCode Go](https://opencode.ai/docs/go/) subsc
 /opencode logout    remove the login from this machine
 ```
 
-- DSCODE keeps its own login, stored as `OPENCODE_OAUTH` in `~/.dscode/credentials.yaml`. It is separate from any `opencode auth login` on the same machine, and signing in or out of one does not affect the other.
+- DSCODE keeps its own login, stored as `OPENCODE_OAUTH` in `$DSCODE_HOME/credentials.yaml`. It is separate from any `opencode auth login` on the same machine, and signing in or out of one does not affect the other.
 - The login picks the first organisation (by name) with a Go subscription. Requests go to the inference endpoint the OpenCode console names for that organisation. The public `zen/go/v1` endpoint accepts only console API keys, not the login.
 - The access token lasts 30 days and renews itself before it expires. Each renewal replaces the refresh token, and the new one is written back at once. Several DSCODE sessions share the login: when one has renewed first, the others pick up its token instead of failing.
 - If the login is revoked or cannot be renewed, requests fail with a message asking for `/opencode login` again.

@@ -58,7 +58,7 @@ import { readClipboardImage } from './dscode/clipboard-image/index.mjs'
 import { createChatLinesCache, dscodeChatLines } from './dscode/chat.ts'
 import { readFileSync } from 'node:fs'
 import { footerFiguresFor as dscodeFooterFiguresFor } from '../../../plugins/session-metrics/view.mjs'
-import { newerVersion as dscodeNewerVersion } from '../../../plugins/tui-tools/update.mjs'
+import { fetchLatestVersion as dscodeFetchLatestVersion, newerVersion as dscodeNewerVersion } from '../../../plugins/tui-tools/update.mjs'
 import { languageName as dscodeLanguageName, normalizeLanguage as dscodeNormalizeLanguage, t as dscodeMessage } from '../../../plugins/i18n/messages.mjs'
 import { dscodeTelemetryNodes } from './dscode/telemetry.ts'
 import { DelegateDashboardPanel } from './dscode/delegate-panel.ts'
@@ -135,8 +135,6 @@ export async function dscodeLoadOpenRouterAccountFor(ctx) {
 const dscodeT = (key: string, params?: Record<string, unknown>): string =>
   dscodeMessage(dscodeNormalizeLanguage(getLanguage()) ?? 'en', key, params)
 
-/** The published DSCODE release the startup update check reads. */
-const DSCODE_REGISTRY_URL = 'https://registry.npmjs.org/@toddzheng024/dscode/latest'
 /** The launcher release this terminal compares itself against. */
 const DSCODE_VERSION: string = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')).version
 import { type MdSegment, visibleColumns } from './render/markdown.ts'
@@ -2938,7 +2936,7 @@ export function DscodeManagementKeyPanel({ optional, status, save, done, back })
     createElement(Text, { bold: true }, "OpenRouter management key" + (optional ? " (optional)" : "")),
     createElement(Text, { dimColor: true }, "Adds every API key's usage and your 30-day spend by model to /openrouter."),
     createElement(Text, { dimColor: true }, "It cannot call models; DSCODE only reads."),
-    createElement(Text, { dimColor: true }, "Saved on this Mac in ~/.dscode/credentials.yaml"),
+    createElement(Text, { dimColor: true }, "Saved locally in the DSCODE credential store"),
     stateLine ? createElement(Text, { dimColor: true }, stateLine) : void 0,
     createElement(Text, null, busy ? "Checking with OpenRouter…" : state === void 0 ? "Loading…" : locked ? "" : "Management key › " + (draft ? "••••••••" : "paste your key")),
     error ? createElement(Text, { color: "red" }, error) : void 0,
@@ -3019,7 +3017,7 @@ export function DscodeLoginPanel({ provider, load, save, done, back }) {
   });
   return createElement(Box, { flexDirection: "column", paddingX: 2 },
     createElement(Text, { bold: true }, spec.name + " login"),
-    createElement(Text, { dimColor: true }, "Saved on this Mac in ~/.dscode/credentials.yaml"),
+    createElement(Text, { dimColor: true }, "Saved locally in the DSCODE credential store"),
     createElement(Text, null, busy ? "Saving…" : target ? "API key › " + (draft ? "••••••••" : "paste your key") : error ? "" : "Loading…"),
     error ? createElement(Text, { color: "red" }, error) : void 0,
     createElement(Text, { dimColor: true }, "Enter save · Esc cancel · Ctrl+U clear"));
@@ -5698,7 +5696,8 @@ function Input({ effortSurface, ultraPulse, active, frozen, frozenHint, busy, de
         return
       }
       if (text === '/update') {
-        openUpdate()
+        if (process.env.DSCODE_STANDALONE_ROOT) dispatch(text)
+        else openUpdate()
         return
       }
       if (text === '/schedule') {
@@ -6572,26 +6571,17 @@ export function App(props: AppProps): ReactElement {
     setNotice({ text, tone })
   }, [])
 
-  // dscode: one registry read at startup, at most eight seconds, silent on any
+  // dscode: one release read at startup, at most eight seconds, silent on any
   // failure; a newer release is announced through the notice with the /update hint.
   useEffect(() => {
     if (process.env.DSCODE_UPDATE_CHECK === 'off') return
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 8000)
-    // Plain JSON: the registry answers 406 for the abbreviated metadata type on the
-    // `/latest` dist-tag endpoint, which silently suppressed this notice.
-    fetch(DSCODE_REGISTRY_URL, { headers: { accept: 'application/json' }, signal: controller.signal })
-      .then(response => (response.ok ? response.json() : undefined))
-      .then((data: unknown) => {
-        const latest = data !== null && typeof data === 'object' ? (data as { version?: unknown }).version : undefined
-        if (typeof latest === 'string' && dscodeNewerVersion(latest, DSCODE_VERSION)) notify(t('update.available', { version: latest }), 'warning')
+    let disposed = false
+    dscodeFetchLatestVersion()
+      .then(latest => {
+        if (!disposed && typeof latest === 'string' && dscodeNewerVersion(latest, DSCODE_VERSION)) notify(t('update.available', { version: latest }), 'warning')
       })
       .catch(() => {})
-      .finally(() => clearTimeout(timer))
-    return () => {
-      clearTimeout(timer)
-      controller.abort()
-    }
+    return () => { disposed = true }
   }, [])
 
   useEffect(() => {

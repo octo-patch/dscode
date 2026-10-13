@@ -1,5 +1,7 @@
 # Custom model providers
 
+For the self-contained terminal, `DSCODE_HOME` defaults to `~/.local/share/dscode-state`. Legacy installations retain their previous paths; see [migration](distribution.md#migration-from-older-dscode-installations).
+
 Use `/provider custom`, or choose **Custom** in `/provider`, to connect a self-hosted or private model API. DSCODE runs its tools in the current workspace; pointing inference at another computer does not move shell commands or file edits to that computer.
 
 Saved services appear by name in `/provider`. Choose a service and press Enter to switch to its current or first configured model; `/model` then selects among that service's models. **Custom · add / edit model services** opens configuration instead of switching. A service without a model context window opens its editor so the missing setting can be completed.
@@ -64,7 +66,7 @@ Automatic review follows its configured model route. When that route is Custom, 
 
 ## Persistence
 
-Service and model configuration lives in `~/.dscode/providers.yaml`; terminal keys use the existing owner-only `~/.dscode/credentials.yaml` store. In Desktop 0.7.35 and later, existing native credentials take precedence and new keys are saved to the native Harness store (`~/.dsh/.credentials.yaml` by default). Old DSCODE keys remain a fallback; explicit removal clears both copies to avoid reactivating a legacy key. Provider records contain no key values. Each service receives a stable `custom-…` ID and a derived `DSCODE_CUSTOM_CUSTOM_…_API_KEY` credential reference. An environment variable with that exact reference takes precedence over the saved key, following the existing credential-store rules.
+The self-contained terminal uses `~/.local/share/dscode-state` as its default `DSCODE_HOME`; legacy and Desktop installations retain `~/.dscode/providers.yaml`. Service and model configuration lives in `$DSCODE_HOME/providers.yaml`; terminal keys use the existing owner-only `$DSCODE_HOME/credentials.yaml` store. In Desktop 0.7.35 and later, existing native credentials take precedence and new keys are saved to the native Harness store (`~/.dsh/.credentials.yaml` by default). Old DSCODE keys remain a fallback; explicit removal clears both copies to avoid reactivating a legacy key. Provider records contain no key values. Each service receives a stable `custom-…` ID and a derived `DSCODE_CUSTOM_CUSTOM_…_API_KEY` credential reference. An environment variable with that exact reference takes precedence over the saved key, following the existing credential-store rules.
 
 Configuration is shared across projects and installed versions, written atomically, and reloaded by other running Hosts. Stale editors cannot overwrite newer configuration. Renaming a service preserves its ID, so persisted sessions continue to resolve it. Removing a provider removes its route and writable stored credential; it does not reroute existing sessions or delete their history. An environment-supplied key remains in the environment. If it masks a stored key, clear the environment override before removing the provider to remove that stored key too.
 

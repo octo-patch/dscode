@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { root, provision, runDsh, runtimeHome } from './harness.mjs';
+import { root, configRoot, standalone, provision, runDsh, runtimeHome } from './harness.mjs';
 import { runTriggerCli as runTriggerCore, stateHome, parseTriggerArgs, USAGE } from '../plugins/triggers/cli.mjs';
 import { readRunResult, writeRunSpec } from '../plugins/triggers/options.mjs';
 import { triggerOverlay } from '../plugins/triggers/overlay.mjs';
@@ -42,7 +42,7 @@ export async function spawnTriggerHost({ spec, home, cwd, stdio = 'inherit', tri
     writeFileSync(overlay, triggerOverlay(join(root, 'plugins/triggers/host.mjs')));
     const overlays = [];
     for (const file of ['mcp.local.yml', 'harness.local.yml']) {
-      const path = join(root, 'config', file);
+      const path = join(configRoot, 'config', file);
       if (existsSync(path)) overlays.push('--patch', path);
     }
     // The run's cwd is the trigger's workspace: the session binds there and the
@@ -86,8 +86,8 @@ export function runLaunchctl(args, { ignoreFailure = false } = {}) {
  */
 export function runTriggerCli(argv, deps = {}) {
   return runTriggerCore(argv, {
-    home: deps.home ?? process.env.DSH_HOME ?? process.env.DSCODE_HOME ?? runtimeHome,
-    dscodePath: deps.dscodePath ?? join(root, 'bin/dscode.mjs'),
+    home: deps.home ?? (standalone ? runtimeHome : process.env.DSH_HOME ?? process.env.DSCODE_HOME ?? runtimeHome),
+    dscodePath: deps.dscodePath ?? join(root, standalone ? 'dscode' : 'bin/dscode.mjs'),
     launchctl: deps.launchctl ?? runLaunchctl,
     spawnRun: deps.spawnRun ?? spawnTriggerHost,
     ...deps,

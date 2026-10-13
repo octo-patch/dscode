@@ -138,7 +138,7 @@ export async function apply(ctx, config = {}) {
     else if (ids.length) registration = ctx.llm.registerAdapter(ids, service.adapter);
   } });
   ctx.provide('dscodeCustom', service);
-  try { await service.refresh(); } catch { ctx.logger.warn('Could not read custom providers; repair ~/.dscode/providers.yaml'); }
+  try { await service.refresh(); } catch { ctx.logger.warn('Could not read custom providers; repair %s', service.store.path); }
   const refresh = () => { void service.refresh().catch(() => ctx.logger.warn('Invalid custom provider edit; retaining the last valid configuration')); };
   watchFile(service.store.path, { persistent: false, interval: 1000 }, refresh);
   ctx.effect(() => () => unwatchFile(service.store.path, refresh));

@@ -71,7 +71,7 @@ export function CustomProviderPanel({ client, initialId, select, back }: {
       setSnapshot(value)
       const p = value.providers.find(p => p.id === initialId)
       if (p) open(p)
-    }, () => { if (alive.current) setError('Could not read ~/.dscode/providers.yaml') })
+    }, () => { if (alive.current) setError('Could not read custom provider configuration') })
     return () => { alive.current = false; pending.current?.abort() }
   }, [])
   const work = (operation: (signal: AbortSignal) => Promise<void>): void => {

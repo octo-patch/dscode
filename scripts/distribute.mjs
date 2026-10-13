@@ -1,47 +1,75 @@
-import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { dirname, join } from 'node:path';
-import { root, manifest } from './harness.mjs';
-import { PREBUILT_MARKER } from './self-update.mjs';
+import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { MARKER } from './standalone-layout.mjs';
 
-const ENTRIES = [
-  'package.json', 'package-lock.json', '.npmrc', '.env.example', 'LICENSE',
-  'bin', 'scripts', 'packages', 'plugins', 'extensions', 'tests', 'presets', 'config/cordis.patch.yml', 'config/preset.json',
-  'config/mcp.local.example.yml', 'config/auto-review.patch.yml', 'README.md', 'docs', 'install.sh',
-];
-
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { stdio: 'inherit', ...options });
+const root = resolve(import.meta.dirname, '..');
+const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const node = '24.21.0';
+// Official nodejs.org/dist/v24.21.0/SHASUMS256.txt. Never resolve latest or
+// copy a Homebrew-linked Node into a redistributable application.
+const hashes = {
+  arm64: 'bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057',
+  x64: '1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097',
+};
+const entries = ['package.json', 'package-lock.json', 'LICENSE', 'bin', 'scripts', 'plugins', 'extensions',
+  'presets', 'packages/tui', 'packages/launcher/locks.mjs', 'config/cordis.patch.yml', 'config/auto-review.patch.yml',
+  'config/preset.json', 'README.md', 'README.zh-CN.md', 'docs', 'install.sh'];
+function run(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, stdio: 'inherit' });
   if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
+  if (result.status !== 0) throw Error(`${command} failed (${result.status ?? result.signal})`);
 }
-
 const artifacts = join(root, 'artifacts');
 mkdirSync(artifacts, { recursive: true });
-const archive = join(artifacts, `dscode-${manifest.version}.tar.gz`);
-run('tar', ['-czf', archive, '-C', root, ...ENTRIES]);
-console.log(archive);
-
-// The source tarball above leaves `npm ci` to the recipient, and a registry they cannot
-// reach (a corporate proxy, an offline host) ends the install there. A prebuilt tarball is
-// the same tree with the locked dependency graph already installed for one platform, so
-// installing it needs GitHub and Node only. `--ignore-scripts` matches what the installer
-// runs, and the native addons are all prebuilt optional packages that `--os`/`--cpu`
-// select, so one runner builds every architecture. DSCODE_PREBUILT_ARCHS= (empty) skips this.
-const archs = (process.env.DSCODE_PREBUILT_ARCHS ?? 'arm64,x64').split(',').map(arch => arch.trim()).filter(Boolean);
+const archs = (process.env.DSCODE_PREBUILT_ARCHS ?? 'arm64,x64').split(',').filter(Boolean);
+if (!archs.length || archs.some(arch => !hashes[arch])) throw Error('DSCODE_PREBUILT_ARCHS must select arm64 and/or x64. Source-only releases are no longer supported.');
 for (const arch of archs) {
   const platform = `darwin-${arch}`;
-  const stage = join(artifacts, `.prebuilt-${platform}`);
-  rmSync(stage, { recursive: true, force: true });
-  for (const entry of ENTRIES) {
-    mkdirSync(dirname(join(stage, entry)), { recursive: true });
-    cpSync(join(root, entry), join(stage, entry), { recursive: true });
-  }
-  // The shipped .npmrc points the cache inside the tree; keep it out of the package.
-  run('npm', ['ci', '--ignore-scripts', '--no-audit', '--os=darwin', `--cpu=${arch}`, '--cache', join(root, '.npm-cache')], { cwd: stage });
-  writeFileSync(join(stage, PREBUILT_MARKER), platform + '\n');
-  const prebuilt = join(artifacts, `dscode-${manifest.version}-${platform}.tar.gz`);
-  run('tar', ['-czf', prebuilt, '-C', stage, ...ENTRIES, 'node_modules', PREBUILT_MARKER]);
-  rmSync(stage, { recursive: true, force: true });
-  console.log(prebuilt);
+  const work = mkdtempSync(join(artifacts, '.standalone-'));
+  const stage = join(work, 'app');
+  try {
+    for (const entry of entries) {
+      mkdirSync(dirname(join(stage, entry)), { recursive: true });
+      cpSync(join(root, entry), join(stage, entry), { recursive: true,
+        filter: source => !source.includes('/packages/tui/lib/') && source !== join(root, 'packages/tui/lib') });
+    }
+    run('npm', ['ci', '--ignore-scripts', '--no-audit', '--os=darwin', `--cpu=${arch}`, '--cache', join(root, '.npm-cache')], stage);
+    run(process.execPath, ['scripts/build-tui.mjs'], stage);
+    run(process.execPath, ['--input-type=module', '-e', `
+      import { patchRuntime, patchAppBootPackage } from './scripts/patch-runtime.mjs';
+      import { patchInkFrame } from './scripts/patch-ink.mjs';
+      import { patchStandaloneSkills } from './scripts/patch-standalone-skills.mjs';
+      patchRuntime(process.cwd()); patchAppBootPackage(process.cwd()); patchInkFrame(process.cwd());
+      patchStandaloneSkills(process.cwd());
+    `], stage);
+    const tuiPath = join(stage, 'packages/tui/package.json');
+    const tui = JSON.parse(readFileSync(tuiPath, 'utf8'));
+    const compiled = value => typeof value === 'string' ? value.replace(/^\.\/src\/(.*)\.ts$/, './lib/$1.mjs')
+      : Object.fromEntries(Object.entries(value).map(([key, item]) => [key, compiled(item)]));
+    tui.main = 'lib/index.mjs'; tui.exports = compiled(tui.exports);
+    writeFileSync(tuiPath, JSON.stringify(tui, null, 2) + '\n');
+    const name = `node-v${node}-${platform}`;
+    const response = await fetch(`https://nodejs.org/dist/v${node}/${name}.tar.gz`);
+    if (!response.ok) throw Error(`Could not download private Node (${response.status})`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (createHash('sha256').update(bytes).digest('hex') !== hashes[arch]) throw Error('Official Node archive checksum mismatch');
+    const archive = join(work, 'node.tar.gz');
+    writeFileSync(archive, bytes);
+    run('tar', ['-xzf', archive, '-C', work], root);
+    mkdirSync(join(stage, 'runtime/bin'), { recursive: true });
+    cpSync(join(work, name, 'bin/node'), join(stage, 'runtime/bin/node'));
+    cpSync(join(work, name, 'LICENSE'), join(stage, 'runtime/LICENSE'));
+    cpSync(join(root, 'packages/standalone/dscode'), join(stage, 'dscode'));
+    chmodSync(join(stage, 'dscode'), 0o755);
+    writeFileSync(join(stage, MARKER), JSON.stringify({ format: 1, version: manifest.version, platform, node,
+      runtime: manifest.dependencies['@deepseek-ai/dsh'] }, null, 2) + '\n');
+    if (platform === `${process.platform}-${process.arch}`) run(join(stage, 'dscode'), ['--check'], work);
+    const outputName = `dscode-${manifest.version}-${platform}-standalone.tar.gz`;
+    const output = join(artifacts, outputName);
+    run('tar', ['-czf', output, '-C', stage, '.'], root);
+    writeFileSync(`${output}.sha256`, `${createHash('sha256').update(readFileSync(output)).digest('hex')}  ${outputName}\n`);
+    console.log(output);
+  } finally { rmSync(work, { recursive: true, force: true }); }
 }

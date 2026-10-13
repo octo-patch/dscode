@@ -12,7 +12,7 @@ To select an initial model explicitly, use:
 dscode acp --model custom-your-provider-id/your-model-id
 ```
 
-Without `--model`, the bridge uses DSCODE's saved default provider and model. Set up credentials and custom services in the normal TUI first with `/login` or `/provider custom`. The stable custom provider ID is recorded in `~/.dscode/providers.yaml`; it is not the service's display name. API keys stay in the existing credential store. Clients supporting ACP configuration options can select an advertised model and reasoning effort after creating a session.
+Without `--model`, the bridge uses DSCODE's saved default provider and model. Set up credentials and custom services in the normal TUI first with `/login` or `/provider custom`. The stable custom provider ID is recorded in `$DSCODE_HOME/providers.yaml`; it is not the service's display name. API keys stay in the existing credential store. Clients supporting ACP configuration options can select an advertised model and reasoning effort after creating a session.
 
 The ACP model picker lists models from providers with configured credentials or account login, plus saved custom services using no authentication. Credential checks follow each provider's configured reference, including environment variables and saved keys. DeepSeek Account and DeepSeek API-key routes are checked separately. Providers with no recognized configuration metadata are omitted.
 

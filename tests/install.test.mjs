@@ -8,7 +8,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
-const installer = readFileSync(join(root, 'install.sh'), 'utf8');
+// Retained regression coverage for historical tar installations. New package tests
+// exercise install.sh without a system Node in standalone-install.test.mjs.
+const installer = readFileSync(join(root, 'scripts/install-legacy.sh'), 'utf8');
 
 /** A release tarball whose own installer only records that the archive was handed over. */
 function releaseTarball(directory, version) {

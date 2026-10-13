@@ -13,7 +13,7 @@ On narrow terminals, Tab switches between list and preview.
   stays on the same message when newer messages arrive.
 
 The inbox belongs to the local user and is shared across sessions. Its default
-directory is `~/.dscode/email`; `DSCODE_EMAIL_DIR` overrides it. New directories
+directory is `$DSCODE_HOME/email` for the self-contained terminal (`DSCODE_HOME` defaults to `~/.local/share/dscode-state`). Legacy and Desktop installations retain `~/.dscode/email`; `DSCODE_EMAIL_DIR` overrides it. New directories
 use mode 0700 and messages use 0600. Message content enters session history only
 when selected with Enter. Existing composer drafts and attachments are preserved.
 
@@ -218,7 +218,7 @@ by source content. UIDVALIDITY changes trigger recovery using the original
 connection timestamp (at IMAP's second precision) and content identity, instead
 of trusting old UIDs or importing the whole historical inbox.
 
-All sessions share `~/.dscode/email/imap/connection.json` (or
+All sessions share `$DSCODE_HOME/email/imap/connection.json` (or
 `$DSCODE_EMAIL_DIR/imap/connection.json`). It contains the credentials and cursor,
 is written atomically with mode 0600 inside a new 0700 directory, and is guarded
 by a kernel lock. A running TUI polls every 30 seconds even with `/email` closed;
@@ -284,7 +284,7 @@ and [filter](https://developers.google.com/workspace/gmail/api/reference/rest/v1
 permission documentation. Login uses [desktop loopback OAuth with PKCE and state validation](https://developers.google.com/identity/protocols/oauth2/native-app).
 
 The client JSON, tokens and sync state are stored privately under
-`~/.dscode/email/gmail/` (or `$DSCODE_EMAIL_DIR/gmail/`). Files are atomic 0600
+`$DSCODE_HOME/email/gmail/` (or `$DSCODE_EMAIL_DIR/gmail/`). Files are atomic 0600
 writes inside a new 0700 directory. `DSCODE_GMAIL_CLIENT_FILE` optionally points
 at an existing client JSON instead of importing it. Keep that file available
 for token refresh. Only one account is supported; reconnecting another account
@@ -327,7 +327,7 @@ sender supports Gmail app-password connections, not custom IMAP hosts or the
 optional OAuth connector. Attachments, CC/BCC and automatic replies are not part
 of this tool.
 
-Receipts are shared across sessions under `~/.dscode/email/outbox` (or
+Receipts are shared across sessions under `$DSCODE_HOME/email/outbox` (or
 `DSCODE_EMAIL_DIR/outbox`), with private file permissions. `accepted` means the
 SMTP server accepted the mail; it does not prove delivery or that someone read
 it. `uncertain` means the send may have succeeded despite an interrupted

@@ -6,14 +6,14 @@ For agents working in this repository. The human contribution flow lives in [CON
 
 **Rule: a release is not just a version bump.** These four items ship in the same change as the code; if any one is missing, the tree is not releasable.
 
-1. **Release notes** `docs/releases/<version>.md` must exist. `make attach` refuses outright while the GitHub release does not exist yet: `docs/releases/<version>.md is missing; write the release notes first`. Follow the recent files (for example `docs/releases/0.7.21.md`): a one-sentence summary, then per change what changed, why, and where the behaviour stops, ending with which checks actually ran and which paths have no automated case.
+1. **Release notes** `docs/releases/<version>.md` must exist. `make attach` refuses publication without them: `write the release notes first`. Follow the recent files (for example `docs/releases/0.7.21.md`): a one-sentence summary, then per change what changed, why, and where the behaviour stops, ending with which checks actually ran and which paths have no automated case.
 2. **`package.json` `version`** must match the git tag; `make version-check` rejects a mismatch.
 3. **`docs/CHANGELOG.md`** gets this version's entry, newest first.
 4. **Both READMEs stay in step**: `README.md` and `README.zh-CN.md` are two parallel texts, so a change to a feature description, a command, an install step or an index table on one side needs the other side.
 
 ## Cutting a release
 
-Follow the [release checklist](docs/hub-distribution.md). Two rules break most runs: the tag must equal `v<package.json version>` exactly, and a version already on npm from a different build cannot be re-tagged, so bump `package.json` and cut a new tag instead. After pushing the tag, confirm the run with `gh run list --workflow=release.yml` and read a failure with `gh run view --job=<job-id> --log-failed`; a publish job that dies in about 30 seconds at the credential check is usually that version conflict, not a missing secret. `make release`, `make verify` and `npm run doctor` cannot run inside a dscode session because the nested sandbox is refused — run them from a normal terminal.
+Follow the [self-contained package release checklist](docs/distribution.md#build-and-release). Terminal packages no longer publish through npm/Hub; the [legacy checklist](docs/hub-distribution.md) applies only when maintaining those older channels. Two rules break most runs: the tag must equal `v<package.json version>` exactly, and a version already on npm from a different build cannot be re-tagged, so bump `package.json` and cut a new tag instead. After pushing the tag, confirm the run with `gh run list --workflow=release.yml` and read a failure with `gh run view --job=<job-id> --log-failed`; a publish job that dies in about 30 seconds at the credential check is usually that version conflict, not a missing secret. `make release`, `make verify` and `npm run doctor` cannot run inside a dscode session because the nested sandbox is refused — run them from a normal terminal.
 
 ## Language
 

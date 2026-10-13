@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { root, provision, runDsh, runtimeHome } from './harness.mjs';
+import { root, configRoot, loadLocalEnvironment, provision, runDsh, runtimeHome } from './harness.mjs';
 import { parseExecArgs, execOverlay, readStream, USAGE } from '../plugins/exec/cli.mjs';
 
 export { parseExecArgs, execOverlay, readStream, USAGE };
@@ -16,8 +16,7 @@ export async function runExec(argv, { home = process.env.DSCODE_EXEC_HOME ?? run
   if (options.help) { process.stdout.write(USAGE + '\n'); return 0; }
   const prompt = options.prompt && options.prompt !== '-' ? options.prompt : await readStream(stdin);
   if (!prompt.trim()) throw new Error('Prompt is empty. Pass it as an argument or on stdin.');
-  const envFile = join(root, '.env');
-  if (existsSync(envFile)) process.loadEnvFile(envFile);
+  loadLocalEnvironment();
   const cwd = realpathSync(resolve(options.cwd ?? process.cwd()));
   provision(home, { cwd });
   const scratch = mkdtempSync(join(tmpdir(), 'dscode-exec-'));
@@ -30,7 +29,7 @@ export async function runExec(argv, { home = process.env.DSCODE_EXEC_HOME ?? run
     writeFileSync(overlay, execOverlay(join(root, 'plugins/exec/index.mjs')));
     const overlays = [];
     for (const file of ['mcp.local.yml', 'harness.local.yml']) {
-      const path = join(root, 'config', file);
+      const path = join(configRoot, 'config', file);
       if (existsSync(path)) overlays.push('--patch', path);
     }
     const child = runDsh([...overlays, '--patch', overlay, ...options.patches.flatMap(path => ['--patch', resolve(path)])], { home, cwd, stdio: ['ignore', stdout, stderr], env: { DSCODE_EXEC_OPTIONS: optionsFile } });

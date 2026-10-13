@@ -2,13 +2,12 @@
 #
 # Every target mirrors a step of .github/workflows/release.yml, so the sequence can be
 # rehearsed on this machine before a tag is pushed. The workflow remains the
-# only path that publishes from CI; a local `make publish` uses the npm token in the Keychain
-# (scripts/npm-token.mjs) and the Hub token exported in your shell.
+# only path that publishes from CI; local terminal publication uses gh authentication.
 #
 #   make release    the build job: check, build the candidates, verify and pack them
-#   make publish    the publish job: credentials, terminal and Desktop publication, release assets
+#   make publish    attach the verified terminal packages; Desktop remains separate
 #
-# Publishing reads NPM_PUBLISH_TOKEN, DSH_HUB_TOKEN and, for the release asset, GH_TOKEN.
+# Terminal publication uses GH_TOKEN or gh login. Legacy/Desktop targets use npm and Hub credentials.
 
 SHELL := /bin/sh
 # Every phase consumes the artifacts of the one before it, so parallel prerequisites would
@@ -17,24 +16,23 @@ SHELL := /bin/sh
 .DEFAULT_GOAL := help
 
 VERSION := $(shell node -p "require('./package.json').version" 2>/dev/null)
-REPOSITORY ?= https://github.com/qiz029/dscode
 TAG ?= v$(VERSION)
 DESKTOP_RUNTIME ?= .research/desktop-release-runtime
 DESKTOP_ASSETS = artifacts/desktop/release/*.tgz artifacts/desktop/release/*.sha256 artifacts/desktop/release/*-README.md artifacts/desktop/release/*-release-notes.md
-# The source tarball plus one prebuilt tarball per platform (scripts/distribute.mjs).
-TARBALLS := artifacts/dscode-$(VERSION).tar.gz artifacts/dscode-$(VERSION)-darwin-arm64.tar.gz artifacts/dscode-$(VERSION)-darwin-x64.tar.gz
+# One self-contained application per platform, plus checksums and a matching tap formula.
+TARBALLS := artifacts/dscode-$(VERSION)-darwin-arm64-standalone.tar.gz artifacts/dscode-$(VERSION)-darwin-x64-standalone.tar.gz artifacts/dscode-$(VERSION)-darwin-arm64-standalone.tar.gz.sha256 artifacts/dscode-$(VERSION)-darwin-x64-standalone.tar.gz.sha256 artifacts/dscode.rb
 
 .PHONY: help install check version-check build verify candidates unpack release credentials publish publish-bundle publish-profile publish-launcher desktop publish-desktop attach
 
 help:
 	@echo 'DSCODE release targets (VERSION=$(VERSION)):'
-	@echo '  make release            version-check, check, build, verify, desktop, candidates'
-	@echo '  make publish            credentials, bundle, profile, launcher, desktop, attach'
+	@echo '  make release            version-check, check, build, verify, candidates'
+	@echo '  make publish            attach the verified self-contained terminal packages'
 	@echo '  make install            npm ci --ignore-scripts'
 	@echo '  make check              npm run check (lint, coverage, integration, package, eval)'
 	@echo '  make version-check      TAG must match the manifest version (TAG defaults to v$(VERSION))'
-	@echo '  make build              build:packages, release:hub, dist'
-	@echo '  make verify             verify:hub against the candidates in artifacts/'
+	@echo '  make build              dist and the matching Homebrew formula'
+	@echo '  make verify             verify the self-contained candidate for this machine'
 	@echo '  make desktop            prepare and verify Desktop (requires DSCODE_TEST_CHROME)'
 	@echo '  make publish-desktop    publish Desktop, sync Hub and verify public installation'
 	@echo '  make candidates         pack release-candidates.tar.gz for a publish job'
@@ -43,7 +41,7 @@ help:
 	@echo '  make publish-bundle     publish the bundle to npm'
 	@echo '  make publish-profile    sync the Hub to npm, then publish the dscode profile'
 	@echo '  make publish-launcher   publish the launcher to npm'
-	@echo '  make attach             attach the source and prebuilt tarballs to the GitHub release'
+	@echo '  make attach             attach the self-contained packages to the GitHub release'
 
 # The workflow installs with --ignore-scripts: the exact dependency set the release is
 # verified against.
@@ -58,15 +56,12 @@ check:
 version-check:
 	@version=$$(node -p "require('./package.json').version"); test "$(TAG)" = "v$$version" || { echo "tag $(TAG) does not match version $$version" >&2; exit 1; }; echo "tag $(TAG) matches version $$version"
 
-# The workflow exports this for the whole build step, so a fork names itself in everything
-# the step generates instead of publishing the upstream URL.
 build:
-	DSCODE_REPOSITORY="$(REPOSITORY)" npm run build:packages
-	DSCODE_REPOSITORY="$(REPOSITORY)" npm run release:hub
-	DSCODE_REPOSITORY="$(REPOSITORY)" npm run dist
+	npm run dist
+	node scripts/homebrew-formula.mjs
 
 verify:
-	npm run verify:hub
+	node scripts/verify-standalone.mjs
 
 desktop:
 	npm run prepare:desktop -- "$(DESKTOP_RUNTIME)"
@@ -74,17 +69,16 @@ desktop:
 
 # One tarball keeps the exact layout the publish job restores, artifacts/ prefix included.
 candidates:
-	tar -czf release-candidates.tar.gz artifacts/npm artifacts/local/hub-verification.json artifacts/desktop/release $(TARBALLS)
+	tar -czf release-candidates.tar.gz artifacts/local/standalone-*.json $(TARBALLS)
 
 # The publish job restores the candidates it downloaded and refuses an incomplete archive;
 # locally this is also how a candidate tarball from another machine enters the tree.
 unpack:
 	@test -f release-candidates.tar.gz || { echo "release-candidates.tar.gz is missing; run make candidates" >&2; exit 1; }
 	tar -xzf release-candidates.tar.gz
-	@test -f artifacts/npm/bundle-pack.json || { echo "the release candidate archive is incomplete" >&2; exit 1; }
-	@test -f artifacts/local/hub-verification.json || { echo "the hub verification record is missing" >&2; exit 1; }
+	@test -f artifacts/dscode.rb || { echo "the release candidate archive is incomplete" >&2; exit 1; }
 
-release: version-check check build verify desktop candidates
+release: version-check check build verify candidates
 
 # Read-only: the npm token authenticates as the publishing user — NPM_PUBLISH_TOKEN, or the
 # Keychain token scripts/npm-token.mjs stores for a login-free local release — the Hub token
@@ -114,9 +108,10 @@ publish-desktop:
 
 # The tag always comes from the manifest version — the build job refuses a tag that does not
 # name it — and the curl installer, `dscode update` and the README fetch these assets: the
-# prebuilt tarballs install without npm, the source one is the fallback.
+# self-contained archives include Node and dependencies; there is no source fallback.
 attach:
-	@for tarball in $(TARBALLS) $(DESKTOP_ASSETS); do test -f "$$tarball" || { echo "$$tarball is missing; run make build" >&2; exit 1; }; done
-	@version=$(VERSION); if gh release view "v$$version" >/dev/null 2>&1; then gh release upload "v$$version" $(TARBALLS) $(DESKTOP_ASSETS) --clobber; else test -f "docs/releases/$$version.md" || { echo "docs/releases/$$version.md is missing; write the release notes first" >&2; exit 1; }; gh release create "v$$version" $(TARBALLS) $(DESKTOP_ASSETS) --title "DSCODE $$version" --notes-file "docs/releases/$$version.md"; fi
+	@test -f "docs/releases/$(VERSION).md" || { echo "write the release notes first" >&2; exit 1; }
+	@for tarball in $(TARBALLS); do test -f "$$tarball" || { echo "$$tarball is missing; run make build" >&2; exit 1; }; done
+	@version=$(VERSION); if gh release view "v$$version" >/dev/null 2>&1; then gh release upload "v$$version" $(TARBALLS) --clobber; else test -f "docs/releases/$$version.md" || { echo "docs/releases/$$version.md is missing; write the release notes first" >&2; exit 1; }; gh release create "v$$version" $(TARBALLS) --title "DSCODE $$version" --notes-file "docs/releases/$$version.md"; fi
 
-publish: credentials publish-bundle publish-profile publish-launcher publish-desktop attach
+publish: attach

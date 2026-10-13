@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+# Resolve the installed symlink, without relying on a system Node or dsh.
+entry=$0
+while [ -L "$entry" ]; do
+  parent=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$entry")" && pwd)
+  entry=$(/usr/bin/readlink "$entry")
+  case "$entry" in /*) ;; *) entry=$parent/$entry ;; esac
+done
+root=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$entry")" && pwd)
+unset NODE_OPTIONS NODE_PATH
+exec "$root/runtime/bin/node" "$root/scripts/standalone.mjs" "$@"

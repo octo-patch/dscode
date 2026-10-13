@@ -1,4 +1,6 @@
-# npm + Hub distribution
+# Legacy npm and Hub distribution
+
+The default terminal distribution from 0.7.41 is the [self-contained application package](distribution.md). This guide describes retained legacy npm/Hub tooling and the separate Desktop plugin. The legacy release order below does not apply to the new terminal package. Do not use it as the default installation or release checklist.
 
 ## Packages and responsibilities
 

@@ -14,6 +14,7 @@ import { registerStatusSelection } from '../../../plugins/status/selection.mjs'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { terminalStateDirectory } from '../../../plugins/i18n/messages.mjs'
 import { appendFile as appendFileAsync, mkdir, readdir, rm, stat, writeFile as writeFileAsync } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { createElement } from 'react'
@@ -1075,7 +1076,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // /statusline persistence: one user-level JSON file under the DSH home.
   // Missing file means defaults; a corrupt file degrades to defaults with a
   // surfaced warning (the customization is user-authored, never silent).
-  const statuslinePath = join(homedir(), '.dsh', 'dsh-code', 'statusline.json')
+  const statuslinePath = join(terminalStateDirectory(), 'statusline.json')
   let statuslineWarning: string | undefined
   let statuslineItems: readonly string[] = []
   try {
@@ -1105,7 +1106,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   const editorKeysEnv: EditorKeysEnv = {
     env: process.env,
     paths: { homedir: homedir(), appdata: process.env.APPDATA, platform: process.platform },
-    flagPath: join(homedir(), '.dsh', 'dsh-code', 'editor-keys.json'),
+    flagPath: join(terminalStateDirectory(), 'editor-keys.json'),
   }
   const applyEditorKeys = (): Promise<string> => applyCtrlRPassthrough(editorKeysEnv)
 
@@ -1114,7 +1115,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // degrades to dark with a surfaced warning. Precedence: CLI --theme > file >
   // auto detection > dark (auto detection itself is a later enhancement and
   // currently falls back to dark inside theme.ts).
-  const themePath = join(homedir(), '.dsh', 'dsh-code', 'theme.json')
+  const themePath = join(terminalStateDirectory(), 'theme.json')
   let themeWarning: string | undefined
   if (startup.theme === undefined) {
     try {
@@ -1138,7 +1139,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // /language persistence: one user-level JSON file beside theme.json. A
   // missing file means English; a corrupt file degrades to English with a
   // surfaced warning.
-  const languagePath = join(homedir(), '.dsh', 'dsh-code', 'language.json')
+  const languagePath = join(terminalStateDirectory(), 'language.json')
   let languageWarning: string | undefined
   try {
     setLanguage(parseLanguageName(readSettingsObject(languagePath).language))
@@ -1160,7 +1161,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // corrupt file degrades to on with a surfaced warning. Only an explicit
   // `false` disables (parseAnimationsPref), so hand-edited or partial files
   // never silently freeze the UI.
-  const animationsPath = join(homedir(), '.dsh', 'dsh-code', 'animations.json')
+  const animationsPath = join(terminalStateDirectory(), 'animations.json')
   let animationsEnabled = true
   let animationsWarning: string | undefined
   try {
@@ -1183,7 +1184,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // under the DSH home. A missing file means an empty history; unreadable or
   // corrupt content degrades to the valid lines it could parse, silently —
   // recall is a convenience surface, never a gate.
-  const historyPath = join(homedir(), '.dsh', 'dsh-code', 'history.jsonl')
+  const historyPath = join(terminalStateDirectory(), 'history.jsonl')
   let inputHistory: readonly string[] = []
   let historyWriteChain: Promise<void> = Promise.resolve()
   try {

@@ -52,7 +52,7 @@ export function validateProfile(input) {
 
 /** Whole-file revision + cross-process lock: stale editors never overwrite another Host. */
 export class CustomStore {
-  constructor(path = join(homedir(), '.dscode', 'providers.yaml')) { this.path = path; }
+  constructor(path = join(process.env.DSCODE_STANDALONE_ROOT && process.env.DSCODE_HOME ? process.env.DSCODE_HOME : join(homedir(), '.dscode'), 'providers.yaml')) { this.path = path; }
   async read() {
     let raw;
     try { raw = await readFile(this.path, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; raw = ''; }

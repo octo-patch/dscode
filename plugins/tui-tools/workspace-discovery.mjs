@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
 
 // Discovery above the project root, bounded at the home directory rather than the
 // filesystem root: a shared workspace directory such as ~/Workspace can contribute
@@ -25,7 +26,20 @@ export const skillAncestorsEnabled = (env = process.env) => !disabledFlag(env.DS
 // whatever $HOME says, so the comparison canonicalizes both sides. The chain itself
 // keeps the caller's logical paths, which is what the skill and instruction probes
 // then stat.
-const canonical = path => { try { return realpathSync(path); } catch { return resolve(path); } };
+const canonical = path => {
+  try { return realpathSync(path); } catch {
+    const absolute = resolve(path), parent = dirname(absolute);
+    return parent === absolute ? absolute : join(canonical(parent), basename(absolute));
+  }
+};
+
+/** Even when ~ is the working directory, its .dsh is another application's home. */
+export function isolatedDshPath(path, env = process.env) {
+  if (!env.DSCODE_STANDALONE_ROOT) return false;
+  const foreign = canonical(join(env.HOME || homedir(), '.dsh'));
+  const target = canonical(path);
+  return target === foreign || target.startsWith(foreign + sep);
+}
 
 // Every directory from the working directory up to home, nearest first. An empty
 // list means home is not an ancestor, and the mode then contributes nothing.
@@ -68,7 +82,7 @@ export function ancestorSkillDirs({ cwd, home, env = process.env }) {
       // The provider already scans these two at rank 100/200 for the owning project.
       if (dir === projectRoot && (root === '.dsh/skills' || root === '.agents/skills')) continue;
       const path = join(dir, root);
-      if (existsSync(path) && !dirs.includes(path)) dirs.push(path);
+      if (existsSync(path) && !isolatedDshPath(path, env) && !dirs.includes(path)) dirs.push(path);
     }
   }
   return dirs;

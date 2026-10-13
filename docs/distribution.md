@@ -1,58 +1,86 @@
-# Distribution and one-command start
+# Self-contained package distribution
 
-The npm + Hub release path is covered in [Hub distribution](hub-distribution.md). The tar installation below is retained.
+The terminal is distributed as one complete application archive per platform. Download `dscode-<version>-darwin-arm64-standalone.tar.gz` for Apple Silicon or `dscode-<version>-darwin-x64-standalone.tar.gz` for Intel. Each archive contains its own Node 24.21.0, pinned Harness, compiled TUI, plugins and native modules. No system Node, npm, pnpm or DSH is needed, and first launch does not download runtime dependencies.
 
-The deliverable is an installable `dscode-0.7.8.tar.gz`, not just a configured `.dshprofile`. After installing, the user runs `dscode` directly. The npm + Hub installation is available and the tar packages ship through GitHub Releases; a Homebrew formula in the [`qiz029/tap`](https://github.com/qiz029/homebrew-tap) tap installs the same launcher (Homebrew 7 wants `brew trust qiz029/tap` before the first install).
+macOS 14+ is supported. Git is used for repository and patch operations. Google Chrome and macOS Accessibility/Screen Recording permission are needed only for the features that use them. Models, external MCP servers and project tools retain their own configuration and requirements.
 
-## Publisher
+## Download and run
 
 ```sh
-npm run dist
+mkdir dscode-app
+tar -xzf dscode-0.7.41-darwin-arm64-standalone.tar.gz -C dscode-app
+./dscode-app/dscode
 ```
 
-It produces three tarballs, all attached to the GitHub release:
+Keep the extracted directory together. `dscode` is the executable entry; its private runtime and libraries are siblings inside that directory. You can move the complete directory while no session is running. User data does not move with it.
 
-| File | Contents | Needed to install |
-|---|---|---|
-| `dscode-<version>-darwin-arm64.tar.gz`, `dscode-<version>-darwin-x64.tar.gz` | Prebuilt package: the source tree + the locked `node_modules` installed for that platform + a `.dscode-prebuilt` marker (about 70 MB) | Node, Git; **no npm and no npm registry access** |
-| `dscode-<version>.tar.gz` | Source package: launcher, preset, dependency manifest and the complete lockfile, without node_modules (about 1 MB) | Node, npm, Git; downloads the locked dependencies from npm at install time |
-
-None of them contains model keys, local override configuration, sessions or research files. The prebuilt package is produced in a staging directory with `npm ci --ignore-scripts --os=darwin --cpu=<arch>` — the same command the installer runs itself, and the native modules are all precompiled optional dependencies selected by `os`/`cpu`, so one runner can build both architectures. `DSCODE_PREBUILT_ARCHS=arm64` builds one architecture only, and an empty string builds the source package alone.
-
-## User
-
-macOS 14+, Node 22.19+ (22.x) or 24+, Git (for `apply_patch`) and Google Chrome are required. npm is needed only when installing from the source package.
-
-The same script can fetch the package by itself: run from a pipe it enters remote mode, resolves the latest release, verifies the publisher's sha256 digest, unpacks, and then hands over to the `install.sh` inside the package, so the downloaded version and the install script's understanding of the layout cannot diverge. It prefers the prebuilt package for the current platform, and the whole installation only reaches GitHub — a corporate npm registry proxy blocking installs does not affect it; when a release has no prebuilt package for the platform it falls back to the source package with a notice, and `DSCODE_INSTALL_SOURCE=1` asks for the source package explicitly. When the packaged `install.sh` sees `.dscode-prebuilt` and `node_modules` it skips `npm ci` and provisions directly with `node scripts/harness.mjs setup`; a marker for a different platform refuses the installation.
+The optional installer downloads and verifies the same package:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
-# pin a version
-curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.8
+# Pin an exact release:
+curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.41
+# Or install an already unpacked package, without a download:
+sh dscode-app/install.sh
 ```
 
-Or unpack the same tarball by hand:
+The installer uses standard macOS shell tools, not Node. It verifies the published SHA-256 sidecar before extraction, checks the package with its private runtime, then installs it at `~/.local/share/dscode-app` and links `~/.local/bin/dscode`. Put that bin directory on PATH. Absolute `DSCODE_INSTALL_DIR` and `DSCODE_BIN_DIR` override those locations. An existing foreign command is never overwritten. Re-running the installer for a managed package delegates to its updater. Releases without a self-contained package or checksum are refused; there is no source/npm fallback.
+
+## Existing DSH installations
+
+DSCODE only installs a `dscode` command. It never creates or replaces global `dsh`, `node`, `npm` or `pnpm` commands. Runtime startup uses absolute package paths. The private Node directory is on PATH only inside DSCODE's process tree, so bundled helpers use the same runtime.
+
+Inherited `DSH_*` variables, `NODE_OPTIONS` and `NODE_PATH` are removed before the application starts. DSCODE supplies its own `DSH_HOME` and `DSH_AGENTS_HOME`. Provider keys, proxies, custom CA certificates and the user's remaining tool PATH are preserved. Project-local instructions, hooks and skills remain supported; the standalone application excludes the global `~/.dsh/skills` ancestor root.
+
+Sessions, native credentials, provider configuration, caches, user skills and local overrides live at `~/.local/share/dscode-state`, overridable with an absolute `DSCODE_HOME`. This directory must be outside the application and `~/.dsh`, including symlink aliases. Terminal preferences and input history use `tui/` under that directory. Shared DSCODE provider credentials use `credentials.yaml`; Harness-native credentials use `.credentials.yaml`. Custom services use `providers.yaml`; the mailbox uses `email/` unless `DSCODE_EMAIL_DIR` is explicitly set. Local overrides use `.env` and `config/hooks.local.json`, `config/mcp.local.yml` and `config/harness.local.yml` there.
+
+The application does not import `~/.dsh` configuration, Hub tokens or the old `~/.dscode/credentials.yaml` automatically. Run `dscode --installation` to inspect the actual program, runtime and data locations. This isolation applies to the terminal package; the separate Desktop plugin deliberately runs inside its owning Desktop application.
+
+## Upgrade and rollback
 
 ```sh
-mkdir dscode-install
-tar -xzf dscode-0.7.8-darwin-arm64.tar.gz -C dscode-install
-sh dscode-install/install.sh
-cd /path/to/project
-dscode
+dscode update             # newest published self-contained release
+dscode update 0.7.41      # an exact release, including an explicit rollback
 ```
 
-The default installation goes to `~/.local/share/dscode` with the command linked as `~/.local/bin/dscode`. If that bin directory is not on PATH, add `export PATH="$HOME/.local/bin:$PATH"` to the shell configuration and reopen the terminal.
+Exit running DSCODE sessions and schedulers first. Startup and update share kernel admission locks; each running child retains protection even if its launcher is killed. Both the program location and the selected data directory are protected. Concurrent ordinary sessions from the same package remain supported. A different package must wait until those sessions exit before taking over the same data directory. The stable `dscode-app` profile preserves native model/settings edits in `cordis.patch.yml` across upgrades and package relocation. Generated application defaults live in a separate private base bundle under the data directory.
 
-Enter `/model` once to configure a provider and a model. macOS Computer Use still needs the user to grant Accessibility/Screen Recording permission; those permissions and credentials cannot be distributed with the package.
+The updater downloads a matching platform archive from GitHub, requires its published SHA-256 digest, checks its version/platform and bundled modules, and only then swaps the complete program directory. A failed check leaves the old program in place; a failed swap or relocated check restores it. Successful updates retain a sibling `dscode-app.backup-<version>-<timestamp>` directory. State never enters the staged package and is not moved or rolled back. The directory swap has a brief rename interval; a new launch in that interval may need to be retried. This is not a filesystem transaction across power failure.
 
-`dscode --continue`, `dscode --resume SESSION_ID` and `dscode --cwd /path/to/project` are supported. By default it operates on the current terminal directory; state is kept in the installation's `.runtime`. A custom location can be set at install time with the absolute `DSCODE_INSTALL_DIR` and `DSCODE_BIN_DIR`.
+A default update never downgrades an application newer than the published release. An explicit version may downgrade only to another self-contained package; older source/prebuilt releases are refused. `/update` schedules this same updater after the TUI exits. Its version check uses GitHub, not npm.
 
-Re-running the installer keeps a tar installation current rather than refusing: it reads the installed version, leaves an equal or newer one alone, and hands an older one to that installation's own `dscode update`, which performs the swap with its state migration and backup. A directory that is not a DSCODE installation, or a `dscode` command that belongs to another installation (a source checkout, an npm launcher), is still never overwritten — the installer refuses and names the path it found. Since the version with a self-contained `dscode update`, a tar installation supports self-upgrade: `dscode update [exact version]` downloads the tarball from GitHub Releases, verifies it against the publisher's sha256 digest, migrates `.runtime`, `.env` and the local config, and swaps the directory in place (the `dscode` command path does not change and needs no relinking), keeping the old installation as a sibling backup directory to switch back to or discard by hand. An update requires no running session; when the release has a prebuilt package for the current platform it takes that, so the upgrade needs no npm either, otherwise it takes the source package and downloads the locked dependencies with npm ci. A tar installation older than that has no updater: unpack the new tarball into a new directory and migrate the state by hand once.
+## Migration from older DSCODE installations
 
-## Why not plain npm install -g today
+Old installations remain usable. New archives have a `-standalone` suffix so an old updater refuses them instead of applying the wrong installation or state-migration procedure. Check `type -a dscode` and `dscode --version` before changing your command link; npm, Homebrew and source links may coexist. Install the new package in a separate program directory and remove or rename an old command link only after identifying its owner.
 
-An npm `overrides` entry in the dependencies does not become the resolution rule of a root project when the package is installed as a third-party dependency. This composition needs a single pinned DSH rc line, so it keeps the verified locked dependency graph by using the root manifest inside the install package and `npm ci`. `package.json` already declares the `dscode` bin, but a bare bin declaration is not evidence of npm global-install compatibility.
+Migration is explicit, with all old sessions and schedulers stopped and a backup made first:
 
-A one-line `curl | sh` installation is available, reusing the GitHub Releases tarball and the publisher's sha256 digest, and preferring the npm-free prebuilt package; a release without a digest is refused rather than installed unverified. A Homebrew formula ships in the `qiz029/tap` tap: it installs the published launcher tarball into `libexec`, so the pinned dependency graph is npm's rather than the formula's, writes the `.dscode-brew` marker that keeps `dscode update` off the npm pass, and leaves the launcher to `brew upgrade`.
+- An existing npm/Hub data directory can be selected with `DSCODE_HOME="$HOME/.local/share/dscode-hub"`. The standalone application creates its own stable `dscode-app` profile there and does not reuse the Hub-managed dependency graph. Transfer only the desired user overrides from the old profile into `profiles/dscode-app/cordis.patch.yml`; do not copy node_modules, generated plugin insertions or absolute paths to the old installation. Do not run legacy and standalone applications against the same data concurrently.
+- For a tar/source installation, copy the old `.runtime` contents to a separate data directory, and copy only the desired `.env` and local `config/` overrides into it. Select that directory with `DSCODE_HOME`. To retain native model/settings edits, transfer only user overrides from the old `profiles/tui/cordis.patch.yml` into `profiles/dscode-app/cordis.patch.yml`; exclude generated plugin insertions and paths to the old installation. Keep the original until sessions have been checked. Do not point the new application at the old program directory.
+- To retain shared provider logins, explicitly copy `~/.dscode/credentials.yaml` to `credentials.yaml` in the selected data directory if no destination credential file exists, preserving owner-only permissions. Native `.credentials.yaml` already lives in the old runtime data. Re-login instead if combining stores would be ambiguous.
+- Custom service definitions in `~/.dscode/providers.yaml` and mail in `~/.dscode/email/` can be copied explicitly to `providers.yaml` and `email/` in the data directory. Keep the matching provider keys when migrating custom services.
+- Old terminal UI preferences in `~/.dsh/dsh-code` can be copied explicitly to the new data directory's `tui/`; no other global DSH files need to be copied.
 
-The complete tarball contains `presets/dscode`, `bin/apply_patch` and the version-locked runtime patch scripts. setup enables dscode by default and installs Ultra effort support; the node_modules inside a prebuilt package comes from a fresh install of the lockfile in a staging directory, so the local node_modules is never packed. An old session keeps resuming under its original preset; use `dscode --mode dscode` to create a new session explicitly.
+Automatic credential merging and conversion of future incompatible session schemas are not provided. Review a resumed session before discarding old data.
+
+## Homebrew
+
+The release build generates `artifacts/dscode.rb` from the exact two application archives and their checksums. The new formula installs the complete package into `libexec`, links only `dscode`, and has no Node/npm dependency. Its marker makes `dscode update` direct users to `brew upgrade dscode`; Homebrew replaces the whole package, never a separate Hub profile.
+
+The maintained tap must adopt this generated formula and switch its updater from npm versions to GitHub release formulas. The repository build does not silently publish changes to the external `qiz029/homebrew-tap` repository. Until that migration is published, use the direct archive or installer; the existing tap may still install the legacy launcher.
+
+## Build and release
+
+```sh
+npm run dist                         # both platform archives plus SHA-256 sidecars
+node scripts/homebrew-formula.mjs    # the matching formula
+node scripts/verify-standalone.mjs   # qualify this machine's architecture
+make release                        # full local terminal candidate gate
+make publish                        # attach terminal assets to GitHub
+```
+
+`DSCODE_PREBUILT_ARCHS=arm64` or `x64` selects one build for development. An empty selection is an error. Builds install the repository lockfile in a fresh staging directory, compile the TUI and apply runtime patches there, then add the official Node archive verified against checked-in SHA-256 hashes. They never copy a developer's node_modules, credentials or runtime state. Both runtime archives include Node's license.
+
+Release CI validates the ARM64 archive and downloads that exact candidate for a separate Intel qualification. Verification covers an unusable foreign Node/npm/DSH on PATH, foreign DSH variables, an untouched global DSH home, native module imports and a real PTY, cold profile composition, local Host diagnostics and local installation. Native macOS permission UI and real model inference remain separate acceptance checks.
+
+The default terminal release has no npm or Hub publication dependency. Desktop continues through its own package and verification path. Historical npm/Hub tooling remains documented in [Legacy Hub distribution](hub-distribution.md); it is not used to install or update the self-contained terminal.

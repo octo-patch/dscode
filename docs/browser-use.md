@@ -421,7 +421,7 @@ npm run eval:browser -- --model deepseek-flash
 ```
 
 To evaluate a saved custom service, use its `custom-…` ID from
-`~/.dscode/providers.yaml` and an explicitly configured model:
+`$DSCODE_HOME/providers.yaml` and an explicitly configured model:
 
 ```bash
 npm run eval:browser -- --provider custom-YOUR-ID --model your-model-id

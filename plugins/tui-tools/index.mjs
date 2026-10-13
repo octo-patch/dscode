@@ -12,6 +12,7 @@ import { hookEvents, validateHooks } from './hooks.mjs';
 import { redact } from '../auto-review/policy.mjs';
 import { plainConfig } from '../cordis-config/plain.mjs';
 import { analyzeDoctorEvidence, collectDoctorEvidence, recordRuntimeLog } from './doctor.mjs';
+import { isolatedDshPath } from './workspace-discovery.mjs';
 
 export const name = 'dscode-tui-tools';
 export const inject = ['commands', 'agents', 'tools', 'skills', 'permissionPresets', 'sessionPersistence', 'llm'];
@@ -53,6 +54,7 @@ export async function findConflicts(cwd, configs, winners, env = process.env) {
   const candidates = new Map();
   const errors = [];
   for (const root of new Set(roots)) {
+    if (isolatedDshPath(root, env)) continue;
     let entries;
     try { entries = await readdir(root, { withFileTypes: true }); }
     catch (e) { if (e.code !== 'ENOENT') errors.push(`${root}: ${e.code}`); continue; }

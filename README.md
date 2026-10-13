@@ -9,10 +9,9 @@
 ![Watch the 90-second DSCODE demo](assets/demo.gif)
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?logo=apple&logoColor=white)
-![Node.js](https://img.shields.io/badge/Node.js-22.19%2B%20%7C%2024%2B-43853D?logo=node.js&logoColor=white)
-![DSH](https://img.shields.io/badge/DSH-0.1.5--rc.2-2563EB)
+![Bundled Node.js](https://img.shields.io/badge/Node.js-bundled-43853D?logo=node.js&logoColor=white)
+![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2-2563EB)
 ![License](https://img.shields.io/badge/license-MIT-green)
-[![npm](https://img.shields.io/npm/v/@toddzheng024/dscode)](https://www.npmjs.com/package/@toddzheng024/dscode)
 [![Release](https://img.shields.io/github/v/release/qiz029/dscode?color=111827&label=release)](https://github.com/qiz029/dscode/releases)
 [![Stars](https://img.shields.io/github/stars/qiz029/dscode?color=111827)](https://github.com/qiz029/dscode/stargazers)
 [![Discussions](https://img.shields.io/github/discussions/qiz029/dscode?color=111827&label=discussions)](https://github.com/qiz029/dscode/discussions)
@@ -55,6 +54,8 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 
 ## 🆕 What's new
 
+**0.7.41** — One self-contained terminal package includes its own runtime and native dependencies. Installation and updates no longer depend on npm or Hub; user data is separate, and an existing DSH installation stays independent. See the [release notes](docs/releases/0.7.41.md).
+
 **0.7.40** — Clears cached balances when credentials change or are removed, preserves currency and account/key-limit labels, and adds fresh `/status` queries in the TUI and ACP. ACP also filters configured model choices and reports failed turns with retry guidance. See the [release notes](docs/releases/0.7.40.md).
 
 **0.7.39** — Fixes DeepSeek provider startup in the published bundle. Upgrades the terminal to Harness `0.2.0-rc.2` and Computer Use `0.3.3`, restores native reminder delivery and the `/schedule` catalog, and adds opt-in Atomic Mail MCP setup. Unconfigured or disabled Atomic Mail adds no tools or server instructions to model context. See the [release notes](docs/releases/0.7.39.md).
@@ -85,31 +86,48 @@ Every release is listed in the **[changelog](docs/CHANGELOG.md)**; the [0.7.29 n
 
 ## 🚀 Quick start
 
-Requires **macOS 14+, Node 22.19+ (22.x) or 24+, npm and Git; Google Chrome for browser tasks**.
+Requires **macOS 14+**; browser tasks also need Google Chrome, and repository/patch operations use Git. **No system Node, npm, pnpm or DSH installation is required.**
+
+**Install with one command:**
 
 ```sh
-npm install -g @toddzheng024/dscode
-cd /path/to/project
-dscode
+curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
 ```
 
-Every other install path reaches the same pinned harness:
+The installer detects Apple Silicon or Intel, downloads the latest self-contained release and verifies its SHA-256 checksum. It installs the complete application into `~/.local/share/dscode-app` and links `~/.local/bin/dscode`. Then run `dscode` in your project directory. If `~/.local/bin` is not on PATH, add this line to your shell configuration and run it in the current terminal:
 
-| Method | How |
-|---|---|
-| npm / Hub | the command above; the launcher installs the pinned profile from [DSH Plugin Hub](https://dshpluginhub.ai) |
-| Homebrew | `brew tap qiz029/tap && brew trust qiz029/tap && brew install dscode` (Homebrew 7 refuses an untrusted third-party tap); the formula installs the same launcher, `dscode update` then moves only the profile, and `brew upgrade dscode` owns the launcher |
-| GitHub release, one line | `curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh \| sh` |
-| Release tarball | download `dscode-<version>-darwin-arm64.tar.gz` (or `-darwin-x64`) from [Releases](https://github.com/qiz029/dscode/releases), unpack it and run `sh dscode-install/install.sh` |
-| Source checkout | `git clone https://github.com/qiz029/dscode.git && cd dscode && npm ci --ignore-scripts && npm run setup` |
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+```
 
-The one-line installer resolves the newest release, verifies the sha256 digest GitHub publishes for its tarball and then runs the installation the tarball carries; `sh -s -- <version>` pins an exact release instead of tracking the latest. Every path needs Node and Git. The GitHub release paths need nothing else: the prebuilt tarball (`dscode-<version>-darwin-arm64.tar.gz` or `-darwin-x64`) already carries the locked `node_modules`, so it installs without npm and without reaching an npm registry—the one to use behind a corporate registry proxy. The plain `dscode-<version>.tar.gz` is the source tarball, which installs its lockfile with `npm ci`; the installer falls back to it on a platform without a prebuilt package, and `DSCODE_INSTALL_SOURCE=1` asks for it. The npm path installs the pinned profile from the Hub.
+The package includes pinned Node, Harness, TUI, plugins and native dependencies. First launch never installs its runtime from npm or Hub. Your existing `dsh` command and `~/.dsh` stay untouched; DSCODE keeps its data separately in `~/.local/share/dscode-state`.
 
-The first launch installs the pinned complete preset from [DSH Plugin Hub](https://dshpluginhub.ai)—no manual plugin assembly, no global pnpm. Then enter `/login` and paste your DeepSeek API key into the hidden input: it is stored locally in `~/.dscode/credentials.yaml` with `0600` permissions, shared across projects and installed versions, and never sent to the agent. A `DEEPSEEK_API_KEY` environment variable takes precedence. To use OpenRouter, enter `/provider openrouter`: DSCODE asks for your OpenRouter key (stored the same way, or taken from `OPENROUTER_API_KEY`) and switches the session to the DeepSeek model you were on; `/model` then lists a curated set instead of the whole catalogue—the current flagship models from DeepSeek, GLM, Kimi, Qwen and MiMo, plus the flagship line of Anthropic, OpenAI, Google and xAI—and typing searches it. Those five are tuned and tested; the Western flagships work on a best-effort basis. A model outside the list still runs when a session is already on it. `/provider deepseek` switches back, and `/login openrouter` replaces the key. An [OpenCode Go](docs/opencode-go.md) subscription works the same way: `/opencode login` signs in with your OpenCode account, then `/provider opencode-go` offers Go's DeepSeek, GLM, Kimi, MiMo, LongCat, Hy and Space Bunny models. Use `/model` to pick a model or another provider, and `/effort` to adjust reasoning effort; the default route is `deepseek-official/deepseek-flash`. The TUI checks npm for a newer release at startup and `/update` upgrades the whole installation after you exit.
+**Update directly:**
+
+```sh
+dscode update             # upgrade to the latest self-contained release
+dscode update 0.7.41      # install an exact self-contained release
+```
+
+Exit running DSCODE sessions and schedulers first. The updater verifies and replaces the whole application, preserving settings, credentials and sessions; a failed replacement restores the old program. In the TUI, `/update` schedules the same updater after you exit. Re-running the installer also updates an installation it owns.
+
+**Coming from an older installation?** Legacy npm/Hub versions need a one-time migration; their old `dscode update` does not switch to this distribution. The installer refuses to overwrite a `dscode` command owned by another installation. Homebrew-managed packages use `brew upgrade dscode`; until the external tap adopts the new formula, use the direct installer or archive. See [Distribution](docs/distribution.md) for migration steps. The commands above require a published self-contained release and do not fall back to legacy packages.
+
+**Prefer a direct download?** Get one package from [Releases](https://github.com/qiz029/dscode/releases): `darwin-arm64` for Apple Silicon, or `darwin-x64` for Intel. For example:
+
+```sh
+mkdir dscode-app
+tar -xzf dscode-0.7.41-darwin-arm64-standalone.tar.gz -C dscode-app
+./dscode-app/dscode
+```
+
+Keep the extracted directory together: `dscode` uses the private runtime and libraries beside it.
+
+Enter `/login` and paste your DeepSeek API key into the hidden input: it is stored locally in `~/.local/share/dscode-state/credentials.yaml` with `0600` permissions, shared across projects and installed versions, and never sent to the agent. A `DEEPSEEK_API_KEY` environment variable takes precedence. To use OpenRouter, enter `/provider openrouter`: DSCODE asks for your OpenRouter key (stored the same way, or taken from `OPENROUTER_API_KEY`) and switches the session to the DeepSeek model you were on; `/model` then lists a curated set instead of the whole catalogue—the current flagship models from DeepSeek, GLM, Kimi, Qwen and MiMo, plus the flagship line of Anthropic, OpenAI, Google and xAI—and typing searches it. Those five are tuned and tested; the Western flagships work on a best-effort basis. A model outside the list still runs when a session is already on it. `/provider deepseek` switches back, and `/login openrouter` replaces the key. An [OpenCode Go](docs/opencode-go.md) subscription works the same way: `/opencode login` signs in with your OpenCode account, then `/provider opencode-go` offers Go's DeepSeek, GLM, Kimi, MiMo, LongCat, Hy and Space Bunny models. Use `/model` to pick a model or another provider, and `/effort` to adjust reasoning effort; the default route is `deepseek-official/deepseek-flash`. The TUI checks GitHub for a newer release at startup and `/update` upgrades the whole installation after you exit.
 
 Use `/provider custom` to add a self-hosted or private API with Chat Completions, Responses or Anthropic Messages. Configure the endpoint and optional key, discover or enter models, set their context windows, and test streaming tool calls. For a model that supports vision, enable **Input → Text and images** to send screenshots and image attachments; the default is text only. Saved services appear by name in `/provider`; Enter switches to their model. See [Custom model providers](docs/custom-providers.md).
 
-**Six interface languages, English by default.** `/language` opens the picker and `/language ja` switches straight to a locale; 中文, 日本語 and 한국어 are accepted as names too. The set is English, 简体中文, 繁體中文, 日本語, 한국어 and Español. The choice is stored per machine in `~/.dsh/dsh-code/language.json`, and `DSCODE_LANGUAGE=es` overrides it for one run.
+**Six interface languages, English by default.** `/language` opens the picker and `/language ja` switches straight to a locale; 中文, 日本語 and 한국어 are accepted as names too. The set is English, 简体中文, 繁體中文, 日本語, 한국어 and Español. The choice is stored per machine in `$DSCODE_HOME/tui/language.json` (under `~/.local/share/dscode-state` by default), and `DSCODE_LANGUAGE=es` overrides it for one run.
 
 ```sh
 dscode --continue                 # continue the last session
@@ -120,7 +138,7 @@ dscode doctor                     # analyse recent logs and session traces
 dscode --version                  # print the DSCODE version
 ```
 
-The launcher checks installed bundles and Harness dependencies against the recommended combination; on a mismatch it prints one consolidated warning and keeps running, without editing dependencies or downgrading. Browser tools load on demand: ask the agent to use the browser, or run `/browser start`. CSS rule inspection uses snapshot element IDs and requires global and per-site Developer grants. Dedicated persistent profiles, existing-Chrome connections, experimental extension sharing of selected tabs, tab retention and the experimental Desktop sidebar preview with point annotations and site permission controls are described in [Browser use](docs/browser-use.md). While visible and idle, the sidebar synchronizes permission changes made elsewhere, clears affected previews and keeps annotation drafts. The preview has been verified in the shared Web client and the official macOS Electron application using an isolated local fixture. Desktop tools load progressively through a skill; screenshot understanding needs an image-capable model. The MCP bridge supports tools and resources; Computer Use permissions are granted separately in macOS. Add other MCP servers in `config/mcp.local.yml`.
+The self-contained package uses its own pinned runtime and does not reuse or modify an existing DSH installation. Browser tools load on demand: ask the agent to use the browser, or run `/browser start`. CSS rule inspection uses snapshot element IDs and requires global and per-site Developer grants. Dedicated persistent profiles, existing-Chrome connections, experimental extension sharing of selected tabs, tab retention and the experimental Desktop sidebar preview with point annotations and site permission controls are described in [Browser use](docs/browser-use.md). While visible and idle, the sidebar synchronizes permission changes made elsewhere, clears affected previews and keeps annotation drafts. The preview has been verified in the shared Web client and the official macOS Electron application using an isolated local fixture. Desktop tools load progressively through a skill; screenshot understanding needs an image-capable model. The MCP bridge supports tools and resources; Computer Use permissions are granted separately in macOS. Add other MCP servers in `config/mcp.local.yml`.
 
 An experimental combined Desktop package adds the DSCODE preset, custom-model and account settings, browser preview, durable session communication, cross-session memory and opt-in scheduling to the official application. **Settings → DSCODE → Schedules** manages tasks and enables delivery while Desktop stays open. Build and local installation instructions are in [Browser use](docs/browser-use.md#install-the-experimental-combined-desktop-package). Native installation, upgrade, removal and reinstallation with scheduling enabled, plus rendered account and scheduling controls, were checked on macOS Desktop 0.2.0-rc.2; qualification limits are covered in [Triggers](docs/triggers.md#experimental-desktop-scheduling). The package also includes an experimental [native Computer Use adapter](docs/computer-use.md); window observation and input still await qualification with macOS Accessibility permission. Durable [time context](docs/session-communication.md#time-context-for-delayed-work) gives DSCODE agents arrival times, relay waits and previous turn endings while keeping ordinary chat clear. Namespaced [Desktop diagnostics](docs/tui-commands.md#experimental-desktop-diagnostics) inspect the selected session, skills and Host MCP entries; matching user guides ship with the package. The [Desktop email inbox](docs/email.md#experimental-desktop-inbox) previews shared local mail, connects IMAP or Gmail OAuth, and adds a selected message to a DSCODE session. Background sync is opt-in; outgoing mail keeps the existing approval and receipt rules. The [Session usage sidebar](docs/session-metrics.md#experimental-desktop-usage) shows DSCODE cost, context, cache, request speed and per-turn estimates. The [Delegation board sidebar](docs/tui-commands.md#experimental-desktop-delegation-board) follows the selected main session’s tasks, dependencies, worktrees and verification evidence. The Desktop plugin is distributed separately from the terminal packages; terminal popups and terminal-only commands keep their existing UI.
 
@@ -129,11 +147,13 @@ The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version
 **Settings → DSCODE** groups setup, Models, Accounts and Schedules at the same level; **Plugins → DSCODE · Community** opens the same page. DSCODE browser tools are scoped to DSCODE sessions. Existing Desktop models/accounts work through the normal picker; optional provider settings use the native credential store. Enable **Show coding view** and **Agent presets**, then choose DSCODE for a new session after fully restarting.
 
 <details>
-<summary><b>Other install paths, upgrades and rollback</b></summary>
+<summary><b>Updates, data directories and source development</b></summary>
 
-The Desktop package includes DSCODE's unified-diff `apply_patch` command for its persistent, child and fresh shells. It leaves the Host PATH and native Standard shell providers unchanged.
+`dscode update [exact-version]` downloads and verifies the complete release, checks its bundled modules, then replaces the application as a unit. Exit running sessions first. A failure preserves or restores the old application; successful updates retain a sibling backup. There is no npm fallback. Packages installed with the new Homebrew formula use `brew upgrade dscode` to replace the same complete package.
 
-**From source**
+Sessions, credentials and local configuration live outside the application at `~/.local/share/dscode-state`, overridable with an absolute `DSCODE_HOME`. Startup isolates inherited DSH configuration and Node injection options; it does not replace the existing `dsh` command or `~/.dsh`. Migration from an old installation is explicit; see [Distribution](docs/distribution.md).
+
+Source development still uses Node and npm:
 
 ```sh
 git clone https://github.com/qiz029/dscode.git
@@ -141,42 +161,7 @@ cd dscode
 npm ci --ignore-scripts
 npm run setup
 npm start
-
-# Work on another project
-npm start -- --cwd /path/to/project
 ```
-
-**One-line install** — the installer runs straight from the repository and fetches the release itself; name an exact version after `--` to pin one instead of tracking the latest:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
-curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.29
-```
-
-**From a tar package** — download the prebuilt `dscode-<version>-darwin-arm64.tar.gz` (Apple silicon) or `dscode-<version>-darwin-x64.tar.gz` (Intel) from [GitHub Releases](https://github.com/qiz029/dscode/releases/latest), then:
-
-```sh
-mkdir dscode-install
-tar -xzf dscode-<version>-darwin-arm64.tar.gz -C dscode-install
-sh dscode-install/install.sh
-```
-
-The command lands in `~/.local/bin/dscode` by default—make sure that directory is on your PATH. Running it again keeps a tar installation current: an older one is updated through its own `dscode update`, an equal or newer one is reported and left alone, and anything else — a directory that is not a DSCODE installation, or a `dscode` command that belongs to another installation — is refused with the path it found.
-
-**If the npm name lookup returns 404**, install the same version straight from the official registry tarball:
-
-```sh
-npm install -g https://registry.npmjs.org/@toddzheng024/dscode/-/dscode-0.7.29.tgz
-```
-
-**Upgrade** — `dscode update [exact-version]` updates the whole installation in one step, and requires no running DSCODE sessions. On the npm/Hub install it replaces the launcher binary with npm and then upgrades the installed profile to the same version. On a tar install it downloads the release tarball (the prebuilt one for this platform when the release has it, so the update needs no npm either), verifies it against the release's sha256 digest, swaps the installation directory in place and migrates `.runtime`, `.env` and local `config/`; the previous installation is kept as a sibling backup directory. A source checkout updates itself the same way: `git pull --ff-only` on the branch it tracks, then `npm ci --ignore-scripts` and `npm run setup`; uncommitted changes in tracked files refuse before anything runs, so a failed update never half-applies.
-
-```sh
-dscode update                  # latest release
-dscode update 0.7.29           # an exact version
-```
-
-`dscode history` lists retained versions and `dscode rollback` returns to the previous preset revision (npm/Hub install). Tar installs older than the first release with `dscode update` upgrade by installing the new tarball into a fresh directory and migrating the state once. Source, tar and npm/Hub installs use different data directories, and sessions and credentials are not migrated between them. See the [tar distribution notes](docs/distribution.md) and the [npm + Hub guide](docs/hub-distribution.md).
 
 </details>
 
@@ -184,7 +169,7 @@ dscode update 0.7.29           # an exact version
 
 | Command | What it does |
 |---|---|
-| `/login` | Paste the DeepSeek API key into a hidden input; saved under `~/.dscode/` and loaded at startup |
+| `/login` | Paste the DeepSeek API key into a hidden input; saved under `$DSCODE_HOME/credentials.yaml` and loaded at startup |
 | `/account` | Sign in to a DeepSeek account in the browser instead of pasting a key; also its identity, balance and sign-out |
 | `/status` | Current provider, model and credential balance; DeepSeek and OpenRouter supported, also available in [ACP](docs/acp.md#current-credential-balance) |
 | `/model`, `/effort` | Choose a model (type to search) or configure other credentials; models with four levels use a horizontal effort bar |
@@ -217,9 +202,10 @@ The default is a `workspace-write` sandbox with **Auto** permission review, wher
 
 | Install method | Sessions, credentials and stats | Local configuration |
 |---|---|---|
-| npm / Hub | `~/.local/share/dscode-hub`, overridable with `DSCODE_HOME` | `.env` and `config/` in the data directory |
+| Self-contained package | `~/.local/share/dscode-state`, overridable with `DSCODE_HOME` | `.env` and `config/` in the data directory |
+| Legacy npm / Hub | `~/.local/share/dscode-hub`, overridable with `DSCODE_HOME` | `.env` and `config/` in the data directory |
 | Source | repository `.runtime/` | repository `.env` and `config/` |
-| tar | `.runtime/` inside the install directory | `.env` and `config/` in the install directory |
+| Legacy tar | `.runtime/` inside the install directory | `.env` and `config/` in the install directory |
 
 `config/hooks.local.json`, `config/mcp.local.yml` and `config/harness.local.yml` are supported. Local configs, secrets and sessions never enter a release package. Skills are discovered in the target project's `.agents/skills` and `.dsh/skills`, plus an isolated user skill directory; `/skills conflicts` diagnoses same-name overrides. A project's `.codex/hooks.json`, `.dsh/hooks.json` and `.claude/settings.json` are layered on top of `config/hooks.local.json` by default; set `DSCODE_PROJECT_HOOKS=0` to load the installation file alone. Skills come from the project's `.dsh/skills` and `.agents/skills` plus the user roots, and by default `.dsh/skills`, `.agents/skills` and `.claude/skills` are also read from every directory between the working directory and home, nearest first; `DSCODE_SKILL_ANCESTORS=0` keeps discovery to the project and user roots alone. `AGENTS.md`/`CLAUDE.md` in those ancestor directories is folded into the workspace instructions.
 
@@ -229,21 +215,13 @@ The default is a `workspace-write` sandbox with **Auto** permission review, wher
 npm test                    # unit and contract tests (upstream dependencies isolated)
 npm run check               # coverage, integration, TUI and packaging checks
 npm run doctor              # deterministic local agent integration check
-npm run build:packages      # build the launcher and complete bundle npm tgz
-npm run release:hub         # build the Hub release and .dshprofile
-npm run verify:hub          # temp install, agent check, failed upgrade and rollback
-npm run dist                # build the fallback tar installer
+npm run dist                # build self-contained packages with private Node
+node scripts/verify-standalone.mjs # qualify the package for this machine
 ```
 
-`make release` runs the whole build job in that order—version check, `npm run check`, the three build steps, `verify:hub`, then `release-candidates.tar.gz`—and `make publish` runs the publish job's phases in order. `make help` lists every target; the workflow itself does not call make.
+`make release` runs version validation, the full checks, package builds, local installation verification and candidate archiving. CI also qualifies the x64 package on an Intel runner. `make publish` attaches terminal packages to the GitHub Release; Desktop retains independent build, verification and publication. `node scripts/homebrew-formula.mjs` generates a formula from the same archives and SHA-256 hashes; the formula still needs synchronization to the tap.
 
-| Distribution component | Contents |
-|---|---|
-| `@toddzheng024/dscode` | The `dscode` command, first-install bootstrap and Hub version management |
-| `@toddzheng024/dscode-bundle` | Base layer, Computer Use, custom plugins and the modified TUI/runtime |
-| Hub profile `dscode` | Pinned bundle and runtime versions with integrity hashes |
-
-The bundle generates its modified modules at build time and never rewrites third-party sources on a user's machine. DSH dependencies are pinned to `0.2.0-rc.2`; the TUI is based on `dsh-code@1.2.0` and Computer Use on `0.3.3`. The full pipeline—bundle, then Hub release, then launcher—is in the [distribution guide](docs/hub-distribution.md). Context-compaction evaluation lives under [`eval/`](eval/README.md) and runs with `npm run eval:compaction`.
+DSH is pinned to `0.2.0-rc.2`, bundled Node to `24.21.0`, the TUI is based on `dsh-code@1.2.0`, and Computer Use is `0.3.3`. Runtime patches are applied during the build. See [Distribution](docs/distribution.md) for the current flow and [Legacy Hub distribution](docs/hub-distribution.md) for retained npm/Hub tooling. Compaction evaluation lives under [`eval/`](eval/README.md).
 
 ## 📚 Documentation
 
@@ -271,7 +249,7 @@ The bundle generates its modified modules at build time and never rewrites third
 | [Session metrics](docs/session-metrics.md) | Definition of the footer TPS, context, cost and cache figures |
 | [Demo guide](docs/demo.md) | Desktop feature summary and walkthrough draft; 90-second terminal shot list and recording commands |
 | [npm + Hub distribution](docs/hub-distribution.md) | Bundle, Hub release and launcher pipeline |
-| [tar distribution](docs/distribution.md) | The standalone tar installer |
+| [Package distribution](docs/distribution.md) | Self-contained packages, updates, isolation and migration |
 | [Verification](docs/verification.md) | What the maintained checks cover |
 
 Design records do not repeat the guides above:
@@ -289,7 +267,7 @@ Design records do not repeat the guides above:
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. Run `npm run check` before sending a change, and keep the release flow intact: bundle first, then Hub release, then launcher.
+Issues and pull requests are welcome. Run `npm run check` before sending a change, and keep self-contained package verification separate from legacy npm/Hub tooling.
 
 ## 📄 License
 

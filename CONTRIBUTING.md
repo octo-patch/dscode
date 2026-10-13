@@ -47,7 +47,7 @@ History uses a descriptive subject line plus a body explaining the situation, th
 
 ## Releases
 
-Releases are cut by the maintainer with `make release` and published with `make publish`; see [docs/hub-distribution.md](docs/hub-distribution.md). You do not need to bump versions in a pull request.
+Releases are cut by the maintainer with `make release` and published with `make publish`; see [docs/distribution.md](docs/distribution.md). You do not need to bump versions in a pull request.
 
 ## Security
 

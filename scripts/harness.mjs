@@ -6,16 +6,37 @@ import { ancestorSkillDirs, writeWorkspaceInstructions } from '../plugins/tui-to
 import { patchRuntime, patchAppBootPackage } from './patch-runtime.mjs';
 import { patchInkFrame } from './patch-ink.mjs';
 import { dscodeComposition, presetDeclaration } from './preset.mjs';
-import { existsSync, mkdirSync, chmodSync, readFileSync, writeFileSync, symlinkSync, lstatSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, chmodSync, readFileSync, writeFileSync, renameSync, symlinkSync, lstatSync, realpathSync } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { MARKER, canonical, inside, standaloneEnvironment } from './standalone-layout.mjs';
 
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-export const runtimeHome = join(root, '.runtime');
-export const profileName = 'tui';
+export const standalone = existsSync(join(root, MARKER));
+export const runtimeHome = standalone ? standaloneEnvironment(root).DSCODE_HOME : join(root, '.runtime');
+export const configRoot = standalone ? runtimeHome : root;
+// Native model/settings edits live in this profile's cordis.patch.yml. Its name must
+// survive upgrades and relocations, while remaining separate from the legacy Hub profile.
+export const profileName = standalone ? 'dscode-app' : 'tui';
 export const dshEntry = join(root, 'node_modules/@deepseek-ai/dsh/lib/bin.js');
+
+export function loadLocalEnvironment() {
+  const envFile = join(configRoot, '.env');
+  if (existsSync(envFile)) process.loadEnvFile(envFile);
+  if (standalone) {
+    const env = standaloneEnvironment(root);
+    for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
+    Object.assign(process.env, env);
+  }
+}
+
+export function runtimeStdio(stdio = 'inherit') {
+  if (!standalone || !process.env.DSCODE_LEASE_FDS) return stdio;
+  const streams = Array.isArray(stdio) ? [...stdio] : [stdio, stdio, stdio];
+  return [...streams, ...process.env.DSCODE_LEASE_FDS.split(',').map(Number)];
+}
 
 export function provision(home = runtimeHome, { cwd = root, env = process.env } = {}) {
   if (!existsSync(dshEntry)) throw new Error('Dependencies missing. Run npm ci first.');
@@ -23,32 +44,65 @@ export function provision(home = runtimeHome, { cwd = root, env = process.env } 
   // pass over dsh-code's published bundle is retired. Host-plane patches below
   // stay until @deepseek-ai/dsh-* carries the behaviour upstream.
   // Ink owns the frame repaint; the vendored terminal cannot carry this one.
-  patchInkFrame(root);
-  patchRuntime(root);
-  patchAppBootPackage(root);
-  const hooksPath = join(root, 'config/hooks.local.json');
-  if (!existsSync(hooksPath)) writeFileSync(hooksPath, '{"hooks": {}}\n', { mode: 0o600, flag: 'wx' });
+  if (!standalone) {
+    patchInkFrame(root);
+    patchRuntime(root);
+    patchAppBootPackage(root);
+  }
+  mkdirSync(join(configRoot, 'config'), { recursive: true, mode: 0o700 });
+  const hooksPath = join(configRoot, 'config/hooks.local.json');
+  try { writeFileSync(hooksPath, '{"hooks": {}}\n', { mode: 0o600, flag: 'wx' }); }
+  catch (error) { if (error.code !== 'EEXIST') throw error; }
   validateHooks(JSON.parse(readFileSync(hooksPath, 'utf8')));
-  const hookConfig = writeHookConfig({ root, cwd, home, env });
+  const hookConfig = writeHookConfig({ root: configRoot, cwd, home, env });
   const profile = join(home, 'profiles', profileName);
   mkdirSync(profile, { recursive: true });
   const moduleLink = join(profile, 'node_modules');
-  if (existsSync(moduleLink)) {
-    if (!lstatSync(moduleLink).isSymbolicLink() || realpathSync(moduleLink) !== realpathSync(join(root, 'node_modules'))) {
-      throw new Error(`Refusing to replace an independently managed profile: ${profile}`);
+  let link;
+  try { link = lstatSync(moduleLink); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (link) {
+    if (!link.isSymbolicLink()) throw new Error(`Refusing to replace an independently managed profile: ${profile}`);
+    let correct = false;
+    try { correct = realpathSync(moduleLink) === realpathSync(join(root, 'node_modules')); } catch {}
+    if (!correct) {
+      if (!standalone) throw new Error(`Refusing to replace an independently managed profile: ${profile}`);
+      // The standalone admission gate excludes other package versions while active.
+      const replacement = `${moduleLink}.${process.pid}.tmp`;
+      symlinkSync(join(root, 'node_modules'), replacement, 'dir'); renameSync(replacement, moduleLink);
     }
-  } else symlinkSync(join(root, 'node_modules'), moduleLink, 'dir');
-  writeFileSync(join(profile, 'package.json'), JSON.stringify({
+  }
+  if (!link) {
+    try { symlinkSync(join(root, 'node_modules'), moduleLink, 'dir'); }
+    catch (error) { if (error.code !== 'EEXIST' || realpathSync(moduleLink) !== realpathSync(join(root, 'node_modules'))) throw error; }
+  }
+  const writeAtomic = (path, contents) => {
+    const staged = `${path}.${process.pid}.tmp`;
+    writeFileSync(staged, contents, { mode: 0o600 }); renameSync(staged, path);
+  };
+  const generatedName = '@dscode/standalone-profile';
+  writeAtomic(join(profile, 'package.json'), JSON.stringify({
     name: 'todd-dsh-tui-profile', private: true, type: 'module',
-    dependencies: manifest.dependencies, dsh: manifest.dsh,
+    dependencies: { ...manifest.dependencies, ...(standalone ? { [generatedName]: manifest.version } : {}) },
+    dsh: standalone ? { profile: { ...manifest.dsh.profile, bundles: [...manifest.dsh.profile.bundles, generatedName] } } : manifest.dsh,
   }, null, 2) + '\n');
-  const plugins = composePlugins({ root, hooks: hookConfig.path });
-  writeFileSync(join(profile, 'cordis.patch.yml'), [
+  const plugins = composePlugins({ root, hooks: hookConfig.path, ...(standalone ? { credentialsPath: join(runtimeHome, 'credentials.yaml') } : {}) });
+  const composition = [
     readFileSync(join(root, 'config/cordis.patch.yml'), 'utf8'),
     readFileSync(join(root, 'config/auto-review.patch.yml'), 'utf8'),
     plugins,
     presetDeclaration(root, dscodeComposition(root)),
-  ].join('\n'));
+  ].join('\n');
+  if (standalone) {
+    // An ancestor node_modules makes this generated base bundle resolvable without
+    // modifying the immutable application tree or replacing the native user layer.
+    const generated = join(home, 'node_modules', generatedName);
+    mkdirSync(generated, { recursive: true });
+    writeAtomic(join(generated, 'package.json'), JSON.stringify({ name: generatedName, version: manifest.version,
+      private: true, dsh: { bundle: { patch: './cordis.patch.yml' } } }) + '\n');
+    writeAtomic(join(generated, 'cordis.patch.yml'), composition);
+    try { writeFileSync(join(profile, 'cordis.patch.yml'), '[]\n', { flag: 'wx', mode: 0o600 }); }
+    catch (error) { if (error.code !== 'EEXIST') throw error; }
+  } else writeAtomic(join(profile, 'cordis.patch.yml'), composition);
   return profile;
 }
 
@@ -89,16 +143,16 @@ export function alignHubCredentials(home = runtimeHome, userHome = homedir()) {
 
 export function environment(home = runtimeHome, cwd = process.cwd()) {
   const userHome = homedir();
-  alignHubCredentials(home, userHome);
+  if (!standalone) alignHubCredentials(home, userHome);
   // Ancestor discovery is resolved here because only the launcher knows the
   // session directory; the preset reads the results from these two variables.
   const instructions = writeWorkspaceInstructions({ cwd, home: userHome, stateDir: home });
   return {
-    ...process.env, PATH: join(root, 'bin') + ':' + process.env.PATH, DSH_HOME: home, DSH_AGENTS_HOME: join(home, 'agents'),
-    DSCODE_SKILL_ANCESTOR_DIRS: JSON.stringify(ancestorSkillDirs({ cwd, home: userHome })),
+    ...(standalone ? standaloneEnvironment(root) : process.env), PATH: (standalone ? join(root, 'runtime/bin') + ':' : '') + join(root, 'bin') + ':' + process.env.PATH, DSH_HOME: home, DSH_AGENTS_HOME: join(home, 'agents'),
+    DSCODE_SKILL_ANCESTOR_DIRS: JSON.stringify(ancestorSkillDirs({ cwd, home: userHome }).filter(path => !standalone || !inside(canonical(join(userHome, '.dsh')), canonical(path)))),
     DSCODE_INSTRUCTION_HOME: instructions ?? home,
     DSCODE_SANDBOX_RUNNER: join(root, 'plugins/tui-tools/sandbox-runner.mjs'),
-    DSCODE_CLI_PATH: join(root, 'bin/dscode.mjs'),
+    DSCODE_CLI_PATH: join(root, standalone ? 'dscode' : 'bin/dscode.mjs'),
     DSH_TUI_REVIEW_ENTRY: join(root, 'plugins/auto-review/index.mjs'),
   };
 }
@@ -111,13 +165,12 @@ const quietNodeArgs = ['--disable-warning=ExperimentalWarning'];
 
 export function runDsh(args, { home = runtimeHome, cwd = root, stdio = 'inherit', env = {}, nodeArgs = [] } = {}) {
   return spawn(process.execPath, [...quietNodeArgs, ...nodeArgs, dshEntry, '--profile', profileName, ...args], {
-    cwd, env: { ...environment(home, cwd), ...env }, stdio,
+    cwd, env: { ...environment(home, cwd), ...env }, stdio: runtimeStdio(stdio),
   });
 }
 
 export async function main(argv = process.argv.slice(2), defaultCwd = root) {
-  const envFile = join(root, '.env');
-  if (existsSync(envFile)) process.loadEnvFile(envFile);
+  loadLocalEnvironment();
   const [command = 'start', ...args] = argv;
   if (!['setup', 'start', 'doctor', 'config'].includes(command)) throw new Error(`Unknown command: ${command}`);
   if (command === 'doctor') {
@@ -138,7 +191,7 @@ export async function main(argv = process.argv.slice(2), defaultCwd = root) {
   }
   const overlays = [];
   for (const file of ['mcp.local.yml', 'harness.local.yml']) {
-    const path = join(root, 'config', file);
+    const path = join(configRoot, 'config', file);
     if (existsSync(path)) overlays.push('--patch', path);
   }
   const child = runDsh([...overlays, ...(command === 'config' ? ['--dump-config'] : args)], { cwd });

@@ -2,17 +2,38 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
-## Full archive updater repair — 2026-10-12 (0.7.42 candidate)
+## Full archive updater repair — 2026-10-12 (0.7.42)
 
-The local repository gate passed lint, both TypeScript configurations, 1,150
-unit/component cases, native integration, package checks and 63 offline
-evaluations. Measured first-party `.mjs` coverage was 80.04% (18,147 / 22,671).
-Both architecture archives built. Apple Silicon qualification passed the real
-full-archive update with a synthetic prior version and effective native settings
-retained. The expanded qualification runs on both architectures in release CI.
-Installer tests also cover repair routing for 0.7.41, while runtime tests verify
-that the repair helper rejects a target with live sessions or Homebrew ownership.
-Public 0.7.41-to-0.7.42 installer repair remains a post-publication check.
+The local repository gate and Node 22/24 CI passed lint, both TypeScript
+configurations, 1,150 unit/component cases, native integration, package checks
+and 63 offline evaluations. Measured first-party `.mjs` coverage was 80.04%
+(18,147 / 22,671). Linux end-to-end passed after retrying an external registry
+HTTP 429. A release runner stalled during npm installation and was restarted;
+the successful attempt used the same commit and tag.
+The first Desktop public-install verification attempt also timed out while
+installing its temporary runtime dependencies, before plugin execution.
+The already published candidate was retained for verification on retry.
+That retry passed public native installation and Host activation; both Desktop
+`latest` and `preview` now select 0.7.42. The complete release workflow succeeded.
+
+Release qualification passed on Apple Silicon and native Intel, including real
+full-archive replacement with a synthetic prior version and effective native
+settings retained. Installer tests also cover repair routing for 0.7.41, while
+runtime tests verify that the repair helper rejects a target with live sessions
+or Homebrew ownership.
+
+Public testing used a disposable home with only system shell tools on PATH.
+It installed the actual public 0.7.41 package, saved a native setting and a data
+sentinel, and reran the current installer to repair to 0.7.42. The saved setting
+remained effective. It then exercised the installed updater against the real
+public 0.7.42 archive from a synthetic 0.0.0 baseline. Native Host diagnostics,
+current-version no-op, user data preservation and unchanged global DSH data all
+passed. A separate fresh latest-version install from shell stdin also passed
+without a system Node/npm/DSH. The receipt is
+`artifacts/local/standalone-public-0.7.42.json`.
+The Homebrew bump workflow succeeded and its formula uses the two published
+0.7.42 archive hashes. No real model inference or macOS permission-dialog
+interaction was performed; power-loss recovery is not established.
 
 ## Self-contained terminal distribution — 2026-10-12 (0.7.41)
 

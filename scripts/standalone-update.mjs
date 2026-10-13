@@ -5,15 +5,16 @@ import { createHash } from 'node:crypto';
 import { RELEASES, readPackage, VERSION } from './standalone-layout.mjs';
 import { newerVersion } from '../plugins/tui-tools/update.mjs';
 
-function execute(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: 'utf8', ...options });
+export function executePackageCommand(command, args, options = {}) {
+  // A complete package's tar listing exceeds Node's default 1 MiB buffer.
+  const result = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options });
   if (result.error) throw result.error;
   if (result.status !== 0) throw Error(`${command} failed: ${result.stderr || result.status}`);
   return result.stdout;
 }
 
 // Caller owns both the installation and state admission gates for the full update.
-export async function updateStandalone(args, { root, env, fetchImpl = fetch, exec = execute, swap = renameSync,
+export async function updateStandalone(args, { root, env, fetchImpl = fetch, exec = executePackageCommand, swap = renameSync,
   platform = `${process.platform}-${process.arch}` }) {
   if (args.length > 1 || args[0] && args[0] !== 'latest' && !VERSION.test(args[0])) throw Error('Usage: dscode update [exact-version]');
   const wanted = args[0] === 'latest' ? undefined : args[0];

@@ -8,7 +8,7 @@ macOS 14+ is supported. Git is used for repository and patch operations. Google 
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.41-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.42-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -19,7 +19,7 @@ The optional installer downloads and verifies the same package:
 ```sh
 curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
 # Pin an exact release:
-curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.41
+curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.42
 # Or install an already unpacked package, without a download:
 sh dscode-app/install.sh
 ```
@@ -40,7 +40,7 @@ The application does not import `~/.dsh` configuration, Hub tokens or the old `~
 
 ```sh
 dscode update             # newest published self-contained release
-dscode update 0.7.41      # an exact release, including an explicit rollback
+dscode update 0.7.42      # an exact release, including an explicit rollback
 ```
 
 Exit running DSCODE sessions and schedulers first. Startup and update share kernel admission locks; each running child retains protection even if its launcher is killed. Both the program location and the selected data directory are protected. Concurrent ordinary sessions from the same package remain supported. A different package must wait until those sessions exit before taking over the same data directory. The stable `dscode-app` profile preserves native model/settings edits in `cordis.patch.yml` across upgrades and package relocation. Generated application defaults live in a separate private base bundle under the data directory.
@@ -48,6 +48,8 @@ Exit running DSCODE sessions and schedulers first. Startup and update share kern
 The updater downloads a matching platform archive from GitHub, requires its published SHA-256 digest, checks its version/platform and bundled modules, and only then swaps the complete program directory. A failed check leaves the old program in place; a failed swap or relocated check restores it. Successful updates retain a sibling `dscode-app.backup-<version>-<timestamp>` directory. State never enters the staged package and is not moved or rolled back. The directory swap has a brief rename interval; a new launch in that interval may need to be retried. This is not a filesystem transaction across power failure.
 
 A default update never downgrades an application newer than the published release. An explicit version may downgrade only to another self-contained package; older source/prebuilt releases are refused. `/update` schedules this same updater after the TUI exits. Its version check uses GitHub, not npm.
+
+Version 0.7.41 has an archive-listing buffer bug in its updater. Rerun the `curl` installation command once to repair that version using the new package's updater. The repair retains the same session locks, checksum checks and external user data. From 0.7.42 onward, use `dscode update` normally. Homebrew installations continue to use `brew upgrade dscode`.
 
 ## Migration from older DSCODE installations
 
@@ -67,7 +69,7 @@ Automatic credential merging and conversion of future incompatible session schem
 
 The release build generates `artifacts/dscode.rb` from the exact two application archives and their checksums. The new formula installs the complete package into `libexec`, links only `dscode`, and has no Node/npm dependency. Its marker makes `dscode update` direct users to `brew upgrade dscode`; Homebrew replaces the whole package, never a separate Hub profile.
 
-The maintained tap must adopt this generated formula and switch its updater from npm versions to GitHub release formulas. The repository build does not silently publish changes to the external `qiz029/homebrew-tap` repository. Until that migration is published, use the direct archive or installer; the existing tap may still install the legacy launcher.
+The maintained [qiz029/homebrew-tap](https://github.com/qiz029/homebrew-tap) uses this generated formula. Its daily and on-demand updater follows GitHub releases, verifies the formula digest and both archive checksums, and rejects incomplete releases before changing the tap. The repository build produces the formula; tap synchronization remains a separate publication step.
 
 ## Build and release
 

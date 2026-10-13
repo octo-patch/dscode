@@ -10,6 +10,14 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.42] - 2026-10-12
+
+### Fixed
+
+- Allow complete archive file listings above Node's default subprocess buffer limit. Version 0.7.41 failed with `ENOBUFS` before replacing the application; user data and the installed package were retained.
+- Let the shell installer repair 0.7.41 with the newly verified package's updater, retaining target ownership and active-session checks. Rerun the curl installer once, then use `dscode update` for subsequent upgrades.
+- Require full candidate archive replacement and effective user-setting preservation in both architecture qualification jobs. Small updater fixtures did not expose the original failure.
+
 ## [0.7.41] - 2026-10-12
 
 ### Changed

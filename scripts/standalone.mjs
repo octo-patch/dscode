@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { resolve, join } from 'node:path';
+import { resolve, join, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { readPackage, standaloneEnvironment, installationLockHome } from './standalone-layout.mjs';
 
 export async function standaloneMain(args = process.argv.slice(2)) {
-  const root = resolve(import.meta.dirname, '..');
-  const metadata = readPackage(root);
+  let root = resolve(import.meta.dirname, '..');
+  let metadata = readPackage(root);
   if (process.versions.node !== metadata.node) throw Error(`This package requires its private Node ${metadata.node}; run ${join(root, 'dscode')}.`);
+  // The freshly verified installer package can repair an older updater while
+  // retaining the target installation's ownership checks and admission locks.
+  if (args[0] === '--update-installation') {
+    if (args.length < 2 || args.length > 3 || !isAbsolute(args[1])) throw Error('Expected an absolute installation path and optional release version.');
+    root = realpathSync(args[1]); metadata = readPackage(root);
+    args = ['update', ...args.slice(2)];
+  }
   const env = standaloneEnvironment(root);
   for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
   Object.assign(process.env, env);

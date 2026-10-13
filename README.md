@@ -54,6 +54,8 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 
 ## 🆕 What's new
 
+**0.7.42** — Fixes whole-package updates exceeding the archive-listing buffer. If you installed 0.7.41, rerun the `curl` installer below once; subsequent releases use `dscode update` normally. See the [release notes](docs/releases/0.7.42.md).
+
 **0.7.41** — One self-contained terminal package includes its own runtime and native dependencies. Installation and updates no longer depend on npm or Hub; user data is separate, and an existing DSH installation stays independent. See the [release notes](docs/releases/0.7.41.md).
 
 **0.7.40** — Clears cached balances when credentials change or are removed, preserves currency and account/key-limit labels, and adds fresh `/status` queries in the TUI and ACP. ACP also filters configured model choices and reports failed turns with retry guidance. See the [release notes](docs/releases/0.7.40.md).
@@ -106,18 +108,18 @@ The package includes pinned Node, Harness, TUI, plugins and native dependencies.
 
 ```sh
 dscode update             # upgrade to the latest self-contained release
-dscode update 0.7.41      # install an exact self-contained release
+dscode update 0.7.42      # install an exact self-contained release
 ```
 
 Exit running DSCODE sessions and schedulers first. The updater verifies and replaces the whole application, preserving settings, credentials and sessions; a failed replacement restores the old program. In the TUI, `/update` schedules the same updater after you exit. Re-running the installer also updates an installation it owns.
 
-**Coming from an older installation?** Legacy npm/Hub versions need a one-time migration; their old `dscode update` does not switch to this distribution. The installer refuses to overwrite a `dscode` command owned by another installation. Homebrew-managed packages use `brew upgrade dscode`; until the external tap adopts the new formula, use the direct installer or archive. See [Distribution](docs/distribution.md) for migration steps. The commands above require a published self-contained release and do not fall back to legacy packages.
+**Coming from an older installation?** Legacy npm/Hub versions need a one-time migration; their old `dscode update` does not switch to this distribution. The installer refuses to overwrite a `dscode` command owned by another installation. Homebrew-managed packages use `brew upgrade dscode`; the maintained tap installs the same self-contained release archives. See [Distribution](docs/distribution.md) for migration steps. The commands above require a published self-contained release and do not fall back to legacy packages.
 
 **Prefer a direct download?** Get one package from [Releases](https://github.com/qiz029/dscode/releases): `darwin-arm64` for Apple Silicon, or `darwin-x64` for Intel. For example:
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.41-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.42-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 

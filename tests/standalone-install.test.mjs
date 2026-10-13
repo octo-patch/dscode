@@ -13,7 +13,7 @@ function fixture(t, fail = false) {
   const app = join(work, 'package'), install = join(work, 'installed'), bin = join(work, 'bin');
   mkdirSync(app); mkdirSync(bin);
   writeFileSync(join(app, '.dscode-standalone.json'), '{}');
-  writeFileSync(join(app, 'dscode'), `#!/bin/sh\ncase "$1" in --check) exit ${fail ? 8 : 0} ;; --version) echo 2.0.0 ;; update) echo updated-$2 ;; esac\n`);
+  writeFileSync(join(app, 'dscode'), `#!/bin/sh\ncase "$1" in --check) exit ${fail ? 8 : 0} ;; --version) echo 2.0.0 ;; update) echo updated-$2 ;; --update-installation) echo repaired-$2-$3 ;; esac\n`);
   chmodSync(join(app, 'dscode'), 0o755);
   writeFileSync(join(app, 'install.sh'), script);
   return { work, app, install, bin, env: { PATH: '/usr/bin:/bin', HOME: work, DSCODE_HOME: join(work, 'state'), DSCODE_INSTALL_DIR: install, DSCODE_BIN_DIR: bin } };
@@ -34,6 +34,15 @@ test('installer refuses foreign commands and leaves no install after failed veri
   result = spawnSync('/bin/sh', [join(f.app, 'install.sh')], { env: f.env, encoding: 'utf8' });
   assert.notEqual(result.status, 0); assert.match(result.stderr, /another installation/);
   assert.equal(readFileSync(join(f.bin, 'dscode'), 'utf8'), 'foreign');
+});
+test('installer repairs 0.7.41 using the verified new package rather than its broken updater', t => {
+  const f = fixture(t);
+  let result = spawnSync('/bin/sh', [join(f.app, 'install.sh')], { env: f.env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  writeFileSync(join(f.install, 'dscode'), '#!/bin/sh\ncase "$1" in --version) echo 0.7.41 ;; *) exit 91 ;; esac\n');
+  result = spawnSync('/bin/sh', [join(f.app, 'install.sh'), '2.0.0'], { env: f.env, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert(result.stdout.includes(`repaired-${f.install}-2.0.0`));
 });
 for (const corrupt of [false, true]) test(`piped installer downloads one platform package and ${corrupt ? 'rejects corruption' : 'verifies it without Node'}`, async t => {
   const f = fixture(t), tools = join(f.work, 'tools'); mkdirSync(tools);

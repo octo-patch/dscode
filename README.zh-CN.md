@@ -54,6 +54,8 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 🆕 最新变化
 
+**0.7.42** — 修复完整安装包升级时的文件列表缓冲区限制。已装 0.7.41 的用户请重新运行下方 `curl` 安装命令一次，之后可正常使用 `dscode update`。详见[发布说明](docs/releases/0.7.42.md)。
+
 **0.7.41** — 终端改为一个自包含包，自带运行环境和原生依赖。安装与升级不再依赖 npm 或 Hub；用户数据独立保存，与已有 DSH 安装互不依赖。详见[发布说明](docs/releases/0.7.41.md)。
 
 **0.7.40** — 凭据变更或删除后清除余额缓存，保留币种并区分账户余额与 key 限额；TUI 和 ACP 新增实时查询的 `/status`。ACP 同时按已配置凭据筛选模型，并在失败时提供重试提示。详见[发布说明](docs/releases/0.7.40.md)。
@@ -106,18 +108,18 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```sh
 dscode update             # 升级到最新的自包含发布版
-dscode update 0.7.41      # 安装指定的自包含发布版
+dscode update 0.7.42      # 安装指定的自包含发布版
 ```
 
 先退出正在运行的 DSCODE 会话和调度器。升级器校验后整体替换程序，保留设置、凭据和会话；替换失败会恢复旧程序。在 TUI 中输入 `/update`，会安排在退出后执行同一个升级器。再次运行安装命令，也会升级由该安装器管理的安装。
 
-**从旧安装迁移？** 旧 npm/Hub 版本需要迁移一次，旧版 `dscode update` 不会自动切换到新分发方式。安装器不会覆盖其他安装所拥有的 `dscode` 命令。Homebrew 管理的包使用 `brew upgrade dscode`；外部 tap 采用新配方前，请使用直接安装器或压缩包。迁移步骤见[分发说明](docs/distribution.md)。上述命令需要已发布的自包含包，不会回退到旧版安装包。
+**从旧安装迁移？** 旧 npm/Hub 版本需要迁移一次，旧版 `dscode update` 不会自动切换到新分发方式。安装器不会覆盖其他安装所拥有的 `dscode` 命令。Homebrew 管理的包使用 `brew upgrade dscode`；维护中的 tap 已使用同一份自包含发布包。迁移步骤见[分发说明](docs/distribution.md)。上述命令需要已发布的自包含包，不会回退到旧版安装包。
 
 **也可以直接下载：** 从 [Releases](https://github.com/qiz029/dscode/releases) 选择一个包：Apple 芯片选择 `darwin-arm64`，Intel 选择 `darwin-x64`。例如：
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.41-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.42-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 

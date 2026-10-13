@@ -2,7 +2,19 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
-## Self-contained terminal distribution — 2026-10-12 (0.7.41 candidate)
+## Full archive updater repair — 2026-10-12 (0.7.42 candidate)
+
+The local repository gate passed lint, both TypeScript configurations, 1,150
+unit/component cases, native integration, package checks and 63 offline
+evaluations. Measured first-party `.mjs` coverage was 80.04% (18,147 / 22,671).
+Both architecture archives built. Apple Silicon qualification passed the real
+full-archive update with a synthetic prior version and effective native settings
+retained. The expanded qualification runs on both architectures in release CI.
+Installer tests also cover repair routing for 0.7.41, while runtime tests verify
+that the repair helper rejects a target with live sessions or Homebrew ownership.
+Public 0.7.41-to-0.7.42 installer repair remains a post-publication check.
+
+## Self-contained terminal distribution — 2026-10-12 (0.7.41)
 
 The terminal candidate contains private Node 24.21.0, the pinned Harness graph,
 compiled TUI and native modules. State uses a separate DSCODE home and a stable
@@ -21,9 +33,9 @@ protection, symlink aliases, whole-package replacement and rollback, unchanged
 user data, simultaneous sessions, and admission protection across different
 package locations. Real subprocess tests retain update protection after both a
 launcher crash and a normal launcher exit with a surviving descendant.
-The repository gate passed 1,146 unit/component cases (80.09% measured first-party
-`.mjs` coverage); the additional normal-exit lease regression passed alongside
-the four existing launcher lifecycle cases.
+The final Node 22 and Node 24 CI gates each passed 1,148 unit/component
+cases (80.04% measured first-party `.mjs` coverage), including the
+normal-exit lease regression and the existing launcher lifecycle cases.
 Lint, both TypeScript configurations, native integration, package checks and all
 63 offline evaluations also passed. After the TUI's startup lookup and `/update`
 routing were unified with the package updater, lint, both TypeScript checks,
@@ -39,12 +51,19 @@ with preservation of native settings. Its environment has deliberately unusable
 foreign Node, npm and DSH commands and checks that existing DSH data is unchanged.
 Receipts at `artifacts/local/standalone-<platform>.json` bind those checks to the
 exact archive digest. Intel qualification on this Apple Silicon workstation uses
-Rosetta; release CI separately requires the same archive on an Intel runner.
+Rosetta; release CI also passed the same archive on a native Intel runner.
 
-These are local release candidates. Public installation, external Homebrew tap
-adoption, live model inference and macOS permission-dialog interaction are not
-established by these checks. The updater supports rollback after detected swap
-failure, not a filesystem transaction across a power loss.
+The 0.7.41 terminal archives were published and a fresh public curl install
+passed with no usable system Node/npm/DSH. The external Homebrew tap adopted
+the verified release formula, and its GitHub-based update workflow passed.
+However, the real public full-archive update failed with `ENOBUFS`: the tar file
+listing exceeded the default Node subprocess output buffer. It failed before
+replacement. Small update fixtures and the original archive qualification did
+not cover this condition. Version 0.7.42 addresses it and adds full candidate
+archive replacement to both architecture gates.
+Live model inference and macOS permission-dialog interaction remain outside
+these checks. The updater supports rollback after detected swap failure, not
+a filesystem transaction across a power loss.
 
 ## Cached balance credential isolation — 2026-10-12 (unreleased)
 

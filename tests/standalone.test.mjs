@@ -6,11 +6,17 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { MARKER, canonical, readPackage, standaloneEnvironment } from '../scripts/standalone-layout.mjs';
-import { updateStandalone } from '../scripts/standalone-update.mjs';
+import { updateStandalone, executePackageCommand } from '../scripts/standalone-update.mjs';
 import { fetchLatestVersion, planUpdate } from '../plugins/tui-tools/update.mjs';
 import { schedulerPlist } from '../plugins/triggers/scheduler-service.mjs';
 import { CustomStore } from '../plugins/custom/config.mjs';
 import { createEmailInbox } from '../plugins/email/inbox.mjs';
+
+test('package commands capture listings larger than the default Node subprocess buffer', () => {
+  const listing = executePackageCommand(process.execPath, ['-e', 'process.stdout.write("a".repeat(2 * 1024 * 1024) + "END")']);
+  assert.equal(listing.length, 2 * 1024 * 1024 + 3);
+  assert(listing.endsWith('END'));
+});
 
 test('standalone custom providers and email use private data, preserving explicit email overrides', async t => {
   const home = scratch(t), saved = { ...process.env };

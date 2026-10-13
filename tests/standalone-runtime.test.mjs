@@ -81,6 +81,8 @@ test('standalone uses private Node, preserves exit status, admits parallel sessi
   assert.equal(await conflict.done, 1); assert.match(conflict.error, /Another DSCODE package/);
   const rejected = start(join(root, 'dscode'), ['update'], env); processes.push(rejected);
   assert.equal(await rejected.done, 1); assert.match(rejected.error, /Exit running/);
+  const repair = start(join(clone, 'dscode'), ['--update-installation', root], env); processes.push(repair);
+  assert.equal(await repair.done, 1); assert.match(repair.error, /Exit running/);
   // Simulate both launcher layers dying while their real Host children survive.
   for (const record of processes.slice(1, 3)) { record.child.kill('SIGKILL'); await record.done; }
   for (const pid of [pids[0], pids[2]]) process.kill(pid, 'SIGKILL');
@@ -91,4 +93,7 @@ test('standalone uses private Node, preserves exit status, admits parallel sessi
   await until(async () => (await activeRuns(lockHome)).length === 0);
   const relocated = start(join(clone, 'dscode'), ['exit-seven'], env); processes.push(relocated);
   assert.equal(await relocated.done, 7, relocated.error);
+  put(join(root, '.dscode-brew'), '');
+  const brewRepair = start(join(clone, 'dscode'), ['--update-installation', root], env); processes.push(brewRepair);
+  assert.equal(await brewRepair.done, 1); assert.match(brewRepair.error, /brew upgrade dscode/);
 });

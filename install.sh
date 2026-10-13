@@ -16,9 +16,14 @@ fi
 if [ -e "$bin_dir/dscode" ] || [ -L "$bin_dir/dscode" ]; then
   [ -L "$bin_dir/dscode" ] && [ "$(/usr/bin/readlink "$bin_dir/dscode")" = "$install_dir/dscode" ] || fail "Command belongs to another installation: $bin_dir/dscode. Choose DSCODE_BIN_DIR or remove that old link explicitly."
 fi
+repair_dir=''
 if [ -e "$install_dir" ] || [ -L "$install_dir" ]; then
   [ -f "$install_dir/.dscode-standalone.json" ] || fail "Existing directory is not a self-contained installation: $install_dir"
-  exec "$install_dir/dscode" update "$version"
+  if [ "$("$install_dir/dscode" --version)" = 0.7.41 ] && [ "$version" != 0.7.41 ]; then
+    repair_dir=$install_dir
+  else
+    exec "$install_dir/dscode" update "$version"
+  fi
 fi
 source_dir=''
 if [ -f "$0" ]; then
@@ -54,6 +59,15 @@ if [ -z "$source_dir" ]; then
   source_dir=$work/app
 fi
 [ -f "$source_dir/.dscode-standalone.json" ] && [ -x "$source_dir/dscode" ] || fail 'Not a self-contained DSCODE package'
+if [ -n "$repair_dir" ]; then
+  "$source_dir/dscode" --check
+  if [ "$("$source_dir/dscode" --version)" = 0.7.41 ]; then
+    "$repair_dir/dscode" update "$version"
+  else
+    "$source_dir/dscode" --update-installation "$repair_dir" "$version"
+  fi
+  exit
+fi
 parent=$(/usr/bin/dirname -- "$install_dir")
 mkdir -p "$parent" "$bin_dir"
 mkdir "$install_dir.install-lock" || fail 'Another installation is in progress'

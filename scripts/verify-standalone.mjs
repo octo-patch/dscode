@@ -70,13 +70,37 @@ try {
   run('/bin/sh', [join(app, 'install.sh')], { env: { ...env, DSCODE_INSTALL_DIR: destination, DSCODE_BIN_DIR: commands } });
   assert.equal(run(join(commands, 'dscode'), ['--version']).trim(), version);
   assert.match(run(join(commands, 'dscode'), ['--dump-config']), /targetWords: 17/);
+  // Exercise the real updater against the entire candidate archive. Small unit
+  // fixtures missed 0.7.41's tar-listing ENOBUFS failure before publication.
+  const updateProbe = `import assert from 'node:assert/strict';
+    import {readFileSync,writeFileSync} from 'node:fs';
+    import {join} from 'node:path';
+    import {updateStandalone} from ${JSON.stringify(join(destination, 'scripts/standalone-update.mjs'))};
+    import {standaloneEnvironment} from ${JSON.stringify(join(destination, 'scripts/standalone-layout.mjs'))};
+    const root=${JSON.stringify(destination)}, version=${JSON.stringify(version)};
+    for (const name of ['package.json','.dscode-standalone.json']) {
+      const path=join(root,name), data=JSON.parse(readFileSync(path,'utf8'));
+      data.version='0.0.0'; writeFileSync(path,JSON.stringify(data));
+    }
+    const bytes=readFileSync(${JSON.stringify(archive)});
+    const name='dscode-'+version+'-'+process.platform+'-'+process.arch+'-standalone.tar.gz';
+    const result=await updateStandalone([], {root,env:standaloneEnvironment(root),
+      fetchImpl:async url=>url==='https://fixture/package'
+        ? new Response(bytes)
+        : Response.json({tag_name:'v'+version,assets:[{name,digest:'sha256:'+${JSON.stringify(digest)},browser_download_url:'https://fixture/package'}]})});
+    assert.equal(result.status,'updated'); assert.equal(result.version,version);
+    console.log('FULL_PACKAGE_UPDATE_OK');`;
+  assert.match(run(join(destination, 'runtime/bin/node'), ['--input-type=module', '-e', updateProbe],
+    { env: cleanEnv, timeout: 180000 }), /FULL_PACKAGE_UPDATE_OK/);
+  assert.equal(run(join(commands, 'dscode'), ['--version']).trim(), version);
+  assert.match(run(join(commands, 'dscode'), ['--dump-config']), /targetWords: 17/);
   assert.equal(readFileSync(settings, 'utf8'), saved);
   assert.equal(readFileSync(join(user, '.dsh/untouched'), 'utf8'), sentinel);
   assert.deepEqual(readdirSync(join(user, '.dsh')), ['untouched']);
   assert.equal(readFileSync(join(user, '.dscode/credentials.yaml'), 'utf8'), 'DO_NOT_IMPORT: sentinel\n');
   assert(!readdirSync(app).includes('.runtime'));
   const report = { version, platform: `${process.platform}-${process.arch}`, archive, sha256: digest,
-    checks: ['private runtime', 'native imports', 'native PTY', 'cold profile composition', 'native Host diagnostics', 'foreign DSH and Node isolation', 'home-directory skill isolation', 'external provider and email state', 'local shell installer', 'native settings effective after restart and package relocation'],
+    checks: ['private runtime', 'native imports', 'native PTY', 'cold profile composition', 'native Host diagnostics', 'foreign DSH and Node isolation', 'home-directory skill isolation', 'external provider and email state', 'local shell installer', 'full candidate archive replacement from synthetic 0.0.0', 'native settings effective after restart, relocation and upgrade'],
     limits: ['No remote model calls', 'No macOS Computer Use permission interaction', 'No public publication performed'] };
   mkdirSync(join(root, 'artifacts/local'), { recursive: true });
   writeFileSync(join(root, 'artifacts/local', `standalone-${process.platform}-${process.arch}.json`), JSON.stringify(report, null, 2) + '\n');

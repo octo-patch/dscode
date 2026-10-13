@@ -30,6 +30,7 @@ import { replaceOnce } from './patch-util.mjs';
 export const INK_VERSION = '5.2.1';
 const MARKER_V2 = 'dscode-frame-v2';
 const MARKER_V3 = 'dscode-frame-v3';
+const MARKER_V4 = 'dscode-frame-v4';
 
 const PRISTINE_BODY = "        stream.write(ansiEscapes.eraseLines(previousLineCount) + output);\n        previousLineCount = output.split('\\n').length;";
 const V1_BODY = "        const dscodeLineCount = output.split('\\n').length;\n        const dscodePad = Math.max(0, previousLineCount - dscodeLineCount); // dscode-frame-v1\n        stream.write(ansiEscapes.eraseLines(previousLineCount) + '\\n'.repeat(dscodePad) + output);\n        previousLineCount = dscodePad + dscodeLineCount;";
@@ -48,17 +49,30 @@ const INK_LOG_TO = "            this.log(output, staticOutput.split('\\n').lengt
 
 /** Repaint ledger: the rows a cleared frame freed stay reserved for the next one. */
 export function patchInkLogUpdate(text) {
-  if (text.includes(MARKER_V3)) return text;
-  const generation = [V2_BODY, V1_BODY, PRISTINE_BODY].find(body => text.includes(body));
-  if (generation === undefined) throw new Error('the Ink repaint ledger did not match a known generation');
-  text = replaceOnce(text, generation, V3_BODY);
-  // A pristine file still needs the ledger hooks; a v2 file already carries them.
-  for (const [from, to] of [[DECLARE_FROM, DECLARE_TO], [RENDER_FROM, RENDER_TO], [CLEAR_FROM, CLEAR_TO], [DONE_FROM, DONE_TO]]) {
-    if (text.includes(from)) text = replaceOnce(text, from, to);
+  if (text.includes(MARKER_V4)) return text;
+  if (!text.includes(MARKER_V3)) {
+    const generation = [V2_BODY, V1_BODY, PRISTINE_BODY].find(body => text.includes(body));
+    if (generation === undefined) throw new Error('the Ink repaint ledger did not match a known generation');
+    text = replaceOnce(text, generation, V3_BODY);
+    // A pristine file still needs the ledger hooks; a v2 file already carries them.
+    for (const [from, to] of [[DECLARE_FROM, DECLARE_TO], [RENDER_FROM, RENDER_TO], [CLEAR_FROM, CLEAR_TO], [DONE_FROM, DONE_TO]]) {
+      if (text.includes(from)) text = replaceOnce(text, from, to);
+    }
+    // The body computes with the counter: refuse a hand-edited ledger that lost it
+    // rather than injecting a patch whose pads come out as NaN.
+    if (!text.includes('let dscodeReserved')) throw new Error('the Ink repaint ledger lost its flush counter');
   }
-  // The body computes with the counter: refuse a hand-edited ledger that lost it
-  // rather than injecting a patch whose pads come out as NaN.
-  if (!text.includes('let dscodeReserved')) throw new Error('the Ink repaint ledger lost its flush counter');
+  // A source-backed full-screen replay starts at the terminal origin. Its old
+  // height is no longer a floor, especially after shrinking the window.
+  text = replaceOnce(text, "    let hasHiddenCursor = false;", `    let hasHiddenCursor = false;
+    // dscode-frame-v4: reset only for an explicit terminal clear/replay.
+    const dscodeResetFrame = () => {
+        previousLineCount = 0;
+        dscodeReserved = 0;
+        previousOutput = '';
+    };
+    stream.on?.('dscode:frame-reset', dscodeResetFrame);`);
+  text = replaceOnce(text, "    render.done = () => {", "    render.done = () => {\n        stream.off?.('dscode:frame-reset', dscodeResetFrame);");
   return text;
 }
 

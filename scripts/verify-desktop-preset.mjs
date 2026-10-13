@@ -48,6 +48,8 @@ try {
   symlinkSync(join(modules, '@deepseek-ai'), join(profile, 'node_modules/@deepseek-ai'));
   writeFileSync(join(profile, 'package.json'), JSON.stringify({ private: true, type: 'module', dependencies: { [desktopPresetPackage]: `file:${bundle}` }, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', desktopPresetPackage] } } }));
   cpSync(join(root, 'scripts/desktop-preset-probe.mjs'), join(home, 'probe.mjs'));
+  cpSync(join(root, 'scripts/file-tools-probe.mjs'), join(home, 'file-tools-probe.mjs'));
+  cpSync(join(root, 'scripts/shell-recovery-probe.mjs'), join(home, 'shell-recovery-probe.mjs'));
   cpSync(join(root, 'scripts/desktop-custom-probe.mjs'), join(home, 'desktop-custom-probe.mjs'));
   cpSync(join(root, 'scripts/desktop-browser-probe.mjs'), join(home, 'desktop-browser-probe.mjs'));
   if (browser) {
@@ -90,7 +92,8 @@ try {
     });
     let output = '';
     child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });
-    const timeout = setTimeout(() => child.kill('SIGKILL'), browser ? 120000 : 60000);
+    // Shell recovery adds two deliberate seven-second waits to each phase.
+    const timeout = setTimeout(() => child.kill('SIGKILL'), browser ? 120000 : 90000);
     const code = await new Promise((resolve, reject) => { child.once('exit', resolve); child.once('error', reject); }).finally(() => clearTimeout(timeout));
     if (code !== 0 || !output.includes('DESKTOP_PRESET_PASSED')) throw Error(output.replace(/token=[^\s"&]+/g, 'token=<redacted>') || `Preset probe exited ${code}`);
     const result = JSON.parse(output.split('\n').find(line => line.startsWith('DESKTOP_PRESET_PASSED')).slice('DESKTOP_PRESET_PASSED '.length));

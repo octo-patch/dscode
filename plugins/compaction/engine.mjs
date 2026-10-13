@@ -1,7 +1,7 @@
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic';
 import { ManualCompactionError, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction';
 import { SessionSeq } from '@deepseek-ai/dsh-session';
-import { effectiveContextWindow, fitsInWindow, prefetchThresholdTokens, pricedCompactionPolicy } from './threshold.mjs';
+import { effectiveContextWindow, fitsInWindow, prefetchThresholdTokens, pricedCompactionPolicy, compactionThresholdTokens } from './threshold.mjs';
 
 // DSCODE's compaction policy as a subclass of the upstream engine instead of a
 // build-time patch of its source. It owns exactly the decisions this deployment
@@ -157,8 +157,9 @@ export class DscodeCompactionEngine extends BasicCompactionEngine {
   dscodeCompactSpec(policy, contextWindow) {
     const key = `${policy.target.provider}/${policy.target.model}`;
     if (!Number.isInteger(contextWindow) || contextWindow <= 0) throw new Error(`compaction: contextWindow (${contextWindow}) must be a positive integer for ${key}`);
-    const thresholdTokens = Math.floor(contextWindow * policy.thresholdRatio);
-    const retainTokens = policy.retainTokens === undefined ? Math.floor(contextWindow * policy.retainRatio) : policy.retainTokens;
+    const thresholdTokens = compactionThresholdTokens(policy.target.provider, policy.target.model, contextWindow, policy.thresholdRatio);
+    const retentionWindow = Math.min(contextWindow, thresholdTokens / policy.thresholdRatio);
+    const retainTokens = policy.retainTokens === undefined ? Math.floor(retentionWindow * policy.retainRatio) : policy.retainTokens;
     if (retainTokens >= thresholdTokens) throw new Error(`compaction: retainTokens (${retainTokens}) must be less than threshold tokens ${thresholdTokens} for ${key}`);
     return { ...policy, contextWindow, thresholdTokens, retainTokens };
   }

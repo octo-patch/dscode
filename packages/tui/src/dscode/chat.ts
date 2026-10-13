@@ -1,19 +1,22 @@
 /**
- * dscode: DSCODE's transcript rendering. The default view stays quiet — tool
- * calls and the model's thinking only appear (dim) once verbose is on — and a
- * wrapped user prompt is painted as one continuous background band.
+ * DSCODE's transcript rendering. The default view keeps failures and file
+ * changes visible while folding routine calls and thinking. Verbose mode
+ * includes bounded diffs. Wrapped user prompts form one continuous band.
  *
  * @module dsh-code/dscode/chat
  */
 
 import type { TranscriptEntry } from '../render/projection.ts'
 import { visibleColumns } from '../render/markdown.ts'
+import { singleLineText, truncateColumns } from '../render/text.ts'
+import { getLanguage, t } from '../i18n.ts'
 import {
   hangingStyledLines,
   hangingTextLines,
   lineSegment,
   textLines,
   transcriptEntryLines,
+  toolDetailLines,
   type StyledLine,
 } from '../render/lines.ts'
 
@@ -75,7 +78,7 @@ export function createChatLinesCache(): (entry: TranscriptEntry, columns: number
   const contexts = new Map<string, WeakMap<TranscriptEntry, readonly StyledLine[]>>()
   return (entry, columns, verbose = false) => {
     const width = Math.max(1, Math.floor(columns))
-    const key = `${width}:${verbose ? 1 : 0}`
+    const key = `${width}:${verbose ? 1 : 0}:${getLanguage()}`
     let cache = contexts.get(key)
     if (cache === undefined) {
       cache = new WeakMap()
@@ -92,20 +95,43 @@ export function createChatLinesCache(): (entry: TranscriptEntry, columns: number
 }
 
 /**
- * Render one transcript entry the DSCODE way: tool rows are quiet unless verbose
- * is on, assistant rows fold their thinking above the answer, and user prompts
- * carry the background band.
+ * Render one transcript entry: routine tool rows are quiet unless verbose is
+ * on, failures and file mutations retain a summary, assistant rows fold their
+ * thinking above the answer, and user prompts carry the background band.
  */
 export function dscodeChatLines(entry: TranscriptEntry, columns: number, verbose = false): readonly StyledLine[] {
   const width = Math.max(1, Math.floor(columns))
-  const label = entry.kind === 'assistant' || entry.kind === 'tool' ? timeStamp(entry.time) : undefined
+  const label = verbose && (entry.kind === 'assistant' || entry.kind === 'tool') ? timeStamp(entry.time) : undefined
   // The stamp leads the block, so the rows wrap to what is left of the width: a row that
   // overflowed here would cost an extra screen row per block and move the composer.
   const stampWidth = label === undefined ? 0 : visibleColumns(label + ' ')
   const blockWidth = Math.max(1, width - stampWidth)
   const blockColumns = Math.max(1, columns - stampWidth)
   if (entry.kind === 'tool') {
-    if (!verbose) return []
+    if (!verbose) {
+      // Keep actionable failures visible even when routine calls are folded.
+      if (entry.state === 'error') return [
+        { segments: [lineSegment(truncateColumns(singleLineText(`⨯ ${entry.name} [${entry.ordinal}]: ${entry.summary || t('tool.failed')}`), width), 'error')] },
+      ]
+      if (entry.state !== 'done' || entry.detail?.kind !== 'diff') return []
+      return [
+        ...entry.detail.diffs.map(diff => {
+          const added = diff.lines.filter(line => line.mark === '+').length
+          const removed = diff.lines.filter(line => line.mark === '-').length
+          const counts = ` +${added} −${removed}${diff.truncated ? ' ' + t('tool.shown') : ''}`
+          const prefix = '✓ '
+          if (width <= visibleColumns(prefix)) return { segments: [lineSegment(truncateColumns(prefix, width), 'success')] }
+          const path = truncateColumns(singleLineText(diff.path), Math.max(1, width - visibleColumns(prefix + counts)))
+          const content = truncateColumns(path + counts, Math.max(1, width - visibleColumns(prefix)))
+          const tail = content.endsWith(counts) ? counts : ''
+          return { segments: [
+            lineSegment(prefix, 'success'),
+            lineSegment(tail ? content.slice(0, -tail.length) : content, 'plain'),
+            lineSegment(tail, 'dim'),
+          ] }
+        }),
+      ]
+    }
     const state = entry.state === 'running' ? ' · running' : entry.state === 'error' ? ' · error' : ''
     const lines = [...stamped(hangingStyledLines(
       [
@@ -122,6 +148,7 @@ export function dscodeChatLines(entry: TranscriptEntry, columns: number, verbose
     if (entry.summary) {
       lines.push(...hangingTextLines('Output: ' + entry.summary, width, '  ', entry.state === 'error' ? 'error' : 'dim', '    '))
     }
+    if (entry.detail?.kind === 'diff') lines.push(...toolDetailLines(entry.detail, width))
     lines.push({ segments: [] })
     return lines
   }
@@ -129,9 +156,9 @@ export function dscodeChatLines(entry: TranscriptEntry, columns: number, verbose
     const thinking = verbose && entry.reasoning ? [...stamped(thinkingLines(entry.reasoning, blockWidth), label), { segments: [] }] : []
     if (!entry.text && !entry.interrupted) return thinking
     const body = [...thinking, ...stamped(transcriptEntryLines({ ...entry, reasoning: '' }, blockColumns, false, false, false), label)]
-    // The turn's last reply closes the turn with its own rule and breathing rows.
+    // A single breathing row separates turns without a full-width rule.
     return entry.turnEnded === true
-      ? [...body, { segments: [] }, { segments: [{ text: '─'.repeat(width), style: 'dim' as const }] }, { segments: [] }]
+      ? [...body, { segments: [] }]
       : body
   }
   const rows = transcriptEntryLines(entry, columns, false, false, false)

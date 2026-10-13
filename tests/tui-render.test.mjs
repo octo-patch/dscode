@@ -24,6 +24,7 @@ import { watchSkills } from '../packages/tui/src/skills.ts';
 import { dscodeTelemetryParts } from '../packages/tui/src/dscode/telemetry.ts';
 import { createBtwFeed } from '../packages/tui/src/btw.ts';
 import { setTheme } from '../packages/tui/src/theme.ts';
+import { setSpeedSource } from '../plugins/openai/speed.mjs';
 
 import { mount, assertFits, tick } from './fixtures/tui-mount.mjs';
 
@@ -103,6 +104,24 @@ test('the footer never borrows MiMo effort from the previous request after a mod
   }
 });
 
+test('the idle footer refreshes speed without another model request', async () => {
+  let label = 'default';
+  const dispose = setSpeedSource(() => label);
+  const ui = await mount(StatusLine, {
+    facts: { model: 'openai/gpt-6.1-sol', effort: 'low', title: '', cwd: '', branch: '', sessionId: 'speed', sandbox: '', permission: '', fullSessionId: 'speed' },
+    stats: createTranscriptView().stats,
+    busy: false, columns: 120, items: ['model'], animated: false,
+  }, { columns: 120 });
+  try {
+    assert.match(ui.frame(), /default/);
+    label = 'ultrafast (unconfirmed)';
+    await tick(1250);
+    assert.match(ui.frame(), /ultrafast \(unconfirmed\)/);
+    assert.doesNotMatch(ui.frame(), /default/);
+    assertFits(ui);
+  } finally { ui.close(); dispose(); }
+});
+
 test('the status line names the session on row 1 and right-aligns finances on row 2', async () => {
   const facts = {
     model: 'deepseek-official/deepseek-flash',
@@ -141,10 +160,12 @@ test('the status line names the session on row 1 and right-aligns finances on ro
     // Row 1 flows from the left into the right-anchored permission badge; the
     // idle cycle hint rides LEFT of the badge, so the badge holds its columns
     // whether or not the hint is painted.
-    assert.match(row1, /Migrating the TUI · deepseek-flash @ ultra · context/, row1);
-    assert.ok(row1.trimEnd().endsWith('(shift+tab to cycle) · accept-edits'), row1);
+    assert.match(row1, /Migrating the TUI · deepseek-flash @ ultra\s+context/, row1);
+    assert.ok(row1.trimEnd().endsWith('accept-edits'), row1);
+    assert.doesNotMatch(row1, /shift\+tab/);
     assert.equal(visibleColumns(row1), 120, 'row 1 fills the terminal');
-    assert.match(row2, /-- tps · {5}-- tps avg · {2}43% ctx\s{3,}\$0\.00 (?:🔥|❄️) · {5}-- cache$/, row2);
+    assert.match(row2, /-- tps\s+43% ctx\s{3,}\$0\.00 (?:🔥|❄️) · {5}-- cache$/, row2);
+    assert.doesNotMatch(row2, /-- tps avg/, 'the duplicate unknown rate stays folded');
     assert.equal(visibleColumns(row2), 120, 'the financial group reaches the right edge');
   } finally {
     ui.close();
@@ -296,6 +317,7 @@ test('the telemetry tint keeps every figure and label, tinting only the readings
 });
 
 test('TPS activity animates independently while numbers stay exact and stops during tool waits', async () => {
+  setTheme('prismatic');
   for (const animated of [false, true]) {
     let requestActive = true;
     const dispose = setMetricSource(() => ({ events: [], currentTps: 80, requestActive }));
@@ -332,6 +354,7 @@ test('TPS activity animates independently while numbers stay exact and stops dur
       dispose();
     }
   }
+  setTheme('dark');
 });
 
 test('the footer reports the loaded skill count from the live catalog', () => {

@@ -22,7 +22,7 @@
 
 </div>
 
-DSCODE is a terminal coding agent for macOS, built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). A persistent shell reads and writes code and runs tests; the TUI, the CLI and your scripts all share one session runtime instead of each starting their own. It installs as a pinned, reproducible harness—DSH dependencies, TUI and plugins are versioned and verified together.
+DSCODE is a terminal coding agent for macOS, built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Dedicated file tools read and edit code with file-version checks; a persistent shell handles searches, builds and tests. The TUI, the CLI and your scripts all share one session runtime instead of each starting their own. It installs as a pinned, reproducible harness—DSH dependencies, TUI and plugins are versioned and verified together.
 
 Most coding agents work alone. DSCODE is built on the opposite assumption: sessions on your machine are **visible to each other**, so one can hand a task over, another can review the diff, and an independent reviewer decides approvals from **your instruction** rather than from a rule table.
 
@@ -40,7 +40,7 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 
 | Feature | What you get |
 |---|---|
-| **[Agentic coding loop](docs/dscode-ultra.md)** | A persistent shell that keeps cwd, environment and background jobs, plus file edits, search, patch application and tests. Project instructions, skills, plan, goal and hooks are wired in. |
+| **[Agentic coding loop](docs/dscode-ultra.md)** | Numbered file reads, exact edits and atomic writes with stale-version protection and diff metadata, plus a persistent shell for search, patches and tests. Project instructions, skills, plan, goal and hooks are wired in. |
 | **[Session bridge](docs/session-bridge.md)** | Start a task in the TUI, then add requirements, read output or subscribe to progress from another terminal (`dscode sessions`, `send`, `read`, `watch`). Every source enters the same runtime and context, and readers never take the session write lock. |
 | **[Agent-to-agent tasks](docs/session-communication.md)** | The agent finds, reads and messages other sessions with `list_sessions`, `read_session`, `send_session` and `reply_session`, choosing `queue`, `steer` or `defer`. A persisted mailbox, retry de-duplication and a finite budget bound message loss, double processing and wake-up loops. |
 | **[Session cards](docs/session-cards.md)** | Each session advertises its project, workspace and the topics of its last five user requests—enough to pick the right collaborator without reading its transcript. Cards describe what the user asked for, not conclusions. |
@@ -48,11 +48,13 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 | **[Effort and sub-agents](docs/dscode-ultra.md)** | Ultra uses the model's `max` reasoning and decides how far to investigate, delegate and verify; below Ultra the agent can still delegate, but only when a task clearly warrants it. Parents pick a separate effort per child, and children that edit can work in isolated Git worktrees created from a clean `HEAD`. |
 | **[Independent review](docs/tui-commands.md)** | After a code change passes its relevant checks, the agent sends the Git diff—or, outside a repository, the changes since a snapshot taken when the task began—to a separate read-only model and fixes concrete findings before ending the turn. `/review` runs the same reviewer by hand, scoped to the staging area, a base branch, a commit or a path. |
 | **[Non-interactive runs](docs/exec.md)** | `dscode exec "prompt"`, or `git diff \| dscode exec "review this"`, runs a full turn in scripts and CI: the reply streams to stdout, tool activity and the session id go to stderr, and the exit code reflects the turn. `--json` and `--resume` are supported. |
-| **[Terminal UX](docs/session-metrics.md)** | Six interface languages, select-and-copy text, scrollback through history, a verbose view of thinking and tool calls, an input area pinned to the bottom, a sub-agent overview, and footer TPS / context / cost / cache figures. Cached balances retain currency and distinguish account funds from key limits. |
+| **[Terminal UX](docs/session-metrics.md)** | Six interface languages, select-and-copy text, scrollback through history, visible tool failures and file-change summaries, expandable diffs, an input area pinned to the bottom, a sub-agent overview, and footer TPS / context / cost / cache figures. A bordered welcome card and full-height layout keep input at the bottom from startup. Default themes use aligned prose and restrained colours; Prismatic and Rainbow add decorative animation. The activity line shows the current target and tool time; verbose mode reveals thinking and calls. Cached balances retain currency and distinguish account funds from key limits. |
 | **[Guardrails](docs/auto-review.md)** | A `workspace-write` sandbox by default and Auto permission review by an independent model, switchable to human approval. Ultra grants no extra permissions and Computer Use keeps human authorisation. |
 | **[Agent email](docs/email.md)** | A local `[ToAgent]` inbox shared by all sessions: Enter steers a message into the live session as user-selected context, and with Gmail configured the agent can send mail through the same approval flow. |
 
 ## 🆕 What's new
+
+**0.7.43** — Adds native OpenAI/ChatGPT and community Antigravity Gemini providers, file-version-checked read/edit/write tools, a clearer full-height terminal layout and reliable non-interactive persistent Bash commands. OpenAI speed selection reports the server's actual tier; Antigravity account access still needs live verification. See the [release notes](docs/releases/0.7.43.md).
 
 **0.7.42** — Fixes whole-package updates exceeding the archive-listing buffer. If you installed 0.7.41, rerun the `curl` installer below once; subsequent releases use `dscode update` normally. See the [release notes](docs/releases/0.7.42.md).
 
@@ -108,7 +110,7 @@ The package includes pinned Node, Harness, TUI, plugins and native dependencies.
 
 ```sh
 dscode update             # upgrade to the latest self-contained release
-dscode update 0.7.42      # install an exact self-contained release
+dscode update 0.7.43      # install an exact self-contained release
 ```
 
 Exit running DSCODE sessions and schedulers first. The updater verifies and replaces the whole application, preserving settings, credentials and sessions; a failed replacement restores the old program. In the TUI, `/update` schedules the same updater after you exit. Re-running the installer also updates an installation it owns.
@@ -119,13 +121,17 @@ Exit running DSCODE sessions and schedulers first. The updater verifies and repl
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.42-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.43-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
 Keep the extracted directory together: `dscode` uses the private runtime and libraries beside it.
 
 Enter `/login` and paste your DeepSeek API key into the hidden input: it is stored locally in `~/.local/share/dscode-state/credentials.yaml` with `0600` permissions, shared across projects and installed versions, and never sent to the agent. A `DEEPSEEK_API_KEY` environment variable takes precedence. To use OpenRouter, enter `/provider openrouter`: DSCODE asks for your OpenRouter key (stored the same way, or taken from `OPENROUTER_API_KEY`) and switches the session to the DeepSeek model you were on; `/model` then lists a curated set instead of the whole catalogue—the current flagship models from DeepSeek, GLM, Kimi, Qwen and MiMo, plus the flagship line of Anthropic, OpenAI, Google and xAI—and typing searches it. Those five are tuned and tested; the Western flagships work on a best-effort basis. A model outside the list still runs when a session is already on it. `/provider deepseek` switches back, and `/login openrouter` replaces the key. An [OpenCode Go](docs/opencode-go.md) subscription works the same way: `/opencode login` signs in with your OpenCode account, then `/provider opencode-go` offers Go's DeepSeek, GLM, Kimi, MiMo, LongCat, Hy and Space Bunny models. Use `/model` to pick a model or another provider, and `/effort` to adjust reasoning effort; the default route is `deepseek-official/deepseek-flash`. The TUI checks GitHub for a newer release at startup and `/update` upgrades the whole installation after you exit.
+
+Use [Antigravity](docs/antigravity.md) with `/antigravity login`, then `/provider antigravity`, to call Gemini through your Google account while keeping DSCODE's tools and permissions. This community integration uses the model backend directly; account access and quotas are determined by Google.
+
+Use [OpenAI / ChatGPT](docs/openai.md) with `/openai login` and `/provider openai`, or select API-key billing with `/openai api-key`. Choose reasoning with `/effort` and speed with `/speed standard|fast|ultrafast`. OpenAI conversations compact at 272,000 estimated input tokens, earlier for smaller models.
 
 Use `/provider custom` to add a self-hosted or private API with Chat Completions, Responses or Anthropic Messages. Configure the endpoint and optional key, discover or enter models, set their context windows, and test streaming tool calls. For a model that supports vision, enable **Input → Text and images** to send screenshots and image attachments; the default is text only. Saved services appear by name in `/provider`; Enter switches to their model. See [Custom model providers](docs/custom-providers.md).
 
@@ -144,7 +150,7 @@ The self-contained package uses its own pinned runtime and does not reuse or mod
 
 An experimental combined Desktop package adds the DSCODE preset, custom-model and account settings, browser preview, durable session communication, cross-session memory and opt-in scheduling to the official application. **Settings → DSCODE → Schedules** manages tasks and enables delivery while Desktop stays open. Build and local installation instructions are in [Browser use](docs/browser-use.md#install-the-experimental-combined-desktop-package). Native installation, upgrade, removal and reinstallation with scheduling enabled, plus rendered account and scheduling controls, were checked on macOS Desktop 0.2.0-rc.2; qualification limits are covered in [Triggers](docs/triggers.md#experimental-desktop-scheduling). The package also includes an experimental [native Computer Use adapter](docs/computer-use.md); window observation and input still await qualification with macOS Accessibility permission. Durable [time context](docs/session-communication.md#time-context-for-delayed-work) gives DSCODE agents arrival times, relay waits and previous turn endings while keeping ordinary chat clear. Namespaced [Desktop diagnostics](docs/tui-commands.md#experimental-desktop-diagnostics) inspect the selected session, skills and Host MCP entries; matching user guides ship with the package. The [Desktop email inbox](docs/email.md#experimental-desktop-inbox) previews shared local mail, connects IMAP or Gmail OAuth, and adds a selected message to a DSCODE session. Background sync is opt-in; outgoing mail keeps the existing approval and receipt rules. The [Session usage sidebar](docs/session-metrics.md#experimental-desktop-usage) shows DSCODE cost, context, cache, request speed and per-turn estimates. The [Delegation board sidebar](docs/tui-commands.md#experimental-desktop-delegation-board) follows the selected main session’s tasks, dependencies, worktrees and verification evidence. The Desktop plugin is distributed separately from the terminal packages; terminal popups and terminal-only commands keep their existing UI.
 
-The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version 0.7.35 removes bundled [Plugin Hub](docs/plugin-hub.md) UI, discovery tools and runtime dependencies; DSCODE remains listed in the Hub catalog. It targets Harness runtime 0.2.0-rc.2. In official **Plugins → Add plugin**, enter `@toddzheng024/dscode-desktop@0.7.42`, install, then choose **Enable now**. Fully quit and reopen Desktop after updating. Both `preview` and the default `latest` channel receive this verified preview release.
+The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version 0.7.35 removes bundled [Plugin Hub](docs/plugin-hub.md) UI, discovery tools and runtime dependencies; DSCODE remains listed in the Hub catalog. It targets Harness runtime 0.2.0-rc.2. In official **Plugins → Add plugin**, enter `@toddzheng024/dscode-desktop@0.7.43`, install, then choose **Enable now**. Fully quit and reopen Desktop after updating. Both `preview` and the default `latest` channel receive this verified preview release.
 
 **Settings → DSCODE** groups setup, Models, Accounts and Schedules at the same level; **Plugins → DSCODE · Community** opens the same page. DSCODE browser tools are scoped to DSCODE sessions. Existing Desktop models/accounts work through the normal picker; optional provider settings use the native credential store. Enable **Show coding view** and **Agent presets**, then choose DSCODE for a new session after fully restarting.
 
@@ -242,6 +248,8 @@ DSH is pinned to `0.2.0-rc.2`, bundled Node to `24.21.0`, the TUI is based on `d
 | [Browser use](docs/browser-use.md) | Browser setup, profiles, site permissions, Developer mode, WebMCP and task evaluation with DeepSeek or custom models |
 | [Plugin Hub](docs/plugin-hub.md) | DSCODE/Hub separation and behavior of earlier published packages |
 | [Account login](docs/account-login.md) | Signing the DeepSeek route in with a browser account instead of an API key: the flow, the loopback callback, the limits |
+| [Antigravity](docs/antigravity.md) | Google account sign-in, Gemini models, conversation replay and connection limits |
+| [OpenAI / ChatGPT](docs/openai.md) | ChatGPT login, API keys, Fast/Ultrafast speed and 272k compaction |
 | [OpenCode Go](docs/opencode-go.md) | Running a session on an OpenCode Go subscription: the account login, footer usage, the models and their reasoning efforts, what is not supported yet |
 | [Custom model providers](docs/custom-providers.md) | Connect self-hosted and private APIs: protocols, model discovery, context windows, credentials and tool-call testing |
 | [Auto review](docs/auto-review.md) | Scope, cost and limits of independent permission review |

@@ -1477,6 +1477,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
           // key-change remount below must start from a clean screen or the ghost
           // static header stays visible above the new one (same source-backed
           // clear the session-switch path performs).
+          process.stdout.emit('dscode:frame-reset')
           process.stdout.write('\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H')
           renderCurrent()
         } catch (error: unknown) {
@@ -1491,10 +1492,8 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
           session = previous.session
           store = previous.store === undefined ? createTranscriptStore() : previous.store
           mentions = previous.mentions === undefined ? createMentions(ctx, undefined, cwd) : previous.mentions
-          if (agent !== undefined) {
-            commands.setAgent(agent)
-            skills.setAgent(agent)
-          }
+          commands.setAgent(agent)
+          if (agent !== undefined) skills.setAgent(agent)
           await next.handle.dispose().catch(() => {})
           if (!quitting) renderCurrent()
           bridge.notify(`session activation failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
@@ -1748,6 +1747,8 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     const used = meter.measure(session).totalTokens
     const info = await llm.resolveModelInfo(row.provider, row.model)
     return dscodeCompactionPreview({
+      provider: row.provider,
+      model: row.model,
       used,
       contextWindow: dscodeEffectiveContextWindow(info?.context, info),
       thresholdRatio: await dscodePricedThresholdRatio(row.provider, row.model),
@@ -1988,6 +1989,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
         // re-seeds the previous session's catalog the same way.
         subagents.reset()
         for (const event of next.catalogSeed) subagents.apply(event.data.childId, event)
+        process.stdout.emit('dscode:frame-reset')
         process.stdout.write('\x1b[r\x1b[0m\x1b[H\x1b[2J\x1b[3J\x1b[H')
         renderCurrent()
         // Only a successful handoff may clear the transient per-session

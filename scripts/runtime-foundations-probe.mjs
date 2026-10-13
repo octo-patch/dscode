@@ -4,8 +4,13 @@ import { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm';
 import { mountDscodePreset } from '../packages/tui/src/dscode/preset.ts';
 import { resolvePreset } from '../packages/tui/src/presets.ts';
 import { installModelSelection } from '@deepseek-ai/dsh-agent';
+import { probeFileTools } from './file-tools-probe.mjs';
+import { toolResultDetail } from '../packages/tui/src/render/tool-detail.ts';
+import { probeShellRecovery } from './shell-recovery-probe.mjs';
+import { probeAntigravity } from './antigravity-probe.mjs';
+import { probeOpenAI } from './openai-probe.mjs';
 export const name = 'runtime-foundations-probe';
-export const inject = ['agents', 'agentPresets', 'llm', 'sessions', 'sessionPersistence'];
+export const inject = ['agents', 'agentPresets', 'llm', 'sessions', 'sessionPersistence', 'tools', 'permissionPresets', 'commands'];
 export function apply(ctx) { void probe(ctx).catch(error => { console.error(error.stack); ctx.get('appExit')(1); }); }
 const ID = process.env.DSCODE_FOUNDATIONS_MODE === 'boundaries' ? 'runtime-boundaries-session' : 'runtime-foundations-session';
 const message = text => createUserMessage({ content: [{ type: 'text', text }], source: { kind: name } });
@@ -13,6 +18,30 @@ const message = text => createUserMessage({ content: [{ type: 'text', text }], s
 async function probe(ctx) {
   await ctx.get('loader').await();
   const mode = process.env.DSCODE_FOUNDATIONS_MODE;
+  if (mode === 'openai') {
+    console.log('FOUNDATIONS_OPENAI: ' + JSON.stringify(await probeOpenAI(ctx)));
+    ctx.get('appExit')(0); return;
+  }
+  if (mode === 'antigravity') {
+    console.log('FOUNDATIONS_ANTIGRAVITY: ' + JSON.stringify(await probeAntigravity(ctx)));
+    ctx.get('appExit')(0); return;
+  }
+  if (mode === 'shell') {
+    console.log('FOUNDATIONS_SHELL_RECOVERY: ' + JSON.stringify(await probeShellRecovery(ctx)));
+    ctx.get('appExit')(0);
+    return;
+  }
+  if (mode === 'files') {
+    const files = await probeFileTools(ctx, (read, edit) => {
+      assert.equal(toolResultDetail(read.meta, '').kind, 'read');
+      const detail = toolResultDetail(edit.meta, '');
+      assert.equal(detail.kind, 'diff');
+      assert(detail.diffs.some(diff => diff.lines.some(line => line.text.includes('ONE'))));
+    });
+    console.log('FOUNDATIONS_FILE_TOOLS: ' + JSON.stringify({ ...files, terminalPresentation: true }));
+    ctx.get('appExit')(0);
+    return;
+  }
   if (mode === 'preset') {
     class PresetAdapter extends LlmAdapter {
       async resolveModel(provider, model) { return { provider, id: model, name: model, context: { contextWindow: 100000 } }; }

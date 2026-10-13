@@ -256,3 +256,19 @@ test('an active compaction lock rejects a second automatic run', () => {
   const ended = { seq: 2, eventAt: seq => seq === 1 ? { type: 'compaction/end', seq: 1, data: {} } : { type: 'turn/start', seq: 0, data: { turn: 1 } } };
   assert.equal(DscodeCompactionEngine.prototype.dscodeAssertInactive.call(engine, ended, 'automatic pressure compaction'), undefined);
 });
+
+
+test('OpenAI pressure compaction enters at 272000 while keeping the real context window', async () => {
+  const attempt = totalTokens => {
+    const engine = makeEngine({ ctx: {
+      get: () => undefined,
+      tokenMeter: { measure: () => ({ totalTokens, nodes: [{ seq: 1, tokens: totalTokens }] }) },
+      llm: { resolveModelInfo: async () => ({ context: { contextWindow: 1050000 }, defaultMaxTokens: 128000 }) },
+      logger: { warn: () => {} },
+    } });
+    const agent = { session: { seq: 0, surface: { nodes: [] }, requestHeader: () => ({ config: { provider: 'openai', model: 'gpt-6.1-sol' } }) } };
+    return engine.compactIfNeeded(agent, 'pressure', signal);
+  };
+  assert.equal(await attempt(271999), null);
+  await assert.rejects(attempt(272000), /surface does not match/, 'threshold enters the upstream compaction transaction');
+});

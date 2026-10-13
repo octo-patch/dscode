@@ -16,8 +16,8 @@ export interface InspectorViewport {
   compact: boolean
 }
 
-/** Composer (3) + two-row status chrome, plus one optional fixed-height local notice row. */
-const INSPECTOR_CHROME_ROWS = 6
+/** Composer (3), up to three status rows and an optional notice. */
+const INSPECTOR_CHROME_ROWS = 7
 
 /** One transcript-to-composer gutter, collapsed on short terminals. */
 export function layoutGutterRows(rows: number): 0 | 1 {
@@ -77,12 +77,9 @@ export function panelViewport(columns: number, rows: number): InspectorViewport 
   // Two spare rows cover Ink's first-frame transition from existing Static
   // scrollback into a tall dynamic panel. A one-row margin is insufficient:
   // the transition can still take the full-terminal rewrite path at rows - 1.
-  const maxHeight = Math.max(0, Math.min(
-    safeRows - 2 - INSPECTOR_CHROME_ROWS - layoutGutterRows(safeRows),
-    Math.floor(safeRows / 2),
-  ))
+  const maxHeight = Math.max(0, safeRows - 2 - INSPECTOR_CHROME_ROWS - layoutGutterRows(safeRows))
   const compact = maxHeight < 5 || safeColumns < 8
-  const gapRows = !compact && maxHeight >= 7 ? 2 : 0
+  const gapRows = !compact && maxHeight >= 20 ? 2 : 0
   // A terminal may autowrap a glyph written into its final column. Ink still
   // accounts for that border as one logical row, so the next dynamic update
   // erases too few physical rows and leaves stacked frames behind. Codex

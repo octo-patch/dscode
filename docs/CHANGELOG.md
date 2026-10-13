@@ -10,6 +10,30 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.43] - 2026-10-12
+
+### Added
+
+- Add a native OpenAI/ChatGPT provider with independent account authorization, explicit API-key billing, per-session Standard/Fast/Ultrafast selection, completed-response replay, and a 272,000-token auto-compaction trigger independent of model capacity. The footer distinguishes requested speed from server-confirmed speed; other accounts' entitlement and accelerated performance still require live verification.
+- Add a community Antigravity Gemini model provider: `/antigravity login` authorizes a Google account, `/provider antigravity` keeps the DSCODE agent and tools, and `/antigravity models` refreshes the account catalog. Preserve native signatures through completed tool rounds and session replay; bound connection stalls and reject truncated tool responses. This uses internal model endpoints, not ACP. Live Google authorization and account access are not established by the synthetic integration tests.
+
+### Fixed
+
+- Yield between bounded terminal input bursts so fast typing or unbracketed pastes do not chain hundreds of React updates. Preserve key order, complete escape sequences and atomic bracketed pastes, and cancel queued input when the terminal unmounts.
+- Accept valid OpenAI SSE responses without a `Content-Type` header and recover completed output items when the terminal response contains an empty output array. Require successful response completion before tool commits, and continue rejecting incomplete or explicitly non-SSE responses. Live installed-binary checks cover repository edits, shell tests, file creation and persisted-session resume.
+- Refresh the OpenAI speed footer while idle after `/speed`, without waiting for another model request or a change in token statistics. Live Fast and Ultrafast requests reported Standard service for the tested account; the footer displays the server's actual tier.
+- Retain a pending OpenAI client registration when code exchange fails, so a new login can request fresh authorization without registering the client again. Keep pending registrations separate from verified accounts, reject stale writes after account changes, and admit only one concurrent login attempt. The original cause of a server-side `invalid_grant` response still requires live diagnosis.
+- Discover `/openai`, `/speed` and `/antigravity` in terminal command completion before the first conversation starts. Show registered argument hints beside command descriptions; opening completion does not create a conversation or start authentication.
+- Restore the bordered snowflake welcome card and fill unused terminal height above the input from startup. Reset the renderer's height ledger before a full replay so resize, Ctrl+L and clear do not retain stale padding. Native transcript scrollback remains available.
+- Keep tool failures visible in quiet chat, with a bounded error and history details available through Ctrl+O. Show the current tool target and its own elapsed time instead of only the tool name and total turn time. Cache streaming line wrapping across appends, preserving Unicode boundaries and rebuilding on resize or replacement.
+- Keep persistent Bash commands running until their completion marker instead of returning partial output while a foreground process still owns the terminal. Commands receive EOF on stdin unless they provide explicit input, preventing an input reader from consuming the next tool call. Remove the five-second idle-input interruption heuristic so silent work can complete; timeout and cancellation still reset the shell.
+
+### Changed
+
+- Simplify default terminal themes with shared shortcuts, aligned replies, blank space between turns and neutral file paths and metrics. Keep one animated activity marker and compact compaction status. Preserve permission badges when long session titles need shortening, and retain extra animation in Prismatic and Rainbow.
+- Show file-change summaries in quiet chat and bounded coloured diffs in verbose mode. Capped counts are labelled as displayed portions. History, diff and selection panels use spare terminal height while reserving room for the input and status bars, with less blank space in short windows.
+- Enable dedicated `read`, `edit` and `write` tools in the DSCODE preset, using the Host's filesystem sandbox and per-session file-version checks. Reads provide numbered windows; edits use exact text replacement and reject ambiguous or stale changes. Keep the persistent shell for search, builds, tests and multi-file patches. Shell reads do not establish file-tool observations, and resumed sessions must read files again before editing.
+
 ## [0.7.42] - 2026-10-12
 
 ### Fixed

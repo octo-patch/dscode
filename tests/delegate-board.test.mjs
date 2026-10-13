@@ -192,7 +192,7 @@ const snapshot = {
 
 test('the dashboard shows four columns, marks waiting children and closes on Esc', async () => {
   let closed = 0;
-  const ui = await mount(DelegateDashboardPanel, { load: () => snapshot, close: () => { closed += 1; } }, { columns: 120, rows: 44 });
+  const ui = await mount(DelegateDashboardPanel, { load: () => snapshot, close: () => { closed += 1; } }, { columns: 120, rows: 30 });
   try {
     assertFits(ui);
     const text = ui.frame();
@@ -214,7 +214,7 @@ test('the dashboard shows four columns, marks waiting children and closes on Esc
 });
 
 test('a short terminal folds every card to one line instead of hiding them', async () => {
-  const ui = await mount(DelegateDashboardPanel, { load: () => snapshot, close() {} }, { columns: 120, rows: 30 });
+  const ui = await mount(DelegateDashboardPanel, { load: () => snapshot, close() {} }, { columns: 120, rows: 22 });
   try {
     assertFits(ui);
     const text = ui.frame();

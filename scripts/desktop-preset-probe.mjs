@@ -7,6 +7,8 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { verifyDesktopCustom } from './desktop-custom-probe.mjs';
 import { verifyDesktopBrowser } from './desktop-browser-probe.mjs';
 import { scopeOf } from '@deepseek-ai/dsh-scope';
+import { probeFileTools } from './file-tools-probe.mjs';
+import { probeShellRecovery } from './shell-recovery-probe.mjs';
 
 async function verifySessionCreation(ctx) {
   for (const agentPreset of ['standard', 'dscode', 'standard', 'dscode']) {
@@ -18,7 +20,7 @@ async function verifySessionCreation(ctx) {
   }
 }
 
-export const inject = ['agents', 'agentPresets', 'llm', 'tools', 'permissionPresets', 'commands', 'skills', 'attachments', 'credentials', 'connection', 'webServer', 'sessionController'];
+export const inject = ['agents', 'agentPresets', 'llm', 'tools', 'permissionPresets', 'commands', 'skills', 'attachments', 'credentials', 'connection', 'webServer', 'sessionController', 'sessions'];
 export function apply(ctx) {
   void run(ctx).catch(error => { console.error(error.stack); ctx.get('appExit')(1); });
 }
@@ -41,7 +43,9 @@ async function run(ctx) {
     const receipt = await verifyDesktopCustom(ctx, true);
     const browser = process.env.DSCODE_DESKTOP_BROWSER === '1' ? await verifyDesktopBrowser(ctx, { reload: true }) : {};
     await verifySessionCreation(ctx);
-    console.log('DESKTOP_PRESET_PASSED ' + JSON.stringify({ ...receipt, ...browser, sessionCreationAfterRestart: true }));
+    const files = await probeFileTools(ctx);
+    const shell = await probeShellRecovery(ctx);
+    console.log('DESKTOP_PRESET_PASSED ' + JSON.stringify({ ...receipt, ...browser, ...files, ...shell, sessionCreationAfterRestart: true }));
     ctx.get('appExit')(0);
     return;
   }
@@ -189,6 +193,8 @@ async function run(ctx) {
   const custom = await verifyDesktopCustom(ctx);
   const browser = process.env.DSCODE_DESKTOP_BROWSER === '1' ? await verifyDesktopBrowser(ctx) : {};
   await verifySessionCreation(ctx);
-  console.log('DESKTOP_PRESET_PASSED ' + JSON.stringify({ browserPresetIsolation: true, sessionCreation: true, commandInputs, persistentShell: true, freshShell: true, bundledPatchHelper: true, freshPatchCheck: true, hostPathUnchanged: true, nativeStandardShellUnchanged: true, spawn: true, fork: true, childEffort: true, childShellIsolation: true, workspaceInstructionIsolation: true, workspaceSkillIsolation: true, workspaceHookIsolation: true, sessionStartOnce: true, workspaceDisposal: true, hubUnbundled: true, ...custom, ...browser, liveModelInference: false }));
+  const files = await probeFileTools(ctx);
+  const shell = await probeShellRecovery(ctx);
+  console.log('DESKTOP_PRESET_PASSED ' + JSON.stringify({ browserPresetIsolation: true, sessionCreation: true, commandInputs, persistentShell: true, freshShell: true, bundledPatchHelper: true, freshPatchCheck: true, hostPathUnchanged: true, nativeStandardShellUnchanged: true, spawn: true, fork: true, childEffort: true, childShellIsolation: true, workspaceInstructionIsolation: true, workspaceSkillIsolation: true, workspaceHookIsolation: true, sessionStartOnce: true, workspaceDisposal: true, hubUnbundled: true, ...custom, ...browser, ...files, ...shell, liveModelInference: false }));
   ctx.get('appExit')(0);
 }

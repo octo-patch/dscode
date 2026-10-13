@@ -41,25 +41,18 @@ try {
   assert.equal(result.type, 'result'); assert.equal(result.reason, 'completed'); assert.match(result.text, /^fixture reply:/);
   assert.equal(result.sessionId, lines[0].sessionId);
 
-  // macOS detects and interrupts a terminal-input wait. Other platforms exercise
-  // the explicit exec deadline; they do not ship the macOS stdin inspector.
+  // The non-interactive tool supplies EOF on every platform, so a reader
+  // without explicit input must finish rather than consume the next command.
   const blockingStarted = Date.now();
-  const blocking = await run([...base, ...(process.platform === 'darwin' ? [] : ['--timeout', '2']), 'USE_BLOCKING_TOOL']);
+  const blocking = await run([...base, 'USE_BLOCKING_TOOL']);
   const blockingElapsed = Date.now() - blockingStarted;
   // A confined environment that denies PTY allocation cannot reach the terminal
   // backend at all; say so instead of failing every such sandbox.
   if (blocking.stdout.includes('no pty')) console.log('EXEC_PROBE_SKIPPED: this environment denies PTY allocation, so the terminal-blocking command was not exercised');
   else {
-    if (process.platform === 'darwin') {
-      assert.equal(blocking.code, 0, `blocking command did not settle in ${blockingElapsed}ms: ${blocking.stderr}`);
-      assert.equal(blocking.stdout, 'fixture reply: stall noted\n', 'the tool result must report the interrupted stdin wait');
-      assert(blockingElapsed < 60000, `blocking command took ${blockingElapsed}ms`);
-    } else {
-      assert.equal(blocking.code, 124, `blocking command must hit the explicit exec deadline: ${blocking.stderr}`);
-      assert.match(blocking.stderr, /timed out after 2s/);
-      assert(blockingElapsed < 30000, `exec deadline did not terminate the blocking command promptly: ${blockingElapsed}ms`);
-      console.log(`EXEC_PROBE_DEADLINE_PASSED: on ${process.platform} the terminal-blocking command exited 124 in ${blockingElapsed}ms`);
-    }
+    assert.equal(blocking.code, 0, `stdin command did not settle in ${blockingElapsed}ms: ${blocking.stderr}`);
+    assert.equal(blocking.stdout, 'fixture reply: stdin EOF\n', 'the command must finish on EOF without waiting for terminal input');
+    assert(blockingElapsed < 30000, `stdin command took ${blockingElapsed}ms`);
   }
 
   const resumed = await run([...base, '--resume', result.sessionId, 'again']);

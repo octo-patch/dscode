@@ -12,6 +12,8 @@ export const PROVIDERS = Object.freeze([
   // The OpenCode Go subscription: its chat-completions models, authorised only by an OpenCode
   // account login. `login` names the command that sets the credential up; there is no key to paste.
   { id: 'opencode-go', name: 'OpenCode Go', aliases: ['opencode-go', 'opencode', 'go'], credentialRef: 'OPENCODE_OAUTH', login: '/opencode login', defaultModel: 'kimi-k3' },
+  { id: 'antigravity', name: 'Antigravity', aliases: ['antigravity', 'google-antigravity', 'agy'], credentialRef: 'ANTIGRAVITY_OAUTH', login: '/antigravity login', defaultModel: 'gemini-3.8-flash' },
+  { id: 'openai', name: 'OpenAI / ChatGPT', aliases: ['openai', 'codex', 'chatgpt'], credentialRef: 'OPENAI_API_KEY', defaultModel: 'gpt-6.1-sol' },
 ]);
 
 // The pi-ai adapter served OpenRouter until 0.7.6, from this settings section.

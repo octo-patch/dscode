@@ -72,6 +72,7 @@ const PRISTINE_LEDGER = [
   'function create(stream) {',
   '    let previousLineCount = 0;',
   "    let previousOutput = '';",
+  '    let hasHiddenCursor = false;',
   '    const render = (str) => {',
   '        const output = str;',
   '        stream.write(ansiEscapes.eraseLines(previousLineCount) + output);',
@@ -115,7 +116,7 @@ const V2_LEDGER = PRISTINE_LEDGER
 test('the Ink repaint ledger patch migrates every generation exactly once', () => {
   for (const [name, source] of [['pristine', PRISTINE_LEDGER], ['v2', V2_LEDGER]]) {
     const patched = patchInkLogUpdate(source);
-    assert(patched.includes('dscode-frame-v3'), `${name} carries the current ledger`);
+    assert(patched.includes('dscode-frame-v4'), `${name} carries the current ledger`);
     // Only the rows a flush did not consume stay reserved.
     assert(patched.includes('const dscodePad = Math.max(0, dscodeFloor - dscodeLineCount);'), name);
     assert(patched.includes('? previousLineCount\n'), `${name} keeps the no-flush floor`);
@@ -123,6 +124,10 @@ test('the Ink repaint ledger patch migrates every generation exactly once', () =
     assert(patched.includes('const render = (str, dscodeStaticRows) => {'), `${name} reads the flush rows`);
     assert(!patched.includes('dscode-frame-v2'), `${name} drops the old marker`);
     assert.equal(patchInkLogUpdate(patched), patched, `${name} is idempotent`);
+    const v3 = patched
+      .replace(/ {4}\/\/ dscode-frame-v4:[\s\S]*? {4}stream\.on\?\.\('dscode:frame-reset', dscodeResetFrame\);\n/, '')
+      .replace("        stream.off?.('dscode:frame-reset', dscodeResetFrame);\n", '');
+    assert.equal(patchInkLogUpdate(v3), patched, 'v3 migrates to the same reset-aware ledger');
   }
   assert.throws(() => patchInkLogUpdate('nothing like the ledger'), /known generation/);
   // A ledger that would lose its flush counter fails loudly instead of patching NaN pads in.

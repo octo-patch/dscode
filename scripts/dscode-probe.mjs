@@ -62,8 +62,8 @@ export async function probeDscode(ctx) {
   const handle = await ctx.agents.create({ sessionId, meta: { cwd, agentPreset: 'dscode' }, agentOptions: { provider: 'dscode-fixture', model: 'fixture', reasoningEffort: 'ultra' }, setup });
   const agent = handle.agent;
   const tools = ctx.tools.schemas(agent).map(t => t.name);
-  for (const required of ['bash', 'shell_retry', 'skill', 'subagent', 'subagent_fork', 'create_goal']) assert(tools.includes(required), `Missing ${required}`);
-  for (const removed of ['read', 'write', 'edit', 'grep', 'glob']) assert(!tools.includes(removed), `Unexpected standalone file tool ${removed}`);
+  for (const required of ['read', 'write', 'edit', 'bash', 'shell_retry', 'skill', 'subagent', 'subagent_fork', 'create_goal']) assert(tools.includes(required), `Missing ${required}`);
+  for (const removed of ['grep', 'glob']) assert(!tools.includes(removed), `Unexpected standalone search tool ${removed}`);
   for (const command of ['compact', 'goal', 'shell']) assert(ctx.commands.find(agent, command), `Missing /${command}`);
   const run = async (name, args, signal = new AbortController().signal) => {
     const result = await ctx.tools.execute({ name, arguments: args, agent, callId: `probe-${randomUUID()}`, signal });

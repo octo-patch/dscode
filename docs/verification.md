@@ -2,6 +2,248 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## OpenAI / ChatGPT provider — 2026-10-12 (unreleased)
+
+A later live ChatGPT sign-in was saved with direct-use permission. A minimal
+GPT-6.1 Sol request returned HTTP 200 without `Content-Type`, complete SSE item
+events, and `response.completed` with an empty output array. The adapter now
+accepts missing media-type metadata and uses completed items for that terminal
+envelope. Replaying the captured response and a fresh live request both produced
+`OK`; the latter reported 10 input and 5 output tokens. This establishes text
+completion for that account.
+
+The installed standalone binary then completed a live isolated repository task:
+`read`, `edit`, `bash` and `write` inspected and fixed an addition function, ran
+its unchanged test successfully and wrote a verification file. A new process
+resumed the persisted session, recalled the exact change, read that file and
+reran the test successfully. Both headless invocations exited with status zero.
+
+A real 120-by-36 PTY run retained the startup card and bottom-aligned composer,
+offered `/openai` completion before the first conversation, and displayed
+`signed in` in the provider picker. Cancelling a live turn did not prevent the
+next turn from completing. Separate Fast and Ultrafast requests completed, but
+both reported actual `default` service; the footer displayed that downgrade
+and numeric TPS. This confirms transport and reporting, not accelerated access
+or throughput. The account's weekly allowance has not been verified.
+
+That run exposed a stale idle footer after `/speed`: the layout memo did not
+depend on speed changes. Speed is now an explicit layout input, refreshed with
+the footer's existing timer. A mounted regression failed before the fix and
+passed afterward without changing token statistics or issuing another request.
+
+The final PTY pass also reproduced React's update-depth warning while a long
+unbracketed input chunk was drained as individual keypresses in one event-loop
+turn. A temporary stderr trace reached the input splitter and editor updates.
+The proxy now yields between bounded bursts while retaining key order and
+whole bracketed pastes. The full mounted composer regression reproduces the
+warning before the fix and submits the exact Unicode prompt once after it;
+stream tests cover split escape sequences, bracketed pastes and disposal of
+queued input. The diagnostic plugin is confined to the temporary test profile.
+
+Regression tests cover headerless HTTP, case-insensitive SSE media types,
+explicit JSON rejection, compact terminal envelopes, encrypted replay and
+withholding tool commits on incomplete or failed responses. The packaged Host
+probe uses the observed transport shape for its synthetic file-tool round trip.
+
+An observed live sign-in reached code exchange but returned HTTP 400
+`invalid_grant`; no account was saved. Two recovery regressions now exercise a
+real loopback callback, synthetic code rejection followed by signed identity
+validation, client-ID reuse after restart, fresh PKCE and state, single-attempt
+admission and account-switch invalidation. This establishes the retry path,
+not the reason OpenAI rejected that live authorization code.
+
+The startup completion regression is covered by two additional tests: provider
+commands appear before the first Agent exists, retain argument hints and switch
+to the scoped native catalog after activation; late registration and removal
+notify the view without leaking commands between Hosts. Discovery does not run
+the command or start authentication. The retained packaged Host probe also
+checks startup discovery for OpenAI, speed and Antigravity commands.
+
+The native Responses adapter keeps DSCODE's tools and agent loop. It offers
+separate ChatGPT OAuth and API-key billing selections, independently selected
+reasoning and service speed, and a 272,000-token automatic compaction trigger.
+The actual model context remains separate; smaller safe input budgets compact
+earlier. Boundary tests enter pressure compaction at 272,000, not 271,999.
+
+The stream-fix gate passed all 1,232 unit/component tests, including OpenAI cases for dynamic
+registration, signed identity validation, serialized refresh, explicit billing,
+stream completion, HTTP idle timeouts, cancellation recovery, durable images
+and speed selection. Both TypeScript configurations, lint and documentation
+checks passed.
+
+The macOS ARM64 standalone Host loaded the provider and credential settings.
+Synthetic Responses output drove a real `read` call and replayed its file
+contents with encrypted reasoning. A persisted and resumed session retained
+the selected Ultrafast tier and displayed the server's actual Standard tier.
+Speed selection uses successful native command lifecycle records, and actual
+speed uses assistant response metadata: custom event names were rejected by
+the upstream persisted-session reader. The retained test is
+`scripts/openai-probe.mjs`, also run by runtime-foundations verification.
+
+The original provider checks above used synthetic HTTP. The later live
+repository, resume and PTY checks are described at the start of this section;
+speed performance comparisons remain unverified. Candidate builds and local
+installation are separate steps.
+
+## Antigravity Gemini provider — 2026-10-12 (unreleased)
+
+The provider uses Google OAuth with PKCE and the Antigravity model transport,
+while keeping DSCODE's native agent loop and tools. All 1,202 unit/component
+tests passed, including 27 Antigravity cases for callback validation, refresh
+and logout races, model discovery, image attachments, signed replay,
+cancellation, timeouts and incomplete streams. Both TypeScript configurations,
+lint and documentation checks passed.
+
+The macOS ARM64 standalone candidate built successfully. Its Node 24.21.0 Host
+loaded the provider and its credential status into the compiled terminal
+settings adapter. Synthetic Gemini responses drove a real `read` tool call;
+the next request contained the file contents and original call signature.
+Persisting and resuming the session retained that signed exchange. Logout
+removed the temporary grant. This check is retained in
+`scripts/antigravity-probe.mjs` and the runtime-foundations verification.
+
+These checks use isolated temporary credentials and synthetic Google HTTP
+responses. They do not verify Google consent, account entitlement, quotas or
+live Gemini generation. Building the candidate does not replace the locally
+installed application.
+
+## Welcome card and initial screen height — 2026-10-12 (unreleased)
+
+The bordered snowflake welcome card is restored in every theme. Narrow or
+short windows keep a smaller bordered card; windows below 14 rows omit model
+and shortcut details. Default themes keep the artwork static. The App fills
+unused height above the composer, accounting for the welcome card and settled
+history already printed into native scrollback and reserving the cursor row.
+
+Full-screen replay now resets the patched Ink height ledger before resizing,
+Ctrl+L, or a session switch. Without that reset, the previous window's padding
+could push the first border line offscreen after shrinking the terminal. The
+normal append-only flush still retains its remaining-height behaviour.
+
+All 1,175 unit/component tests passed, including both TypeScript configurations.
+The 17 appearance, viewport, frame-ledger and patch-migration cases also passed
+under Node 24.21.0. The new viewport cases mount the actual App into a headless
+terminal emulator with its real ANSI redraws: 48–120 columns, 12–40 rows,
+resize, explicit replay, streaming, settled history, help, native scrollback and
+new-session clearing. The emulator uses fixture session data; these checks do
+not establish live-model quality or physical-terminal IME placement.
+
+## Terminal visual hierarchy — 2026-10-12 (unreleased)
+
+This initial visual pass used two startup content rows; the welcome-card
+section above supersedes that header and height behaviour. It introduced shared
+shortcuts, aligned quiet replies and a blank row between turns. File-change
+paths and metrics are neutral, with completion marks and actionable states
+retaining semantic colours. The activity line owns the default running
+animation; compaction uses one row. Prismatic and Rainbow retain their
+decorative welcome and additional animation. Long titles are shortened before
+they can crowd out the permission badge, and duplicate unknown TPS readings
+are collapsed.
+
+All 1,171 unit/component tests passed, including both TypeScript configurations.
+After the final narrow-width guard, all 43 appearance, usability, rendering and
+timestamp cases passed under the installed application's Node 24.21.0.
+The TUI compiled successfully and its compiled app, chat and theme modules
+loaded under that runtime. Documentation checks and lint passed.
+
+The eight appearance cases cover compact and decorative headers, reply spacing,
+file-row styles, metric colours, compaction height, narrow permission layout and
+the absence of duplicate footer animation. Dark and light ANSI component
+previews were rasterised and visually inspected; local receipts are
+`artifacts/local/tui-appearance-dark.png` and
+`artifacts/local/tui-appearance-light.png`. These assemble production components
+with representative data and a mock composer; they are not live terminal
+screenshots or evidence of keyboard, IME or live-model behaviour. The installed
+application was not replaced and no release was cut.
+
+## Terminal usability and streaming — 2026-10-12 (unreleased)
+
+Quiet chat now retains bounded tool failures and file-change summaries. Verbose
+chat renders structured diffs; counts on truncated diffs explicitly describe
+only the displayed portion. The activity line falls back to a file/command
+preview when no description is available and uses the selected running call's
+timestamp. Calls without a timestamp retain the labelled turn clock.
+
+Streaming keeps completed wrapping work across appends. The final two graphemes
+are revisited so split surrogate pairs, emoji modifiers and joined emoji remain
+equivalent to a fresh wrap. Replacement text and width changes rebuild the
+cache. Row-budget changes reuse it. Detail panels reserve the composer, up to
+three status rows and a notice instead of stopping at half the screen. At
+80 columns, 16/24/40 terminal rows now provide 2/10/24 detail body rows. The
+delegation board uses a compact summary when its cards cannot fit.
+
+`tests/tui-usability.test.mjs` covers safe error summaries, diff expansion and
+truncation labels, language changes, every UTF-16 boundary in mixed Unicode
+streams, replacement/reset/resize, mounted stream output, tool timing, and
+history/model/diff/delegation panels with the full persistent chrome. The
+existing delegation tests now exercise full cards at 30 rows and compact cards
+at 22 rows. All 1,163 unit/component tests passed, including both TypeScript
+configurations. The new usability and delegation cases also passed under the
+installed application's Node 24.21.0 (25 tests). Compiled `.mjs` imports and
+Unicode wrapping passed under that runtime.
+
+The local receipt `artifacts/local/tui-usability.json` records a compiled-code
+microbenchmark on Node 24.21.0: appending text to 100,000 characters, across
+15 samples, took a median 23.925 ms for a fresh wrap versus 0.068 ms for cached
+wrapping. This measures wrapping only, not end-to-end terminal frame latency.
+Component rendering uses an in-memory Ink terminal; manual IME placement,
+scrollback feel in real terminal emulators and live-model interaction were not
+retested. The installed application was not replaced and no release was cut.
+
+## Persistent shell completion and recovery — 2026-10-12 (unreleased)
+
+A real PTY reproduction printed `WAITING_FOR_INPUT` and then kept reading stdin.
+The old tool returned that partial text without a completion marker, leaving
+the reader in the foreground; the next ordinary command failed to complete and
+was cancelled by the probe's 15-second deadline. The installed 0.7.42 runtime
+contains the same early-return branch. This reproduces a cause of an unusable
+subsequent shell call, not every possible intermittent failure in user sessions.
+
+The persistent tool now supplies `/dev/null` to the wrapped `eval` by default,
+while preserving explicit pipeline, heredoc and redirected input. It waits
+for the private completion marker, shell exit, timeout or cancellation instead
+of returning on a terminal readiness hint. The former five-second idle-input
+interruption is removed, so a sleeping or otherwise silent process is not
+interrupted merely for looking idle. Explicit terminal-interactive programs
+remain unsupported and can still require cancellation or the normal deadline.
+
+Four protocol regression cases and the real `scripts/shell-recovery-probe.mjs`
+cover incomplete output, default EOF, subsequent commands, timeout and cancel
+reset, nonzero status, cwd/environment persistence, heredocs, pipelines, silent
+and output-first seven-second waits, and explicit shell exit. Fresh patches
+and migration from the existing installed patch produce identical module text.
+The 1,154-case unit/component suite, real terminal foundations, headless exec,
+documentation checker and lint passed. The packaged Desktop preset passed
+the same recovery probe on initial load and after Host restart, with its receipt
+in `artifacts/local/desktop-preset.json`. That probe now allows 90 seconds per
+non-browser phase to include the two deliberate seven-second waits alongside
+the existing checks. No production session was modified or release published;
+no live-model quality claim is made.
+
+## Dedicated file tools — 2026-10-12 (unreleased)
+
+DSCODE now mounts the existing `dsh-tool-fs` tools on the Host's sandboxed
+filesystem and observation policy. The shared `scripts/file-tools-probe.mjs`
+runs through the actual preset in the terminal foundations check and the
+packaged Desktop Host check, including the Desktop restart phase. It verifies
+numbered read windows, exact edits, ambiguous and missing-match rejection,
+replace-all, creation and overwrite, stale-file rejection and recovery,
+independent session/workspace observations, resume requiring a fresh read,
+read-only denial and rejected escalation. It also verifies that shell reads
+do not authorize file edits and shell `cd` does not redirect relative file-tool
+paths. Terminal checks pass real read/diff metadata into the TUI detail parser.
+New-file creation returns a confirmation; edits and overwrites carry diff
+metadata.
+
+Validation passed: 1,150 unit/component cases, both TypeScript configurations,
+lint, the documentation checker, real terminal foundations and the packaged
+Desktop preset on the pinned 0.2.0-rc.2 Host. The session sandbox initially
+blocked local sockets; the affected checks passed outside that sandbox.
+Desktop packaging was retried with offline `npm pack` after an initial timeout.
+The native Host receipt is `artifacts/local/desktop-preset.json`.
+No real model-quality benchmark, manual GUI inspection, full release gate or
+publication was performed. Earlier shell-only descriptions below are historical.
+
 ## Full archive updater repair — 2026-10-12 (0.7.42)
 
 The local repository gate and Node 22/24 CI passed lint, both TypeScript

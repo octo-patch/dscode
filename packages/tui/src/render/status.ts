@@ -161,7 +161,7 @@ export interface StatusLayout {
 }
 
 /** Separator between leading clusters. */
-export const STATUS_GROUP_SEPARATOR = ' · '
+export const STATUS_GROUP_SEPARATOR = '   '
 /** Separator between trailing state spans. */
 export const STATUS_ITEM_SEPARATOR = ' · '
 /** The Codex-style mode cycle hint appended to the permission badge. */
@@ -297,7 +297,7 @@ export const STATUS_ITEMS: readonly StatusItemInfo[] = [
   { id: 'branch', label: 'branch', description: 'git branch inside a repository', side: 'left' },
   { id: 'context', label: 'context', description: 'context-window occupancy meter', side: 'left' },
   { id: 'skills', label: 'skills', description: 'skills loaded in the session catalog', side: 'left' },
-  { id: 'permission', label: 'permission', description: 'permission preset badge with cycle hint', side: 'right' },
+  { id: 'permission', label: 'permission', description: 'permission preset; Shift+Tab cycles', side: 'right' },
   { id: 'plan', label: 'plan', description: 'plan-mode state mark', side: 'left' },
   { id: 'turns', label: 'turns', description: 'turn and step counters', side: 'left' },
   { id: 'durations', label: 'durations', description: 'llm/ttft/decode/tool wall time', side: 'left' },
@@ -407,6 +407,8 @@ export interface StatusFacts {
   }
   /** Effort for facts.model; an absent value never inherits an older request's effort. */
   effort?: string
+  /** Requested and server-confirmed speed, refreshed independently of token usage. */
+  serviceSpeed?: string
   /** dscode: the effective skill-catalog size; undefined until the first catalog read settles. */
   skills?: number
 }
@@ -488,6 +490,8 @@ function buildCandidates(
   if (model !== '' && enabled.has('model')) {
     const effort = safe(facts.effort ?? '')
     push({ text: effort === '' ? model : model + ' @ ' + effort, tone: 'accent' })
+    const speed = facts.serviceSpeed
+    if (speed) push({ text: speed, tone: speed.includes('→') ? 'warn' : 'meta' })
   }
   const cwd = safe(facts.cwd)
   if (cwd !== '' && enabled.has('cwd')) push({ text: cwd, tone: 'path' })
@@ -670,6 +674,9 @@ function buildCandidates(
       ['telemetry-average', figures.average, 30],
       ['telemetry-context', figures.context, 94],
     ] as const) {
+      // One unknown rate is enough before the first measured request. The
+      // average returns as soon as either reading carries useful information.
+      if (id === 'telemetry-average' && figures.current.includes('-- tps') && text.includes('-- tps')) continue
       if (text !== '') row2.push({ group: { spans: [{ text, tone: 'meta' }] }, rank, id })
     }
   } else if (facts.telemetry !== undefined && facts.telemetry !== '') {
@@ -681,14 +688,14 @@ function buildCandidates(
 /**
  * Compose the responsive footer layout under a column budget. Row 1 keeps the
  * session identity, cwd, mode, branch, context, then the right-pinned permission
- * badge and cycle hint. It drops hint, context, and permission before
- * ellipsizing identity. Row 2 fits all secondary figures, the live telemetry
- * cluster and state within its own budget.
+ * badge. Identity is shortened to preserve the badge where space permits.
+ * Secondary figures use two rows when necessary, dropping lower-priority
+ * readings only when they cannot fit.
  * @param facts - identity facts resolved by the runner.
  * @param stats - session figures folded from the durable log.
  * @param columns - usable columns for each row (before their left padding).
- * @param options - 'busy' hides the cycle hint while a turn runs (Codex
- * keeps mode hints idle-only); 'items' is the ordered enabled-item config
+ * @param options - 'showHint' opts into an idle-only mode hint; 'busy' hides
+ * that hint while a turn runs; 'items' is the ordered enabled-item config
  * from /statusline (defaults to the full catalog). Display order follows the
  * config per side while the drop ladder keeps its fixed ranks.
  * @returns the rows to render; row1.left is never empty.
@@ -697,7 +704,7 @@ export function layoutStatusBar(
   facts: StatusFacts,
   stats: TranscriptStats,
   columns: number,
-  options: { busy?: boolean; items?: readonly string[]; contextWidth?: number } = {},
+  options: { busy?: boolean; items?: readonly string[]; contextWidth?: number; showHint?: boolean } = {},
 ): StatusLayout {
   const busy = options.busy === true
   const items = options.items ?? DEFAULT_STATUSLINE_ITEMS
@@ -726,8 +733,8 @@ export function layoutStatusBar(
   // The cycle hint keeps its columns reserved whether or not it is painted:
   // the badge anchors the right edge, so a turn opening or closing must not
   // change what the left clusters may occupy.
-  let hint = badge >= 0 && !busy
-  let hintWidth = badge >= 0 ? visibleColumns(statusCycleHint()) : 0
+  let hint = options.showHint === true && badge >= 0 && !busy
+  let hintWidth = options.showHint === true && badge >= 0 ? visibleColumns(statusCycleHint()) : 0
   const leftKept = [...orderedLeft]
   const rightKept = [...orderedRight]
 
@@ -785,7 +792,7 @@ export function layoutStatusBar(
       leftKept.splice(leftKept.findIndex(entry => entry.id === 'context'), 1)
       continue
     }
-    if (hintWidth > 0 && rightKept.length > 0 && leftKept.length > 0) {
+    if (rightKept.length > 0 && leftKept.length > 0) {
       const identity = leftKept[0]
       const identityText = identity.group.spans.map(span => span.text).join('')
       const rightWidth = joinWidth(rightKept.map(entry => visibleColumns(entry.span.text)), itemSeparator)

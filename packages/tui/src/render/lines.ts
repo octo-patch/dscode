@@ -245,7 +245,7 @@ export function reasoningLines(text: string, columns: number): readonly StyledLi
  * diff/read/web/raw rows align under them instead of floating two columns
  * shallower.
  */
-function toolDetailLines(detail: ToolDetail, columns: number): readonly StyledLine[] {
+export function toolDetailLines(detail: ToolDetail, columns: number): readonly StyledLine[] {
   switch (detail.kind) {
     case 'diff':
       return detail.diffs.flatMap(diff => [

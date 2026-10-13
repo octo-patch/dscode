@@ -59,7 +59,7 @@ export function patchPersistent(text) {
       if (liveId !== undefined && !ctx.terminals.list(owner).some(s => s.sessionId === liveId && s.status.kind !== "exited")) { pending.delete(owner); live.delete(owner); }
       const existing = pending.get(owner);`);
   }
-  return patchShellCapture(patchStdinStall(text));
+  return patchStdinStall(patchShellCapture(text));
 }
 
 export { STDIN_STALL_MS, STDIN_STALL_NOTE, patchStdinStall } from './patch-stdin-stall.mjs';

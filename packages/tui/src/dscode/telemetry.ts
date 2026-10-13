@@ -7,7 +7,7 @@
 
 import { createElement, useEffect, useState } from 'react'
 import { Text } from 'ink'
-import { getPalette, getTheme, inkColor } from '../theme.ts'
+import { getPalette, getTheme, inkColor, isDecorativeTheme } from '../theme.ts'
 
 /** One tintable tier; `null` leaves the run in the surrounding colour. */
 export type DscodeTelemetryTone = 'red' | 'yellow' | 'green' | 'blue' | 'purple' | null
@@ -101,10 +101,12 @@ function TpsActivity({ animated }: { animated: boolean }): ReturnType<typeof cre
 /** The telemetry run as Ink nodes; only the request activity slot may move. */
 export function dscodeTelemetryNodes(value: string, key: string, animated = false): readonly ReturnType<typeof createElement>[] {
   return dscodeTelemetryParts(value).map((part, index) => part.activity
-    ? createElement(TpsActivity, { key: key + 'p' + index, animated })
+    ? isDecorativeTheme()
+      ? createElement(TpsActivity, { key: key + 'p' + index, animated })
+      : createElement(Text, { key: key + 'p' + index }, '  ')
     : createElement(
     Text,
-    { key: key + 'p' + index, color: dscodeTpsInkColor(part.tone) },
+    { key: key + 'p' + index, color: isDecorativeTheme() ? dscodeTpsInkColor(part.tone) : part.tone === null ? undefined : inkColor(getPalette().text) },
     part.text,
   ))
 }

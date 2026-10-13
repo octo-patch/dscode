@@ -53,6 +53,13 @@ export default class DscodeCredentials extends LocalCredentialProvider {
     return super.resolve(ref);
   }
   async describe(ref) {
+    if (ref === 'OPENAI_API_KEY') {
+      const openai = this.ctx.get('dscodeOpenAI');
+      if (openai) {
+        const state = openai.auth.status();
+        if (state.mode === 'chatgpt') return { configured: state.configured, source: 'account', writable: false };
+      }
+    }
     if (this.desktop) {
       const native = await super.describe(ref);
       if (native.configured) return LOGINS.has(ref) ? { ...native, source: 'account', writable: false } : native;

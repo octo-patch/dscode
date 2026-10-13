@@ -38,9 +38,9 @@ test('a reply stamps its thinking block and its answer', () => {
   assert(rowText(verbose[0]).startsWith(label + '\u00b7 Thinking:'), rowText(verbose[0]));
   const answer = verbose.slice(verbose.findIndex(row => row.segments.length === 0) + 1).find(row => row.segments.length > 0);
   assert(rowText(answer).startsWith(label), rowText(answer));
-  // Without verbose the folded thinking is absent and the answer still carries its stamp.
+  // Quiet prose shares the streaming text's left edge; timestamps stay in verbose.
   const terse = dscodeChatLines(assistant, 80, false);
-  assert(rowText(terse[0]).startsWith(label), rowText(terse[0]));
+  assert.equal(rowText(terse[0]), '  the answer');
 });
 
 /** A stamped block must stay inside the terminal width: an overflowing row would cost an

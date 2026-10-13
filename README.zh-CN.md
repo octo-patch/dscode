@@ -22,7 +22,7 @@
 
 </div>
 
-DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 macOS 终端编码 agent。持久 Shell 负责读写代码和执行测试；TUI、CLI 与脚本共用同一个会话运行时，而不是各自启动一套。它以固定版本的可复现 harness 安装——DSH 依赖、TUI 与插件一起打包、一起校验。
+DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 macOS 终端编码 agent。专用文件工具通过文件版本检查来读取和编辑代码，持久 Shell 负责搜索、构建和测试。TUI、CLI 与脚本共用同一个会话运行时，而不是各自启动一套。它以固定版本的可复现 harness 安装——DSH 依赖、TUI 与插件一起打包、一起校验。
 
 多数编码 agent 是单打独斗。DSCODE 建在相反的假设上：同一台机器上的会话**彼此可见**——一个可以把任务交出去，另一个可以审阅 diff，而放行与否由一个独立审核模型按**你的指令**判断，而不是查规则表。
 
@@ -40,7 +40,7 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 | 能力 | 说明 |
 |---|---|
-| **[编码循环](docs/dscode-ultra.md)** | 持久 Shell 保留 cwd、环境和后台任务，可读写文件、搜索、应用补丁并运行测试。项目指令、skills、plan、goal 与 hooks 已接入。 |
+| **[编码循环](docs/dscode-ultra.md)** | 带行号的文件读取、精确编辑与原子写入，提供旧版本保护和 diff 元数据；持久 Shell 负责搜索、补丁和测试。项目指令、skills、plan、goal 与 hooks 已接入。 |
 | **[会话接入](docs/session-bridge.md)** | 在 TUI 开始任务后，可从另一个终端补充要求、读取输出或订阅进展（`dscode sessions`、`send`、`read`、`watch`）。所有来源进入同一个运行时和上下文，读取和订阅不需要取得 session 写锁。 |
 | **[Agent 间任务](docs/session-communication.md)** | Agent 通过 `list_sessions`、`read_session`、`send_session` 与 `reply_session` 查找、读取并联系其他会话，投递方式可选 `queue`、`steer` 或 `defer`。持久化邮箱、重试去重和有限预算约束消息丢失、重复处理和互相唤醒。 |
 | **[会话名片](docs/session-cards.md)** | 每个 session 展示项目、工作区与最近 5 条用户请求 topic，选协作对象时不必先读它的记录。名片描述用户让它做过什么，不放任务结论。 |
@@ -48,11 +48,13 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | **[推理强度与子 agent](docs/dscode-ultra.md)** | Ultra 使用模型的 `max` 推理，自行决定调查、委派和验证的范围；低于 Ultra 时也能委派，但只在任务确实需要时才用。父 agent 可为每个子 agent 单独选择 effort，需要编辑的子 agent 可从干净的 `HEAD` 建立隔离 Git worktree。 |
 | **[独立审查](docs/tui-commands.md)** | 代码改动通过相关检查后，agent 会把 Git diff（非 Git 工作区则是相对任务开始时快照的改动）交给独立的只读模型审查，先修复具体发现再结束本轮。`/review` 可手动触发，范围可选暂存区、基准分支、单次提交或路径。 |
 | **[非交互执行](docs/exec.md)** | `dscode exec "prompt"`，或 `git diff \| dscode exec "review this"`，在脚本和 CI 中跑完整一轮：回复流式输出到 stdout，工具活动和 session id 到 stderr，退出码反映轮次结果，支持 `--json` 与 `--resume`。 |
-| **[终端体验](docs/session-metrics.md)** | 六种界面语言、可选中复制、向上滚动历史、verbose 思考与工具调用视图、固定在底部的输入区、子 agent 概览，以及底栏 TPS / context / 费用 / 缓存指标。缓存余额保留币种，并区分账户资金与 key 额度。 |
+| **[终端体验](docs/session-metrics.md)** | 六种界面语言、可选中复制、向上滚动历史、直接显示工具失败和文件修改摘要、可展开的 diff、固定在底部的输入区、子 agent 概览，以及底栏 TPS / context / 费用 / 缓存指标。带边框的欢迎卡片和铺满终端高度的布局让输入区从启动起就固定在底部。默认主题采用对齐正文和克制配色；Prismatic 与 Rainbow 增加装饰动画。活动栏显示当前目标与本次工具耗时；verbose 模式展示思考和调用详情。缓存余额保留币种，并区分账户资金与 key 额度。 |
 | **[权限护栏](docs/auto-review.md)** | 默认 `workspace-write` sandbox 与独立模型 Auto 审核，可切回人工审批。Ultra 不增加权限，Computer Use 保留人工授权。 |
 | **[Agent 邮件](docs/email.md)** | 所有 session 共用的本地 `[ToAgent]` 收件箱：Enter 把邮件作为用户选择的上下文 steer 进当前会话；配置 Gmail 后 agent 可走同一审批流程发信。 |
 
 ## 🆕 最新变化
+
+**0.7.43** — 新增原生 OpenAI/ChatGPT 与社区 Antigravity Gemini 接入、带文件版本检查的 read/edit/write 工具，更清晰的全高度终端布局，以及可靠的非交互持久 Bash 命令。OpenAI 速度选择会报告服务器实际档位；Antigravity 账户访问仍需线上验证。详见[发布说明](docs/releases/0.7.43.md)。
 
 **0.7.42** — 修复完整安装包升级时的文件列表缓冲区限制。已装 0.7.41 的用户请重新运行下方 `curl` 安装命令一次，之后可正常使用 `dscode update`。详见[发布说明](docs/releases/0.7.42.md)。
 
@@ -108,7 +110,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```sh
 dscode update             # 升级到最新的自包含发布版
-dscode update 0.7.42      # 安装指定的自包含发布版
+dscode update 0.7.43      # 安装指定的自包含发布版
 ```
 
 先退出正在运行的 DSCODE 会话和调度器。升级器校验后整体替换程序，保留设置、凭据和会话；替换失败会恢复旧程序。在 TUI 中输入 `/update`，会安排在退出后执行同一个升级器。再次运行安装命令，也会升级由该安装器管理的安装。
@@ -119,13 +121,17 @@ dscode update 0.7.42      # 安装指定的自包含发布版
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.42-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.43-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
 解压后请保留整个目录：`dscode` 会使用同目录内的私有运行时和依赖。
 
 运行 `/login`，在隐藏输入框中粘贴 DeepSeek API key：密钥以 `0600` 权限保存在本机 `~/.local/share/dscode-state/credentials.yaml`，不同项目和安装版本共用，不会发送给 agent。已设置的 `DEEPSEEK_API_KEY` 环境变量优先。想使用 OpenRouter，输入 `/provider openrouter`：DSCODE 会提示输入 OpenRouter key（同样保存在本机，或读取 `OPENROUTER_API_KEY`），并把当前会话切到对应的 DeepSeek 模型；`/model` 随后只列出精选清单，而不是整个目录——DeepSeek、GLM、Kimi、Qwen、MiMo 的当前主力型号，加上 Anthropic、OpenAI、Google、xAI 的旗舰线——直接输入即可搜索。前五家经过适配和测试，后四家的旗舰尽力可用。清单外的模型在已有会话里仍可继续运行。`/provider deepseek` 切回，`/login openrouter` 可更换 key。[OpenCode Go](docs/opencode-go.md) 订阅用法相同：`/opencode login` 用 OpenCode 账号登录，之后 `/provider opencode-go` 即可使用 Go 的 DeepSeek、GLM、Kimi、MiMo、LongCat、Hy 和 Space Bunny 模型。用 `/model` 选择模型或配置其他提供方，用 `/effort` 调整推理强度；默认路由是 `deepseek-official/deepseek-flash`。 TUI 启动时会检查 GitHub 上的新版本，`/update` 可在退出后自动完成整个安装的升级。
+
+使用 [Antigravity](docs/antigravity.md) 时，先运行 `/antigravity login`，再运行 `/provider antigravity`，即可通过 Google 账号调用 Gemini，同时保留 DSCODE 的工具和权限流程。这是直接连接模型后端的社区接入方式；模型访问和额度由 Google 决定。
+
+使用 [OpenAI / ChatGPT](docs/openai.md) 时，运行 `/openai login` 和 `/provider openai`；也可用 `/openai api-key` 选择 API Key 计费。通过 `/effort` 选择推理强度，通过 `/speed standard|fast|ultrafast` 选择速度。OpenAI 会话在估算输入达到 272,000 tokens 时压缩，小上下文模型会更早触发。
 
 使用 `/provider custom` 添加自托管或私有 API，支持 Chat Completions、Responses 和 Anthropic Messages。配置地址及可选密钥，发现或手动添加模型，设置上下文窗口，并测试流式工具调用。支持视觉的模型可开启 **Input → Text and images** 来接收截图和图片附件；默认仅接收文本。已保存的服务会按名称显示在 `/provider` 中，按 Enter 即可切换到其模型。详见[自定义模型服务](docs/custom-providers.md)。
 
@@ -144,7 +150,7 @@ dscode --version                  # 输出 DSCODE 版本
 
 实验性 Desktop 组合包可向官方应用添加 DSCODE 预设、自定义模型与账户设置、浏览器预览、持久化会话通信、跨会话记忆及按需启用的任务调度。**Settings → DSCODE → Schedules** 可管理任务，并在 Desktop 保持运行时投递。构建及本地安装步骤见[浏览器操作](docs/browser-use.md#install-the-experimental-combined-desktop-package)。启用调度后的原生安装、升级、移除和重新安装，以及账户和调度界面的实际交互，已在 macOS Desktop 0.2.0-rc.2 上验证；验证边界见[触发器](docs/triggers.md#experimental-desktop-scheduling)。该包还包含实验性的[原生 Computer Use 接入](docs/computer-use.md)；窗口观察和输入操作仍待获得 macOS 辅助功能权限后验证。持久化的[时间上下文](docs/session-communication.md#time-context-for-delayed-work)会向 DSCODE agent 提供消息到达时间、转发等待时长和上一轮结束时间，普通聊天正文保持简洁。带独立命令前缀的 [Desktop 诊断](docs/tui-commands.md#experimental-desktop-diagnostics)可检查所选会话、技能与 Host MCP 条目，匹配版本的使用指南随包提供。[Desktop 邮件收件箱](docs/email.md#experimental-desktop-inbox)可预览共享本地邮件、连接 IMAP 或 Gmail OAuth，并将所选邮件加入 DSCODE 会话。背景同步需手动启用；发信沿用现有审批与回执规则。[Session usage 侧栏](docs/session-metrics.md#experimental-desktop-usage)展示 DSCODE 的费用、上下文、缓存、请求速度及逐回合估算。[Delegation board 侧栏](docs/tui-commands.md#experimental-desktop-delegation-board)展示所选主会话的任务、依赖、worktree 和验证依据。Desktop 插件与终端包分别分发；终端弹窗及终端专属命令继续使用现有界面。
 
-Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑的 [Plugin Hub](docs/plugin-hub.md) 界面、发现工具和运行依赖，DSCODE 仍在 Hub 目录中展示。适用于 Harness runtime 0.2.0-rc.2。在官方 **Plugins → Add plugin** 中输入 `@toddzheng024/dscode-desktop@0.7.42`，安装后选择 **Enable now**。更新后需完全退出并重新打开 Desktop。`preview` 和默认 `latest` 分发入口均更新到这个经过验证的预览版。
+Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑的 [Plugin Hub](docs/plugin-hub.md) 界面、发现工具和运行依赖，DSCODE 仍在 Hub 目录中展示。适用于 Harness runtime 0.2.0-rc.2。在官方 **Plugins → Add plugin** 中输入 `@toddzheng024/dscode-desktop@0.7.43`，安装后选择 **Enable now**。更新后需完全退出并重新打开 Desktop。`preview` 和默认 `latest` 分发入口均更新到这个经过验证的预览版。
 
 **Settings → DSCODE** 中的使用说明、Models、Accounts、Schedules 保持同级；**Plugins → DSCODE · Community** 打开相同页面。DSCODE 浏览器工具仅用于 DSCODE 会话。已有桌面模型和账户可直接在正常模型选择器中使用，额外提供方配置使用原生凭据存储。启用 **Show coding view** 和 **Agent presets**，完全重启后在新会话选择 DSCODE。
 
@@ -241,6 +247,8 @@ DSH 固定为 `0.2.0-rc.2`，内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-c
 | [浏览器操作](docs/browser-use.md) | 浏览器接入、profile、站点权限、Developer mode、WebMCP，以及 DeepSeek 或自定义模型的任务评测 |
 | [Plugin Hub](docs/plugin-hub.md) | DSCODE 与 Hub 的分离，以及此前发布版本的行为 |
 | [账号登录](docs/account-login.md) | 用浏览器账号代替 API key 给 DeepSeek 路由授权：流程、回环回调与限制 |
+| [Antigravity](docs/antigravity.md) | Google 账号登录、Gemini 模型、会话回放与连接限制 |
+| [OpenAI / ChatGPT](docs/openai.md) | ChatGPT 登录、API Key、Fast/Ultrafast 速度与 272k 压缩线 |
 | [OpenCode Go](docs/opencode-go.md) | 用 OpenCode Go 订阅运行会话：账号登录、状态栏用量、模型及其推理强度、暂不支持的部分 |
 | [自定义模型服务](docs/custom-providers.md) | 接入自托管与私有 API：协议、模型发现、上下文窗口、密钥和工具调用测试 |
 | [Auto 审核](docs/auto-review.md) | 独立权限审核的范围、成本与限制 |

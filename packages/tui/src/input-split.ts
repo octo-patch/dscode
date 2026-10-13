@@ -140,6 +140,26 @@ export function createSplitStdin(source: NodeJS.ReadStream): { stdin: TuiStdin; 
   // exists to separate. In object mode every pushed unit reads back alone.
   const stream = new PassThrough({ objectMode: true }) as TuiStdin
   const splitter = createKeypressSplitter()
+  let pending: string[] = []
+  let cursor = 0
+  let pump: ReturnType<typeof setImmediate> | undefined
+  let disposed = false
+  // Ink drains every readable unit synchronously. A large unbracketed paste
+  // otherwise chains hundreds of React commits and their passive effects in
+  // one turn. Preserve key boundaries while yielding between bounded bursts.
+  const enqueue = (units: string[]): void => {
+    if (disposed || units.length === 0) return
+    for (const unit of units) pending.push(unit)
+    if (pump !== undefined) return
+    const drain = (): void => {
+      pump = undefined
+      const stop = Math.min(cursor + 16, pending.length)
+      while (cursor < stop) stream.write(pending[cursor++])
+      if (cursor < pending.length) pump = setImmediate(drain)
+      else { pending = []; cursor = 0 }
+    }
+    pump = setImmediate(drain)
+  }
   let stalePasteTimer: ReturnType<typeof setTimeout> | undefined
   const disarmStalePasteTimer = (): void => {
     if (stalePasteTimer === undefined) return
@@ -155,13 +175,13 @@ export function createSplitStdin(source: NodeJS.ReadStream): { stdin: TuiStdin; 
     if (stalePasteTimer !== undefined || !splitter.openPaste()) return
     stalePasteTimer = setTimeout(() => {
       stalePasteTimer = undefined
-      for (const unit of splitter.releaseStalePaste()) stream.write(unit)
+      enqueue(splitter.releaseStalePaste())
       armStalePasteTimer()
     }, PASTE_BRACKET_TIMEOUT_MS)
     stalePasteTimer.unref?.()
   }
   const onChunk = (chunk: string): void => {
-    for (const unit of splitter.push(String(chunk))) stream.write(unit)
+    enqueue(splitter.push(String(chunk)))
     if (splitter.openPaste()) armStalePasteTimer()
     else disarmStalePasteTimer()
   }
@@ -183,9 +203,13 @@ export function createSplitStdin(source: NodeJS.ReadStream): { stdin: TuiStdin; 
   return {
     stdin: proxy,
     dispose(): void {
+      disposed = true
+      if (pump !== undefined) clearImmediate(pump)
+      pending = []
       disarmStalePasteTimer()
       source.removeListener('data', onChunk)
       source.pause()
+      stream.destroy()
     },
   }
 }

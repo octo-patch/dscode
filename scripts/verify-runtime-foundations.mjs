@@ -9,14 +9,14 @@ const home = mkdtempSync(join(tmpdir(), 'dscode-foundations-')), children = [];
 try {
   provision(home);
   const patch = join(home, 'probe.patch.yml');
-  writeFileSync(patch, `- id: dscode-session-cards\n  config:\n    enabled: false\n- id: tui-startup\n  disabled: true\n- id: tui-runner\n  disabled: true\n- id: dscode-memory\n  config:\n    generate: false\n- insert:\n    - id: runtime-foundations-probe\n      name: ${JSON.stringify(join(root, 'scripts/runtime-foundations-probe.mjs'))}\n`);
+  writeFileSync(patch, `- id: dscode-credentials\n  config:\n    path: ${JSON.stringify(join(home, 'credentials.yaml'))}\n- id: session-title-llm\n  disabled: true\n- id: dscode-session-cards\n  config:\n    enabled: false\n- id: tui-startup\n  disabled: true\n- id: tui-runner\n  disabled: true\n- id: dscode-memory\n  config:\n    generate: false\n- insert:\n    - id: runtime-foundations-probe\n      name: ${JSON.stringify(join(root, 'scripts/runtime-foundations-probe.mjs'))}\n`);
   const start = mode => {
     const child = spawn(process.execPath, [dshEntry, '--profile', 'tui', '--patch', patch], {
       cwd: root, env: { ...environment(home), DSCODE_FOUNDATIONS_MODE: mode, DSCODE_MEMORY_HOME: join(home, 'memories') }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     const record = { child, output: '', done: false };
     child.stdout.on('data', b => { record.output += b; }); child.stderr.on('data', b => { record.output += b; });
-    const timer = setTimeout(() => child.kill('SIGKILL'), 15000);
+    const timer = setTimeout(() => child.kill('SIGKILL'), ['files', 'shell'].includes(mode) ? 45000 : 15000);
     record.exited = new Promise((resolve, reject) => { child.once('exit', (code, signal) => { record.done = true; clearTimeout(timer); resolve({ code, signal }); }); child.once('error', reject); });
     children.push(record); return record;
   };
@@ -32,6 +32,10 @@ try {
   assert((await completed(start('successor'))).includes('FOUNDATIONS_RELEASED'));
   console.log('FOUNDATIONS_OWNERSHIP: kernel lock excludes second Host, read stays available, SIGKILL and clean disposal release ownership');
   console.log((await completed(start('preset'))).split('\n').find(s => s.includes('FOUNDATIONS_PRESET_LOCK')));
+  console.log((await completed(start('files'))).split('\n').find(s => s.includes('FOUNDATIONS_FILE_TOOLS')));
+  console.log((await completed(start('shell'))).split('\n').find(s => s.includes('FOUNDATIONS_SHELL_RECOVERY')));
+  console.log((await completed(start('openai'))).split('\n').find(s => s.includes('FOUNDATIONS_OPENAI')));
+  console.log((await completed(start('antigravity'))).split('\n').find(s => s.includes('FOUNDATIONS_ANTIGRAVITY')));
   console.log((await completed(start('boundaries'))).split('\n').find(s => s.includes('FOUNDATIONS_BOUNDARIES')));
 } finally {
   for (const record of children) if (!record.done) record.child.kill('SIGKILL');

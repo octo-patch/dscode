@@ -9,6 +9,14 @@ import { ensureOpenRouterModels } from '../openrouter/models.mjs';
 // so compaction waits; with no discount it pays off early.
 export const DEFAULT_THRESHOLD_RATIO = 0.8;
 
+// A pressure trigger, not an advertised model capacity. Smaller models still
+// compact earlier when their safe input budget requires it.
+export const CODEX_COMPACTION_TOKENS = 272000;
+export function compactionThresholdTokens(provider, model, contextWindow, thresholdRatio) {
+  const ordinary = Math.floor(contextWindow * thresholdRatio);
+  return provider === 'openai' ? Math.min(CODEX_COMPACTION_TOKENS, ordinary) : ordinary;
+}
+
 /** Threshold ratio for a cache-read / input price ratio; unknown prices keep the upstream default. */
 export function thresholdForCacheRatio(ratio) {
   if (!Number.isFinite(ratio) || ratio < 0) return DEFAULT_THRESHOLD_RATIO;
@@ -92,8 +100,8 @@ export async function pricedCompactionPolicy(config, policy, now = Date.now()) {
 }
 
 /** Whether the session's current context would compact on a route's next step, or undefined when either size is unknown. */
-export function compactionPreview({ used, contextWindow, thresholdRatio, label = '' }) {
+export function compactionPreview({ used, contextWindow, thresholdRatio, label = '', provider, model }) {
   if (!Number.isFinite(used) || used <= 0 || !Number.isInteger(contextWindow) || contextWindow <= 0) return undefined;
-  const threshold = Math.floor(contextWindow * thresholdRatio);
+  const threshold = compactionThresholdTokens(provider, model, contextWindow, thresholdRatio);
   return { label, used, contextWindow, thresholdRatio, threshold, compacts: used >= threshold, overflows: used >= contextWindow };
 }

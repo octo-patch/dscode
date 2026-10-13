@@ -158,7 +158,9 @@ export function DelegateDashboardPanel({ load, close }: { load: () => DelegateSn
   const counts = DELEGATE_COLUMNS.map(column => snapshot?.columns[column].length ?? 0)
   const total = counts.reduce((sum, count) => sum + count, 0)
   const heading = (column: DelegateColumn, index: number): string => `${t(`panel.delegate.${column}`)} ${counts[index]}`
-  if (viewport.maxHeight === 0 || viewport.compact) {
+  // Cards need two header rows and at least three body rows. Never force
+  // that minimum beyond the space reserved for a short terminal's chrome.
+  if (viewport.maxHeight === 0 || viewport.compact || viewport.bodyRows < 5) {
     const summary = DELEGATE_COLUMNS.map(heading).join(' · ')
     return createElement(Text, { wrap: 'truncate-end' }, truncateColumns(`/delegate-dashboard · ${summary}`, viewport.contentColumns))
   }

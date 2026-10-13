@@ -52,6 +52,11 @@ export type ThemeName = 'dark' | 'light' | 'prismatic' | 'rainbow' | 'auto'
 /** Valid theme names in canonical picker order. */
 export const THEME_NAMES: readonly ThemeName[] = ['dark', 'light', 'prismatic', 'rainbow', 'auto']
 
+/** Decorative skins retain the larger artwork and multi-colour motion. */
+export function isDecorativeTheme(): boolean {
+  return isPrismatic() || isRainbow()
+}
+
 /** One /theme picker row: the theme id plus its display copy. */
 export interface ThemeDescriptor {
   /** The selectable theme name. */

@@ -25,13 +25,13 @@ export function apply(ctx) {
       }).join('\n');
       if (text.includes('USE_BLOCKING_TOOL') && !usedTool && options.tools?.some(t => t.name === 'bash')) {
         yield { type: 'block-start', index: 0, blockType: 'tool-call' };
-        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call-1', name: 'bash', arguments: JSON.stringify({ command: 'cat > /dev/null', description: 'fixture command that only terminal input could finish' }) } };
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call-1', name: 'bash', arguments: JSON.stringify({ command: 'cat > /dev/null', description: 'Verify default stdin reaches EOF' }) } };
         yield { type: 'finish', reason: { kind: 'tool-use' } };
         return;
       }
       if (text.includes('USE_BLOCKING_TOOL') && usedTool) {
         yield { type: 'block-start', index: 0, blockType: 'text' };
-        yield { type: 'block-end', index: 0, block: { type: 'text', text: `fixture reply: ${toolText.includes('cannot supply terminal input') ? 'stall noted' : toolText.includes('posix_openpt') ? 'no pty' : 'stall missing'}` } };
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: `fixture reply: ${toolText.includes('Command finished with exit code 0') ? 'stdin EOF' : toolText.includes('posix_openpt') ? 'no pty' : 'EOF missing'}` } };
         yield { type: 'finish', reason: { kind: 'stop' } };
         return;
       }

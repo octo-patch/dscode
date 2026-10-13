@@ -35,6 +35,7 @@ import {
   getTheme,
   inkColor,
   isPrismatic,
+  isDecorativeTheme,
   isRainbow,
   themeFlow,
   setTheme,
@@ -58,6 +59,7 @@ import { readClipboardImage } from './dscode/clipboard-image/index.mjs'
 import { createChatLinesCache, dscodeChatLines } from './dscode/chat.ts'
 import { readFileSync } from 'node:fs'
 import { footerFiguresFor as dscodeFooterFiguresFor } from '../../../plugins/session-metrics/view.mjs'
+import { speedLabel } from '../../../plugins/openai/speed.mjs'
 import { fetchLatestVersion as dscodeFetchLatestVersion, newerVersion as dscodeNewerVersion } from '../../../plugins/tui-tools/update.mjs'
 import { languageName as dscodeLanguageName, normalizeLanguage as dscodeNormalizeLanguage, t as dscodeMessage } from '../../../plugins/i18n/messages.mjs'
 import { dscodeTelemetryNodes } from './dscode/telemetry.ts'
@@ -261,7 +263,7 @@ import {
   type StatusSpan,
   type StatusTone,
 } from './render/status.ts'
-import { displayTail, displayText, formatTokens, singleLineText, truncateColumns, wrapText } from './render/text.ts'
+import { createDisplayTailCache, displayText, formatTokens, singleLineText, truncateColumns, wrapText } from './render/text.ts'
 import {
   isVsCodeTerminalEnv,
   normalizeKeyboardChunk,
@@ -801,8 +803,7 @@ function dscodeSpinnerCells(tick: number, palette: ReturnType<typeof getPalette>
 }
 
 /** What the turn is doing: the running tool's label, else replying/thinking. */
-function dscodeActivity(entries: readonly TranscriptEntry[], streaming: boolean): string {
-  const running = entries.filter(entry => entry.kind === 'tool' && entry.state === 'running')
+function dscodeActivity(running: readonly Extract<TranscriptEntry, { kind: 'tool' }>[], streaming: boolean): string {
   const tool = running.at(-1)
   if (tool === undefined || tool.kind !== 'tool') return streaming ? dscodeT('activity.replying') : dscodeT('activity.thinking')
   let description = ''
@@ -812,10 +813,11 @@ function dscodeActivity(entries: readonly TranscriptEntry[], streaming: boolean)
       if (typeof args?.description === 'string') description = args.description
     }
   } catch {}
-  // No raw argument or command dump in the chat chrome; a supplied description is
-  // a task label, not a claim that the command succeeded.
+  // Prefer a task description, falling back to the bounded invocation preview
+  // (a read/edit usually has a path but no description). Neither implies success.
+  const target = description || tool.preview
   return dscodeT('activity.running') + ' · ' + singleLineText(tool.name) + (running.length > 1 ? ' +' + (running.length - 1) : '')
-    + (description ? ' · ' + truncateColumns(singleLineText(description), 56) : '')
+    + (target ? ' · ' + truncateColumns(singleLineText(target), 56) : '')
 }
 
 /**
@@ -852,10 +854,17 @@ function dscodeTetrisCells(row: string, palette: ReturnType<typeof getPalette>, 
 
 export function DscodeCompactionLine({ since, rows, animated = true }: { since: number; rows: number; animated?: boolean }): ReactElement {
   const columns = useStdout().stdout?.columns ?? 80
-  const tick = useFrames(animated ? DSCODE_TETRIS_TICK_MS : 1000)
+  const decorative = isDecorativeTheme()
+  const tick = useFrames(animated ? decorative ? DSCODE_TETRIS_TICK_MS : 100 : 1000)
   const palette = getPalette()
   const board = dscodeTetrisFrame(animated ? tick : 0)
   const clock = runClock(since > 0 ? Math.max(0, Date.now() - since) : 0)
+  if (!decorative) {
+    return createElement(Box, { paddingX: 2 },
+      createElement(Text, { color: inkColor(palette.brandBright) }, (animated ? '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[tick % 10] : '·') + ' '),
+      createElement(Text, { color: inkColor(palette.dim), wrap: 'truncate-end' }, truncateColumns(dscodeT('compaction.running') + ' · ' + clock, Math.max(1, columns - 6))),
+    )
+  }
   const room = Math.max(1, columns - 8 - DSCODE_TETRIS_WIDTH * 2)
   const wall = (key: string): ReactElement => createElement(Text, { key, color: inkColor(palette.dim) }, '|')
   const label = (labelText: string, color: RgbTriple): ReactElement =>
@@ -895,16 +904,28 @@ export function DscodeCompactionLine({ since, rows, animated = true }: { since: 
 export function DscodeActivityLine({ entries, streaming, since, animated = true, communication }: { entries: readonly TranscriptEntry[]; streaming: boolean; since: number; animated?: boolean; communication?: CommunicationView }): ReactElement {
   const columns = useStdout().stdout?.columns ?? 80
   const tick = useFrames(animated ? 100 : 1000)
+  const running = useMemo(() => entries.filter((entry): entry is Extract<TranscriptEntry, { kind: 'tool' }> => entry.kind === 'tool' && entry.state === 'running'), [entries])
+  const tool = running.at(-1)
   const elapsed = since > 0 ? Math.max(0, Date.now() - since) : 0
+  const toolTime = tool?.time === undefined ? undefined : runClock(Math.max(0, Date.now() - tool.time))
+  const timing = toolTime === undefined ? dscodeT('activity.turn') + ' ' + runClock(elapsed) : t('activity.toolTime', { time: toolTime })
   const suffix = columns >= 64
-    ? ' · ' + dscodeT('activity.turn') + ' ' + runClock(elapsed) + ' · ' + dscodeT('activity.interrupt')
-    : ' · ' + dscodeT('activity.turn') + ' ' + runClock(elapsed)
+    ? ' · ' + timing + ' · ' + dscodeT('activity.interrupt')
+    : ' · ' + timing
   const palette = getPalette()
   const spinner = animated
     ? dscodeSpinnerCells(tick, palette)
     : { left: { text: ' ', color: palette.brandMid as readonly number[] }, flake: palette.brandBright as readonly number[], right: { text: ' ', color: palette.brandMid as readonly number[] } }
   const crossSession = communication === undefined ? undefined : dscodeCommunicationActivity(communication)
-  const label = truncateColumns(crossSession ?? dscodeActivity(entries, streaming), Math.max(1, columns - 9 - visibleColumns(suffix)))
+  const label = truncateColumns(crossSession ?? dscodeActivity(running, streaming), Math.max(1, columns - 9 - visibleColumns(suffix)))
+  if (!isDecorativeTheme()) {
+    return createElement(Box, { paddingX: 2 },
+      createElement(Text, { color: inkColor(palette.brandBright) }, (animated ? '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[tick % 10] : '·') + ' '),
+      createElement(Text, { wrap: 'truncate-end' },
+        createElement(Text, { color: inkColor(palette.text) }, label),
+        createElement(Text, { color: inkColor(palette.dim) }, suffix)),
+    )
+  }
   return createElement(
     Box,
     { paddingX: 2 },
@@ -934,7 +955,7 @@ function DeepDivingLine({ since, animated = true }: { since: number; animated?: 
  * the freshest tokens stay visible while a long reply streams; the complete
  * text lands in the flushed scrollback once the turn assembles it.
  */
-function StreamTail({ text, dim, maxRows, prefix = '', continuationPrefix = prefix, children }: {
+export function StreamTail({ text, dim, maxRows, prefix = '', continuationPrefix = prefix, children }: {
   text: string
   dim: boolean
   maxRows: number
@@ -954,6 +975,7 @@ function StreamTail({ text, dim, maxRows, prefix = '', continuationPrefix = pref
   // under-counted and the tree overflowed), so the width now shrinks with
   // the real terminal instead of flooring at 10.
   const contentColumns = Math.max(1, columns - 1 - prefixColumns)
+  const displayTail = useMemo(() => createDisplayTailCache(), [])
   const initial = displayTail(text, contentColumns, safeRows)
   // Reserve one row for the omission marker only when a marker is needed.
   const tail = initial.truncated && safeRows > 1
@@ -1070,7 +1092,7 @@ function lineStyleProps(style: LineStyle): {
 }
 
 /** Render width-safe rows; every child is exactly one terminal row. */
-function StyledRows({ lines }: { lines: readonly StyledLine[] }): ReactElement {
+export function StyledRows({ lines }: { lines: readonly StyledLine[] }): ReactElement {
   return createElement(
     Box,
     { flexDirection: 'column' },
@@ -1095,7 +1117,7 @@ function StyledRows({ lines }: { lines: readonly StyledLine[] }): ReactElement {
 }
 
 /** File-oriented, color-coded unified diff viewport. */
-function DiffPanel({ view, onClose }: { view: GitDiffView; onClose: () => void }): ReactElement {
+export function DiffPanel({ view, onClose }: { view: GitDiffView; onClose: () => void }): ReactElement {
   const stdout = useStdout().stdout
   const viewport = panelViewport(stdout?.columns ?? 80, stdout?.rows ?? 30)
   const [fileIndex, setFileIndex] = useState(0)
@@ -1126,7 +1148,7 @@ function DiffPanel({ view, onClose }: { view: GitDiffView; onClose: () => void }
   const accent = panelAccent('diff', getPalette().dim, getPalette().brand)
   return createElement(
     Box,
-    { flexDirection: 'column', borderStyle: 'round', borderColor: inkColor(accent.border), paddingX: 1 },
+    { flexDirection: 'column', width: viewport.outerColumns, borderStyle: 'round', borderColor: inkColor(accent.border), paddingX: 1 },
     createElement(Text, { color: inkColor(accent.title), bold: true, wrap: 'truncate-end' }, truncateColumns(`${view.title} · ${view.files.length === 0 ? t('panel.diff.noFiles') : `${fileIndex + 1}/${view.files.length} ${file?.path ?? ''}`} · rows ${lines.length === 0 ? 0 : visibleScroll + 1}-${Math.min(lines.length, visibleScroll + viewport.bodyRows)}/${lines.length}`, viewport.contentColumns)),
     createElement(PanelGap, { visible: viewport.gapRows > 0 }),
     createElement(StyledRows, { lines: lines.slice(visibleScroll, visibleScroll + viewport.bodyRows) }),
@@ -1175,12 +1197,17 @@ function rainbowGlyphRow(row: string, rowKey: number): ReactElement {
   return createElement(Text, { key: rowKey }, ...children)
 }
 
-/** dscode's own identity header: the project, model and effort in one line. */
-/** dscode's welcome header: a rippling pixel snowflake beside the session facts. */
+/** Welcome card; only decorative themes animate the pixel snowflake. */
+export function welcomeHeaderRows(columns: number, rows: number): number {
+  if (rows < 24 || columns < 64) return rows < 14 ? 4 : 6
+  return Math.ceil((rows >= 26 ? WELCOME_ART : WELCOME_ART_SMALL).length / 2) + 3
+}
+
 export function Header({ cwd = '', model = '', effort = '', animated = false }: { cwd?: string; model?: string; effort?: string; animated?: boolean }): ReactElement {
   const stdout = useStdout().stdout
-  const rippleTick = useFrames(animated ? 450 : 3600000)
-  const ripplePhase = animated ? rippleTick % 4 : 3
+  const decorative = isDecorativeTheme()
+  const rippleTick = useFrames(450, animated && decorative)
+  const ripplePhase = animated && decorative ? rippleTick % 4 : 3
   const columns = stdout?.columns ?? 80
   const full = (stdout?.rows ?? 30) >= 24 && columns >= 64
   const width = Math.max(1, full ? Math.min(columns - 2, 84) : columns - 4)
@@ -1201,15 +1228,16 @@ export function Header({ cwd = '', model = '', effort = '', animated = false }: 
   if (!full) {
     return createElement(
       Box,
-      { flexDirection: 'column', paddingX: 2, marginBottom: 1 },
+      { flexDirection: 'column', width: Math.max(4, columns - 2), borderStyle: 'round', borderColor: inkColor(palette.brand), paddingX: 1 },
       createElement(
         Text,
         { wrap: 'truncate-end' },
         createElement(Text, { color: inkColor(getPalette().brandBright), bold: true }, '❄ DSCODE'),
         createElement(Text, { color: inkColor(getPalette().dim) }, '  v' + DSCODE_VERSION),
       ),
-      createElement(Text, { wrap: 'truncate-end' }, truncateColumns(modelName + ' · ' + effortName, width)),
-      createElement(Text, { color: inkColor(getPalette().dim), wrap: 'truncate-end' }, welcomePath(cwd, width)),
+      (stdout?.rows ?? 30) < 14 ? undefined : createElement(Text, { wrap: 'truncate-end' }, truncateColumns(modelName + ' · ' + effortName, Math.max(1, columns - 6))),
+      createElement(Text, { color: inkColor(getPalette().dim), wrap: 'truncate-end' }, welcomePath(cwd, Math.max(1, columns - 6))),
+      (stdout?.rows ?? 30) < 14 ? undefined : createElement(Text, { color: inkColor(palette.dim), wrap: 'truncate-end' }, truncateColumns(t('header.shortcuts'), Math.max(1, columns - 6))),
     )
   }
   return createElement(
@@ -1242,6 +1270,7 @@ export function Header({ cwd = '', model = '', effort = '', animated = false }: 
         createElement(Text, { wrap: 'truncate-end' }, project),
       ),
     ),
+    createElement(Text, { color: inkColor(palette.dim), wrap: 'truncate-end' }, truncateColumns(t('header.shortcuts'), contentWidth)),
   )
 }
 function todoMark(status: TodoItem['status']): string {
@@ -1597,6 +1626,10 @@ function statusToneProps(tone: StatusTone, flowMs?: number): {
   bold: boolean | undefined
   dimColor: boolean | undefined
 } {
+  if (!isDecorativeTheme()) {
+    if (tone === 'value' || tone === 'accent' || tone === 'model') return { color: inkColor(getPalette().text), bold: undefined, dimColor: undefined }
+    if (tone === 'path' || tone === 'branch') return { color: inkColor(getPalette().dim), bold: undefined, dimColor: undefined }
+  }
   if (isRainbow()) {
     // Carnival roll: every tone carries its rolled color (adjacent tones in
     // canonical on-screen order never match, the row boundary included);
@@ -1716,7 +1749,7 @@ export function StatusLine({ facts, stats, busy, columns, items, onRows, animate
   // group to a third row instead of dropping it to make the left group fit.
   const slash = facts.model.indexOf('/')
   const provider = slash > 0 ? facts.model.slice(0, slash) : 'deepseek-official'
-  facts = { ...facts, telemetryFigures: dscodeFooterFiguresFor(facts.fullSessionId, stats, provider, getLanguage()) }
+  facts = { ...facts, serviceSpeed: speedLabel(facts.fullSessionId, facts.model), telemetryFigures: dscodeFooterFiguresFor(facts.fullSessionId, stats, provider, getLanguage()) }
   // Flowing-theme busy flow: the identity cluster's live dot cycles the
   // anchor walk while a turn runs; static themes never start the timer.
   const flow = themeFlow()
@@ -1739,6 +1772,7 @@ export function StatusLine({ facts, stats, busy, columns, items, onRows, animate
     facts.telemetryFigures?.cache,
     facts.telemetryFigures?.turn,
     facts.model,
+    facts.serviceSpeed,
     facts.effort,
     facts.mode,
     facts.cwd,
@@ -3099,6 +3133,7 @@ export function DscodeProviderPanel({ current, load, loadCustom, choose, back, g
     const row = directory.rows.find(row => row.provider === provider.id);
     const state = dscodeCredentialState(row);
     if (state === "account") return "signed in";
+    if (provider.id === "openai" && state === "readonly" && row?.credential?.kind === "facts" && row.credential.source === "account") return "not signed in · /openai login";
     if (provider.login !== undefined && (state === "missing" || state === "readonly")) return "not signed in · " + provider.login;
     if (state === "saved") return "key saved";
     if (state === "env") return "key from " + provider.credentialRef;
@@ -4142,7 +4177,7 @@ function entryKindLabel(entry: TranscriptEntry | undefined): string {
  * retained entry is converted to physical rows, but only one viewport slice
  * reaches Ink, so even a huge reasoning block cannot grow the dynamic tree.
  */
-function VerbosePanel({ entries, onClose }: { entries: readonly TranscriptEntry[]; onClose: () => void }): ReactElement {
+export function VerbosePanel({ entries, onClose }: { entries: readonly TranscriptEntry[]; onClose: () => void }): ReactElement {
   const stdout = useStdout().stdout
   const columns = stdout?.columns ?? 80
   const rows = stdout?.rows ?? 30
@@ -4326,7 +4361,7 @@ export function completionCandidates(
     .filter(descriptor => !LOCAL_COMMAND_NAMES.has(descriptor.name))
     .map((descriptor): CompletionCandidate => ({
       label: `/${descriptor.name}`,
-      description: descriptor.description,
+      description: [descriptor.description, descriptor.input?.hint].filter(Boolean).join(' '),
       origin: 'command',
     }))
   const taken = new Set([...local, ...registry].map(candidate => candidate.label.slice(1)))
@@ -6244,17 +6279,12 @@ function buildSettledRow(entry: TranscriptEntry, index: number, showReasoning: b
   // cards), which is the whole gutter: no extra container padding, so reply
   // text starts at the same column as the composer's input text and wrapped
   // continuations keep their hanging indent instead of resetting to column 0.
-  const roomyPrompt = entry.kind === 'user' && !entry.notice
   const lines = dscodeChatLines(entry, Math.max(10, columns - 2), showReasoning)
   return {
     box: createElement(Box, { key: index }, createElement(StyledRows, { lines })),
-    before: roomyPrompt
-      ? createElement(Box, { key: `prompt-before-${index}`, paddingX: 1 }, createElement(Text, null, ' '))
-      : undefined,
-    after: roomyPrompt
-      ? createElement(Box, { key: `prompt-after-${index}`, paddingX: 1 }, createElement(Text, null, ' '))
-      : undefined,
-    rows: lines.length + (roomyPrompt ? 2 : 0),
+    before: undefined,
+    after: undefined,
+    rows: lines.length,
   }
 }
 
@@ -6860,6 +6890,7 @@ export function App(props: AppProps): ReactElement {
       if (replayTimer !== undefined) clearTimeout(replayTimer)
       replayTimer = setTimeout(() => {
         synchronizedReplayPending.current = true
+        appStdout.emit('dscode:frame-reset')
         appStdout.write(RESIZE_REFLOW_CLEAR)
         setRefreshEpoch(epoch => epoch + 1)
         resizeBurstHeld.current = false
@@ -6877,6 +6908,12 @@ export function App(props: AppProps): ReactElement {
   }, [appStdout])
   const terminalRows = terminalSize.rows
   const terminalColumns = terminalSize.columns
+  const settledHeight = welcomeHeaderRows(terminalColumns, terminalRows)
+    + (settledRowsCache.current?.totalRows ?? 0)
+    + ((settledRowsCache.current?.droppedEntries ?? 0) > 0 ? 1 : 0)
+  // Static history already occupies terminal rows. Fill only the unused space;
+  // retain one row for Ink's parked cursor and let longer history scroll normally.
+  const minimumFrameHeight = Math.max(0, terminalRows - 1 - settledHeight)
   const composerGutterRows = layoutGutterRows(terminalRows)
   // The composer's live row count, reported one-way by the editor itself
   // (frozen modals report 1). This keeps the live/streaming budget exact as
@@ -6923,7 +6960,7 @@ export function App(props: AppProps): ReactElement {
   const dscodeCompacting = view.dscodeCompactingSince > 0
   // The board takes five rows when the terminal can seat it, one otherwise; the
   // rows come out of the live region's budget.
-  const dscodeCompactionRows = !dscodeCompacting ? 0 : dynamicRows >= 12 ? 5 : 1
+  const dscodeCompactionRows = !dscodeCompacting ? 0 : isDecorativeTheme() && dynamicRows >= 12 ? 5 : 1
   const deepDivingVisible = busy || dscodeCompacting
   // Terminal tab label: "deepseek" until the session carries a name, then the
   // session title; cleared on unmount so the host shell regains its default.
@@ -7052,6 +7089,7 @@ export function App(props: AppProps): ReactElement {
     // stale-position flicker where the screen keeps redrawing.
     if (appStdout !== undefined) {
       synchronizedReplayPending.current = true
+      appStdout.emit('dscode:frame-reset')
       appStdout.write(SYNCHRONIZED_UPDATE_BEGIN + RESIZE_REFLOW_CLEAR)
     }
     setRefreshEpoch(epoch => epoch + 1)
@@ -7148,10 +7186,12 @@ export function App(props: AppProps): ReactElement {
     Promise.resolve().then(async () => {
       if (props.dscodeEnsureProviderRoute !== undefined && await props.dscodeEnsureProviderRoute(provider)) reloadModelSurfaces()
       const providers = await props.loadModelProviders!()
-      const state = dscodeCredentialState(providers.rows.find(row => row.provider === provider))
+      const providerRow = providers.rows.find(row => row.provider === provider)
+      const state = dscodeCredentialState(providerRow)
       if (state === 'unavailable') { notify(spec.name + t('notice.providerUnavailableSuffix'), 'error'); return }
       // A route authorised by a login command has no key to ask for: name the command instead.
-      const login = (spec as { login?: string }).login
+      const login = provider === 'openai' && providerRow?.credential?.kind === 'facts' && providerRow.credential.source === 'account'
+        ? '/openai login' : (spec as { login?: string }).login
       if (login !== undefined && (state === 'missing' || state === 'readonly')) { notify(t('notice.providerNeedsLogin', { name: spec.name, command: login }), 'warning'); return }
       if (state === 'missing') {
         setProviderOpen(false)
@@ -7467,7 +7507,7 @@ export function App(props: AppProps): ReactElement {
 
   return createElement(
     Box,
-    { flexDirection: 'column' },
+    { flexDirection: 'column', minHeight: minimumFrameHeight },
     createElement(MemoStaticTranscript, {
       key: refreshEpoch,
       items: settledRows,
@@ -7510,7 +7550,7 @@ export function App(props: AppProps): ReactElement {
             // marker falls back to the static dim row — same as Deep diving
             // always yields the live region to streaming content.
             : view.streaming === ''
-              ? createElement(ShimmerLine, { text: '✻ ' + t('activity.working'), animated: animations })
+              ? createElement(ShimmerLine, { text: '✻ ' + t('activity.working'), animated: animations && isDecorativeTheme() })
               : createElement(StreamTail, {
                 text: t('activity.working'),
                 prefix: '✻ ',
@@ -7525,7 +7565,7 @@ export function App(props: AppProps): ReactElement {
             // The same two-column gutter as settled replies: streamed text
             // lands exactly where the assembled message will render.
             { text: view.streaming, dim: false, maxRows: auditedAnswerRows, prefix: '  ' },
-            busy ? createElement(Caret, { animated: animations }) : undefined,
+            busy ? createElement(Caret, { animated: animations && isDecorativeTheme() }) : undefined,
           )
           : undefined,
       )
@@ -7785,6 +7825,7 @@ export function App(props: AppProps): ReactElement {
         tone: notice.tone,
         columns: terminalColumns,
       }),
+    createElement(Box, { flexGrow: 1 }),
     // Persistent bottom chrome: every interface owns exactly the same
     // composer/status geometry. Panels may change above it, but can no longer
     // reorder the status or introduce mode-specific vertical margins.

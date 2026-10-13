@@ -8,9 +8,21 @@ The preset combines the pinned minimal preset's owner-scoped persistent shell wi
 
 The preset also registers a `review` tool and `/review` command backed by one independent, read-only model request over the selected Git diff. The main agent is guided to call it after code changes and focused checks, before its final reply. This is a diff-only review, not a tool-using subagent or a substitute for tests; it does not change Ultra delegation policy. See [TUI review usage](tui-commands.md).
 
-The model uses `bash` for file reads, searches and edits instead of separate `read`, `write`, `edit`, `glob` and `grep` tools. `cd`, exports, functions and background jobs persist across calls for the same agent. Each child gets a separate shell. By default children share workspace files; the parent can explicitly set `worktree: true` on `subagent` or `subagent_fork` to give a child an isolated Git checkout.
+The model uses dedicated file tools for text files:
 
-`apply_patch` is available in the harness shell PATH and wraps `git apply`. Feed it a **standard unified diff**, not the Codex `*** Begin Patch` format. Git is required. `apply_patch --check` checks hunks without writing. This works outside a Git repository too.
+| Tool | Behavior |
+| --- | --- |
+| `read(file_path, offset?, limit?)` | Returns numbered UTF-8 lines with pagination. `offset` starts at 1; a call returns at most 2,000 lines and 50 KiB, with individual lines capped at 2,000 characters. |
+| `edit(file_path, old_string, new_string, replace_all?)` | Replaces exact text. The match must be unique unless `replace_all` is explicitly enabled. |
+| `write(file_path, content)` | Creates a file or atomically replaces its full contents. Prefer `edit` for targeted changes. |
+
+Editing or overwriting an existing file requires a prior `read` in the same session. Changes made by another session, editor or shell invalidate the observed version: the operation fails without overwriting them, and the model must re-read and reconcile before retrying. Successful writes and edits refresh that observation, so consecutive edits do not require redundant reads. Creating a new file does not require a prior read and refuses to clobber a concurrently created file. A partial read records the file version; it does not prove that the model has seen the whole file. Observations do not survive session resume. A shell read or search does not establish a file-tool observation.
+
+File-tool relative paths resolve against the session workspace, independently of shell `cd`. The tools use the Host filesystem sandbox and approval mechanism; unread or stale-file rejection is not a reason to bypass the guard through the shell. Read results carry line-window metadata, and edits and overwrites carry diff metadata for the terminal and Desktop views. New-file creation returns a confirmation rather than a result diff. When attachment storage is available, the same plugin also exposes `read_image`; execution requires an image-capable model.
+
+The model keeps `bash` for searches with `rg`/`rg --files`, builds, tests and batch operations. There are no separate `glob` or `grep` tools. `cd`, exports, functions and background jobs persist across calls for the same agent. Each child gets a separate shell and independent file observations. By default children share workspace files; the parent can explicitly set `worktree: true` on `subagent` or `subagent_fork` to give a child an isolated Git checkout.
+
+`apply_patch` remains available in the harness shell PATH for multi-file patches and wraps `git apply`. Feed it a **standard unified diff**, not the Codex `*** Begin Patch` format. Git is required. `apply_patch --check` checks hunks without writing. This works outside a Git repository too. It checks patch context, not the file tools' observed versions; shell mutations remain subject to the active OS sandbox.
 
 ```sh
 apply_patch <<'PATCH'
@@ -23,11 +35,12 @@ diff --git a/example.txt b/example.txt
 PATCH
 ```
 
-`/shell` lists the current session's terminals. `/shell reset` closes them while the agent is idle. Timeout, cancellation, `exit`, reset and host restart discard shell state; the next call starts at the session workspace. Conversation resume restores messages and files, **not** an OS process or its exports. Interactive foreground programs that require stdin are not supported by this tool. Background work can use shell job control; `shell_retry` also exposes the existing tracked background-job mechanism.
+`/shell` lists the current session's terminals. `/shell reset` closes them while the agent is idle. Timeout, cancellation, `exit`, reset and host restart discard shell state; the next call starts at the session workspace. Conversation resume restores messages and files, **not** an OS process or its exports. Commands receive EOF on stdin by default; pipelines, heredocs and explicit input redirections still work. The tool waits for the command's completion marker, rather than treating a terminal readiness hint or partial output as completion. Silent work is not interrupted merely because it looks idle. Programs that explicitly open the terminal for interactive input are unsupported and may need cancellation or the command timeout. Background work can use shell job control; `shell_retry` also exposes the existing tracked background-job mechanism.
 
 Normal persistent commands keep the active OS sandbox and do not each incur an LLM review. After a genuine sandbox denial, the model may use `shell_retry` for a single fresh-shell retry, with explicit `workdir`, wider `sandbox_permissions` and justification. This uses the original escalation approval seam and auto reviewer. Reviewer input resolves relative workdir against the session workspace and explicitly identifies the environment as fresh. It cannot see or rely on the persistent shell's exports/functions. Rejected approval prevents execution. Sandbox mode changes while persistent terminals exist are rejected upstream; close them with `/shell reset` first when changing permission modes that also change sandbox policy.
 
 Hooks which should cover both execution paths should match `^(bash|shell_retry)$`.
+Hooks that also cover text-file access should include `read`, `edit` and `write`; include `read_image` for image reads.
 
 ## Ultra effort
 

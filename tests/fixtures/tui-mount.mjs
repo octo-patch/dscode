@@ -35,6 +35,16 @@ export async function mount(Component, props, { columns = 80, rows = 30 } = {}) 
     frames,
     errors,
     columns,
+    async rerender(props) {
+      mounted.rerender(createElement(Component, props));
+      await tick();
+    },
+    async resize(columns, rows) {
+      Object.assign(stdout, { columns, rows });
+      this.columns = columns;
+      stdout.emit('resize');
+      await tick();
+    },
     async write(value) {
       stdin.write(value);
       await tick(45);

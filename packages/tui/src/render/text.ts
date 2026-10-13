@@ -204,3 +204,81 @@ export function displayTail(text: string, columns: number, rows: number): Displa
   const keptRows = trailingBlank && kept.length < rowLimit ? [...kept, ''] : kept
   return { text: keptRows.join('\n'), truncated }
 }
+
+/**
+ * Incremental counterpart of displayTail for one live stream. Completed rows
+ * are reused across appends and row-budget changes. Revisit the last two
+ * graphemes: a split surrogate can become a modifier of the preceding cluster.
+ * Replacement text and column changes rebuild from the original source.
+ */
+export function createDisplayTailCache(): typeof displayTail {
+  let previous = ''
+  let columns = 0
+  const wrapped: string[] = []
+  let current = ''
+  let used = 0
+  let lastCluster = ''
+  let restart = 0
+  let checkpoint = { length: 0, current: '', used: 0, lastCluster: '' }
+  const flush = (): void => {
+    wrapped.push(current)
+    current = ''
+    used = 0
+    lastCluster = ''
+  }
+  return (text, nextColumns, rows) => {
+    const width = Math.max(1, Math.floor(nextColumns))
+    if (width !== columns || !text.startsWith(previous)) {
+      previous = ''
+      columns = width
+      wrapped.length = 0
+      current = ''
+      used = 0
+      lastCluster = ''
+      restart = 0
+      checkpoint = { length: 0, current: '', used: 0, lastCluster: '' }
+    }
+    if (text !== previous) {
+      wrapped.length = checkpoint.length
+      ;({ current, used, lastCluster } = checkpoint)
+      let offset = restart
+      let beforePrevious: typeof checkpoint | undefined
+      let previousOffset = restart
+      for (const cluster of splitGraphemes(text.slice(restart))) {
+        const before = { length: wrapped.length, current, used, lastCluster }
+        checkpoint = beforePrevious ?? before
+        restart = beforePrevious === undefined ? offset : previousOffset
+        beforePrevious = before
+        previousOffset = offset
+        offset += cluster.length
+        if (cluster === '\n') {
+          flush()
+          continue
+        }
+        const safe = cluster === '\t' ? '  ' : displayText(cluster)
+        const size = stringWidth(safe)
+        if (used > 0 && used + size > columns && !(size <= 2 && ROW_START_FORBIDDEN.includes(cluster))) {
+          if (lastCluster !== '' && ROW_END_FORBIDDEN.includes(lastCluster)) {
+            const carried = lastCluster
+            current = current.slice(0, current.length - carried.length)
+            flush()
+            current = carried
+            used = stringWidth(carried)
+          } else flush()
+        }
+        current += safe
+        used += size
+        lastCluster = cluster
+      }
+      previous = text
+    }
+    const limit = Math.max(1, Math.floor(rows))
+    const total = wrapped.length + (current === '' ? 0 : 1)
+    const completedRows = limit - (current === '' ? 0 : 1)
+    const tail = wrapped.slice(Math.max(0, wrapped.length - completedRows))
+    if (current !== '') tail.push(current)
+    const truncated = total > limit
+    if (current === '' && wrapped.length > 0 && text.endsWith('\n') && tail.length < limit) tail.push('')
+    return { text: tail.join('\n'), truncated }
+  }
+}

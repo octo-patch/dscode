@@ -11,6 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDescriptor } from '@deepseek-ai/dsh-commands'
+import { startupCommands, watchStartupCommands } from '../../../plugins/providers/startup-commands.mjs'
 
 /** Descriptor list snapshot the completion menu renders from. */
 export interface CommandsView {
@@ -21,7 +22,7 @@ export interface CommandsView {
   /** Subscribe to list changes (`commands/change`); returns the unsubscribe function. */
   subscribe(listener: () => void): () => void
   /** Retarget the agent whose scoped view the list is read through. */
-  setAgent(agent: Agent): void
+  setAgent(agent: Agent | undefined): void
 }
 
 /**
@@ -30,6 +31,8 @@ export interface CommandsView {
  * failures are contained by the registry itself, so this watcher only ever
  * re-reads. Without a `commands` service the view stays empty and all lines
  * fall through to normal prompts.
+ * Before the first Agent exists, explicitly registered Host command metadata
+ * supplies startup completion without executing commands or creating a session.
  * @param ctx - context carrying the `commands` service (optional).
  * @returns the view the completion menu subscribes to.
  */
@@ -68,11 +71,11 @@ export function watchCommands(ctx: Context): CommandsView {
     })
   }
   const refresh = (): void => {
-    if (commands === undefined || agent === undefined) return
+    if (commands === undefined) return
     let next: readonly CommandDescriptor[]
     let nextError: string | undefined
     try {
-      next = commands.list(agent)
+      next = agent === undefined ? startupCommands(ctx) : commands.list(agent)
       loadedFor = agent
     } catch (cause: unknown) {
       // Keep the last good catalog for the SAME agent, but change its identity
@@ -91,6 +94,8 @@ export function watchCommands(ctx: Context): CommandsView {
   if (commands !== undefined) {
     ctx.on('commands/change', () => refresh())
   }
+  ctx.effect(() => watchStartupCommands(ctx, refresh))
+  refresh()
   return {
     get descriptors(): readonly CommandDescriptor[] {
       return descriptors
@@ -104,7 +109,7 @@ export function watchCommands(ctx: Context): CommandsView {
         listeners.delete(listener)
       }
     },
-    setAgent(next: Agent): void {
+    setAgent(next: Agent | undefined): void {
       agent = next
       refresh()
     },

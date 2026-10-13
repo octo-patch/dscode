@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { patchInkLogUpdate } from '../scripts/patch-ink.mjs';
 
@@ -10,6 +11,21 @@ const source = patchInkLogUpdate(readFileSync(new URL('../node_modules/ink/build
   // coverage loader throws when it resolves a relative map against a data URL.
   .replace(/^\/\/# sourceMappingURL=.*$/gm, '');
 const { default: logUpdate } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+
+test('an explicit screen replay forgets the old height and releases its reset listener', () => {
+  const stream = new EventEmitter();
+  const writes = [];
+  stream.write = text => writes.push(text);
+  const log = logUpdate.create(stream, { showCursor: true });
+  log(Array.from({ length: 30 }, () => 'old').join('\n'));
+  stream.emit('dscode:frame-reset');
+  log.clear();
+  log('new', 5);
+  assert.equal(writes.at(-1).split('\n').length - 1, 1, 'old padding must not displace the new welcome card');
+  assert.equal(stream.listenerCount('dscode:frame-reset'), 1);
+  log.done();
+  assert.equal(stream.listenerCount('dscode:frame-reset'), 0);
+});
 
 /**
  * The composer sits at the bottom of Ink's dynamic frame, so "the composer never rides up"

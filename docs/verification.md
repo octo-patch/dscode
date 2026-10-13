@@ -2,6 +2,24 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## Release CI viewport fixture — 2026-10-13
+
+The 0.7.43 tag at `ee2df139f212702d337aab961038e8419568f0bf` failed before
+publication. Release run `38360184129`, both macOS Node checks, and Linux e2e
+failed the same four cases in `tests/tui-layout.test.mjs`. `CI=true node --test
+tests/tui-layout.test.mjs` reproduced the failure locally: Ink's CI branch emits
+static content while withholding live frames and resize subscriptions.
+
+The in-memory interactive TTY fixture now sets `CI=false` in its isolated test
+process before importing Ink. All four original assertions pass with the parent
+command still using `CI=true`; no production renderer or assertion was changed.
+The follow-up candidate uses 0.7.44, retaining the failed tag as evidence.
+`CI=true npm run check` passed outside the session sandbox: lint, both TypeScript
+configurations, 1,236 unit/component cases, 80.94% first-party `.mjs` line coverage,
+native integration, package checks and 63 offline evaluations. Documentation
+links, README agreement and tag/manifest version checks also passed. Exact
+platform archive qualification and public publication remain pending release CI.
+
 ## OpenAI / ChatGPT provider — 2026-10-12 (unreleased)
 
 A later live ChatGPT sign-in was saved with direct-use permission. A minimal

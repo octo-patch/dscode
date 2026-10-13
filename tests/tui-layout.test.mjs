@@ -1,5 +1,9 @@
 process.env.DSCODE_UPDATE_CHECK = 'off';
 process.env.DSCODE_LANGUAGE = 'en';
+// This file runs an interactive in-memory TTY. Ink's CI mode suppresses live
+// frames and resize listeners, even when stdout.isTTY is true. Keep the runner's
+// CI environment from changing the terminal behavior these tests exercise.
+process.env.CI = 'false';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';

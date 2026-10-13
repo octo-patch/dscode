@@ -10,7 +10,14 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
-## [0.7.43] - 2026-10-12
+## [0.7.44] - 2026-10-13
+
+### Fixed
+
+- Exercise interactive Ink rendering in the terminal viewport fixture under CI, preserving the live-frame and resize assertions that the CI log-output mode suppressed. The shipped renderer is unchanged.
+- Carry forward all 0.7.43 provider, file-tool and terminal changes below. The 0.7.43 candidate failed before publication; 0.7.44 is their first published release once its release gates pass.
+
+## [0.7.43] - 2026-10-12 (unpublished candidate)
 
 ### Added
 

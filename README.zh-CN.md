@@ -54,6 +54,8 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 🆕 最新变化
 
+**0.7.45** — Antigravity 接入可识别 Gemini 4 Argon，并改用模型的 `thinkingLevel` 选择 low/medium/high 推理档位，不再发送 Argon 会拒绝的思考预算。访问资格由 Google 按账户决定，Argon 线上生成尚未验证。详见[发布说明](docs/releases/0.7.45.md)。
+
 **0.7.44** — 新增原生 OpenAI/ChatGPT 与社区 Antigravity Gemini 接入、带文件版本检查的 read/edit/write 工具，更清晰的全高度终端布局，以及可靠的非交互持久 Bash 命令。OpenAI 速度选择会报告服务器实际档位；Antigravity 账户访问仍需线上验证。详见[发布说明](docs/releases/0.7.44.md)。
 
 **0.7.42** — 修复完整安装包升级时的文件列表缓冲区限制。已装 0.7.41 的用户请重新运行下方 `curl` 安装命令一次，之后可正常使用 `dscode update`。详见[发布说明](docs/releases/0.7.42.md)。
@@ -110,7 +112,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```sh
 dscode update             # 升级到最新的自包含发布版
-dscode update 0.7.44      # 安装指定的自包含发布版
+dscode update 0.7.45      # 安装指定的自包含发布版
 ```
 
 先退出正在运行的 DSCODE 会话和调度器。升级器校验后整体替换程序，保留设置、凭据和会话；替换失败会恢复旧程序。在 TUI 中输入 `/update`，会安排在退出后执行同一个升级器。再次运行安装命令，也会升级由该安装器管理的安装。
@@ -121,7 +123,7 @@ dscode update 0.7.44      # 安装指定的自包含发布版
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.44-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.45-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -150,7 +152,7 @@ dscode --version                  # 输出 DSCODE 版本
 
 实验性 Desktop 组合包可向官方应用添加 DSCODE 预设、自定义模型与账户设置、浏览器预览、持久化会话通信、跨会话记忆及按需启用的任务调度。**Settings → DSCODE → Schedules** 可管理任务，并在 Desktop 保持运行时投递。构建及本地安装步骤见[浏览器操作](docs/browser-use.md#install-the-experimental-combined-desktop-package)。启用调度后的原生安装、升级、移除和重新安装，以及账户和调度界面的实际交互，已在 macOS Desktop 0.2.0-rc.2 上验证；验证边界见[触发器](docs/triggers.md#experimental-desktop-scheduling)。该包还包含实验性的[原生 Computer Use 接入](docs/computer-use.md)；窗口观察和输入操作仍待获得 macOS 辅助功能权限后验证。持久化的[时间上下文](docs/session-communication.md#time-context-for-delayed-work)会向 DSCODE agent 提供消息到达时间、转发等待时长和上一轮结束时间，普通聊天正文保持简洁。带独立命令前缀的 [Desktop 诊断](docs/tui-commands.md#experimental-desktop-diagnostics)可检查所选会话、技能与 Host MCP 条目，匹配版本的使用指南随包提供。[Desktop 邮件收件箱](docs/email.md#experimental-desktop-inbox)可预览共享本地邮件、连接 IMAP 或 Gmail OAuth，并将所选邮件加入 DSCODE 会话。背景同步需手动启用；发信沿用现有审批与回执规则。[Session usage 侧栏](docs/session-metrics.md#experimental-desktop-usage)展示 DSCODE 的费用、上下文、缓存、请求速度及逐回合估算。[Delegation board 侧栏](docs/tui-commands.md#experimental-desktop-delegation-board)展示所选主会话的任务、依赖、worktree 和验证依据。Desktop 插件与终端包分别分发；终端弹窗及终端专属命令继续使用现有界面。
 
-Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑的 [Plugin Hub](docs/plugin-hub.md) 界面、发现工具和运行依赖，DSCODE 仍在 Hub 目录中展示。适用于 Harness runtime 0.2.0-rc.2。在官方 **Plugins → Add plugin** 中输入 `@toddzheng024/dscode-desktop@0.7.44`，安装后选择 **Enable now**。更新后需完全退出并重新打开 Desktop。`preview` 和默认 `latest` 分发入口均更新到这个经过验证的预览版。
+Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑的 [Plugin Hub](docs/plugin-hub.md) 界面、发现工具和运行依赖，DSCODE 仍在 Hub 目录中展示。适用于 Harness runtime 0.2.0-rc.2。在官方 **Plugins → Add plugin** 中输入 `@toddzheng024/dscode-desktop@0.7.45`，安装后选择 **Enable now**。更新后需完全退出并重新打开 Desktop。`preview` 和默认 `latest` 分发入口均更新到这个经过验证的预览版。
 
 **Settings → DSCODE** 中的使用说明、Models、Accounts、Schedules 保持同级；**Plugins → DSCODE · Community** 打开相同页面。DSCODE 浏览器工具仅用于 DSCODE 会话。已有桌面模型和账户可直接在正常模型选择器中使用，额外提供方配置使用原生凭据存储。启用 **Show coding view** 和 **Agent presets**，完全重启后在新会话选择 DSCODE。
 

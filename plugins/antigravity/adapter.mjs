@@ -3,7 +3,7 @@ import { isAttachmentError } from '@deepseek-ai/dsh-attachment';
 import { prepareImages } from '../custom/images.mjs';
 import { sseData } from '../providers/chat-stream.mjs';
 import { headers, responseError } from './client.mjs';
-import { modelRoute } from './models.mjs';
+import { defaultEffort, modelRoute } from './models.mjs';
 import { requestBody, translate } from './wire.mjs';
 
 /** Cancelling one caller must not cancel a shared token refresh/catalog read. */
@@ -28,7 +28,7 @@ export class AntigravityAdapter extends LlmAdapter {
     const m = await this.config.models.get(id);
     const efforts = Object.keys(m.routes).filter(e => e !== 'default');
     return { provider, id, name: m.name, inputModalities: m.inputModalities ?? ['text', 'image'], context: { contextWindow: m.contextWindow }, defaultMaxTokens: m.maxTokens,
-      ...(efforts.length ? { reasoning: { efforts: efforts.map(id => ({ id: ReasoningEffortId(id), name: id })), defaultEffort: ReasoningEffortId(efforts.includes('low') ? 'low' : efforts[0]) } } : {}) };
+      ...(efforts.length ? { reasoning: { efforts: efforts.map(id => ({ id: ReasoningEffortId(id), name: id })), defaultEffort: ReasoningEffortId(defaultEffort(m)) } } : {}) };
   }
   async *stream(options) {
     const { session, models, client } = this.config;

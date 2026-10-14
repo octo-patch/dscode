@@ -54,6 +54,8 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 
 ## 🆕 What's new
 
+**0.7.45** — The Antigravity provider recognises Gemini 4 Argon and selects its low/medium/high reasoning with the model's `thinkingLevel` instead of a token budget, which Argon rejects. Access is limited by Google to eligible accounts and live Argon generation is not yet verified. See the [release notes](docs/releases/0.7.45.md).
+
 **0.7.44** — Adds native OpenAI/ChatGPT and community Antigravity Gemini providers, file-version-checked read/edit/write tools, a clearer full-height terminal layout and reliable non-interactive persistent Bash commands. OpenAI speed selection reports the server's actual tier; Antigravity account access still needs live verification. See the [release notes](docs/releases/0.7.44.md).
 
 **0.7.42** — Fixes whole-package updates exceeding the archive-listing buffer. If you installed 0.7.41, rerun the `curl` installer below once; subsequent releases use `dscode update` normally. See the [release notes](docs/releases/0.7.42.md).
@@ -110,7 +112,7 @@ The package includes pinned Node, Harness, TUI, plugins and native dependencies.
 
 ```sh
 dscode update             # upgrade to the latest self-contained release
-dscode update 0.7.44      # install an exact self-contained release
+dscode update 0.7.45      # install an exact self-contained release
 ```
 
 Exit running DSCODE sessions and schedulers first. The updater verifies and replaces the whole application, preserving settings, credentials and sessions; a failed replacement restores the old program. In the TUI, `/update` schedules the same updater after you exit. Re-running the installer also updates an installation it owns.
@@ -121,7 +123,7 @@ Exit running DSCODE sessions and schedulers first. The updater verifies and repl
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.44-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.45-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -150,7 +152,7 @@ The self-contained package uses its own pinned runtime and does not reuse or mod
 
 An experimental combined Desktop package adds the DSCODE preset, custom-model and account settings, browser preview, durable session communication, cross-session memory and opt-in scheduling to the official application. **Settings → DSCODE → Schedules** manages tasks and enables delivery while Desktop stays open. Build and local installation instructions are in [Browser use](docs/browser-use.md#install-the-experimental-combined-desktop-package). Native installation, upgrade, removal and reinstallation with scheduling enabled, plus rendered account and scheduling controls, were checked on macOS Desktop 0.2.0-rc.2; qualification limits are covered in [Triggers](docs/triggers.md#experimental-desktop-scheduling). The package also includes an experimental [native Computer Use adapter](docs/computer-use.md); window observation and input still await qualification with macOS Accessibility permission. Durable [time context](docs/session-communication.md#time-context-for-delayed-work) gives DSCODE agents arrival times, relay waits and previous turn endings while keeping ordinary chat clear. Namespaced [Desktop diagnostics](docs/tui-commands.md#experimental-desktop-diagnostics) inspect the selected session, skills and Host MCP entries; matching user guides ship with the package. The [Desktop email inbox](docs/email.md#experimental-desktop-inbox) previews shared local mail, connects IMAP or Gmail OAuth, and adds a selected message to a DSCODE session. Background sync is opt-in; outgoing mail keeps the existing approval and receipt rules. The [Session usage sidebar](docs/session-metrics.md#experimental-desktop-usage) shows DSCODE cost, context, cache, request speed and per-turn estimates. The [Delegation board sidebar](docs/tui-commands.md#experimental-desktop-delegation-board) follows the selected main session’s tasks, dependencies, worktrees and verification evidence. The Desktop plugin is distributed separately from the terminal packages; terminal popups and terminal-only commands keep their existing UI.
 
-The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version 0.7.35 removes bundled [Plugin Hub](docs/plugin-hub.md) UI, discovery tools and runtime dependencies; DSCODE remains listed in the Hub catalog. It targets Harness runtime 0.2.0-rc.2. In official **Plugins → Add plugin**, enter `@toddzheng024/dscode-desktop@0.7.44`, install, then choose **Enable now**. Fully quit and reopen Desktop after updating. Both `preview` and the default `latest` channel receive this verified preview release.
+The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version 0.7.35 removes bundled [Plugin Hub](docs/plugin-hub.md) UI, discovery tools and runtime dependencies; DSCODE remains listed in the Hub catalog. It targets Harness runtime 0.2.0-rc.2. In official **Plugins → Add plugin**, enter `@toddzheng024/dscode-desktop@0.7.45`, install, then choose **Enable now**. Fully quit and reopen Desktop after updating. Both `preview` and the default `latest` channel receive this verified preview release.
 
 **Settings → DSCODE** groups setup, Models, Accounts and Schedules at the same level; **Plugins → DSCODE · Community** opens the same page. DSCODE browser tools are scoped to DSCODE sessions. Existing Desktop models/accounts work through the normal picker; optional provider settings use the native credential store. Enable **Show coding view** and **Agent presets**, then choose DSCODE for a new session after fully restarting.
 

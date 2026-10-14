@@ -10,6 +10,12 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.45] - 2026-10-13
+
+### Added
+
+- Offer Gemini 4 Argon through the Antigravity provider. Present Antigravity CLI 1.2.9, the first client version the service lists Argon to, and group its low/medium/high runtime models (default medium). Select reasoning with `thinkingLevel` and never send the `thinkingBudget` that Argon rejects; later Gemini 4 models follow the same rule. The live catalog was checked on an Ultra account; live Argon generation is not yet verified.
+
 ## [0.7.44] - 2026-10-13
 
 ### Fixed

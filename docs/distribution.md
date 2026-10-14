@@ -8,7 +8,7 @@ macOS 14+ is supported. Git is used for repository and patch operations. Google 
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.44-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.45-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -19,7 +19,7 @@ The optional installer downloads and verifies the same package:
 ```sh
 curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
 # Pin an exact release:
-curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.44
+curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.45
 # Or install an already unpacked package, without a download:
 sh dscode-app/install.sh
 ```
@@ -40,7 +40,7 @@ The application does not import `~/.dsh` configuration, Hub tokens or the old `~
 
 ```sh
 dscode update             # newest published self-contained release
-dscode update 0.7.44      # an exact release, including an explicit rollback
+dscode update 0.7.45      # an exact release, including an explicit rollback
 ```
 
 Exit running DSCODE sessions and schedulers first. Startup and update share kernel admission locks; each running child retains protection even if its launcher is killed. Both the program location and the selected data directory are protected. Concurrent ordinary sessions from the same package remain supported. A different package must wait until those sessions exit before taking over the same data directory. The stable `dscode-app` profile preserves native model/settings edits in `cordis.patch.yml` across upgrades and package relocation. Generated application defaults live in a separate private base bundle under the data directory.

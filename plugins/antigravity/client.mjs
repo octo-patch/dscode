@@ -8,7 +8,9 @@ export const ENDPOINTS = Object.freeze([
   'https://daily-cloudcode-pa.sandbox.googleapis.com',
   'https://cloudcode-pa.googleapis.com',
 ]);
-export const USER_AGENT = 'antigravity/cli/1.2.4 (aidev_client; os_type=linux; arch=amd64; cl=982146307; auth_method=consumer)';
+// The catalog is gated by client version: Gemini 4 Argon is only listed to CLI 1.2.9+.
+const OS_TYPES = { darwin: 'darwin', linux: 'linux', win32: 'windows' }, ARCHES = { arm64: 'arm64', x64: 'amd64' };
+export const USER_AGENT = `antigravity/cli/1.2.9 (aidev_client; os_type=${OS_TYPES[process.platform] ?? 'linux'}; arch=${ARCHES[process.arch] ?? 'amd64'}; cl=982146307; auth_method=consumer)`;
 export const headers = token => ({ authorization: `Bearer ${token}`, 'content-type': 'application/json', 'User-Agent': USER_AGENT });
 
 export function projectId(data) {

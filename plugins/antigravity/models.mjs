@@ -6,7 +6,14 @@ const positive = n => Number.isSafeInteger(n) && n > 0;
 // narrows these routes to the variants actually advertised by the account.
 const flash = (version, enums) => ({ id: `gemini-${version}-flash`, name: `Gemini ${version} Flash`, contextWindow: 1048576, maxTokens: 65536,
   routes: Object.fromEntries(['low', 'medium', 'high'].map((effort, i) => [effort, { id: `gemini-${version}-flash-${effort}`, modelEnum: `MODEL_PLACEHOLDER_M${enums[i]}` }])) });
-export const FALLBACK_MODELS = [flash('3.8', [320, 319, 318]), flash('3.7', [300, 299, 298]), flash('3.6', [73, 72, 71]),
+// Gemini 4 selects reasoning with thinkingLevel and rejects thinkingBudget.
+// Antigravity lists Argon per level; an unsuffixed runtime would serve every level.
+const LEVELS = ['low', 'medium', 'high'];
+const levelled = id => /^gemini-(?:[4-9]|\d{2,})(?:[.-]|$)/.test(id);
+export const FALLBACK_MODELS = [
+  { id: 'gemini-4-argon', name: 'Gemini 4 Argon', contextWindow: 1048576, maxTokens: 65536, defaultEffort: 'medium',
+    routes: Object.fromEntries(LEVELS.map((effort, i) => [effort, { id: `gemini-4-argon-${effort}`, modelEnum: `MODEL_PLACEHOLDER_M${419 - i}` }])) },
+  flash('3.8', [320, 319, 318]), flash('3.7', [300, 299, 298]), flash('3.6', [73, 72, 71]),
   { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', contextWindow: 1048576, maxTokens: 65536,
     routes: { low: { id: 'gemini-3.5-flash-extra-low', modelEnum: 'MODEL_PLACEHOLDER_M187' }, medium: { id: 'gemini-3.5-flash-low', modelEnum: 'MODEL_PLACEHOLDER_M20' }, high: { id: 'gemini-3-flash-agent', modelEnum: 'MODEL_PLACEHOLDER_M84' } } },
   { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', contextWindow: 1048576, maxTokens: 65535,
@@ -18,18 +25,23 @@ export function parseModels(data) {
   const models = new Map();
   for (const [runtime, info] of Object.entries(data.models)) {
     if (!/^gemini-[a-z0-9.-]+$/.test(runtime) || /image|embedding|audio|tts|live|tab|chat|tiered/i.test(runtime) || runtime === 'gemini-3.1-pro-high' || !info || typeof info !== 'object') continue;
-    const known = FALLBACK_MODELS.find(m => Object.values(m.routes).some(r => r.id === runtime));
     const suffix = runtime.match(/-(low|medium|high)$/)?.[1];
-    const effort = known ? Object.entries(known.routes).find(([, r]) => r.id === runtime)[0] : suffix;
-    const id = known?.id ?? (suffix ? runtime.slice(0, -suffix.length - 1) : runtime);
-    const entry = models.get(id) ?? { id, name: known?.name ?? id, contextWindow: known?.contextWindow ?? 128000, maxTokens: known?.maxTokens ?? 8192, inputModalities: ['text', 'image'], routes: {} };
+    const base = suffix ? runtime.slice(0, -suffix.length - 1) : runtime;
+    const known = levelled(runtime) ? FALLBACK_MODELS.find(m => m.id === base) : FALLBACK_MODELS.find(m => Object.values(m.routes).some(r => r.id === runtime));
+    const effort = known && !levelled(runtime) ? Object.entries(known.routes).find(([, r]) => r.id === runtime)[0] : suffix;
+    const id = known?.id ?? base;
+    const entry = models.get(id) ?? { id, name: known?.name ?? id, contextWindow: known?.contextWindow ?? 128000, maxTokens: known?.maxTokens ?? 8192, inputModalities: ['text', 'image'], routes: {},
+      ...(levelled(runtime) ? { defaultEffort: 'medium' } : {}) };
     if (info.supportsImages === false) entry.inputModalities = ['text'];
     if (positive(info.inputTokenLimit)) entry.contextWindow = info.inputTokenLimit;
     if (positive(info.maxOutputTokens)) entry.maxTokens = info.maxOutputTokens;
     else if (positive(info.outputTokenLimit)) entry.maxTokens = info.outputTokenLimit;
-    entry.routes[effort ?? 'default'] = { id: runtime,
+    const route = { id: runtime,
       ...(typeof info.model === 'string' ? { modelEnum: info.model } : {}),
       ...(info.quotaInfo && typeof info.quotaInfo === 'object' ? { quota: info.quotaInfo } : {}) };
+    // An unsuffixed Gemini 4 runtime serves every level; an explicit suffix wins.
+    if (levelled(runtime) && !effort) for (const level of LEVELS) entry.routes[level] ??= route;
+    else entry.routes[effort ?? 'default'] = route;
     models.set(id, entry);
   }
   return [...models.values()];
@@ -67,13 +79,17 @@ export class AntigravityModels {
 }
 
 export function modelRoute(model, effort) {
-  const chosen = effort ?? (model.routes.low ? 'low' : Object.keys(model.routes)[0]);
+  const chosen = effort ?? defaultEffort(model);
   const route = model.routes[chosen];
   if (!route) throw new LlmError('This Antigravity model does not offer that reasoning effort', 'UNSUPPORTED_REASONING_EFFORT');
   return { ...route, effort: chosen };
 }
+export function defaultEffort(model) {
+  return model.routes[model.defaultEffort] ? model.defaultEffort : model.routes.low ? 'low' : Object.keys(model.routes)[0];
+}
 export function thinkingConfig(route) {
   if (route.effort === 'default') return undefined;
+  if (levelled(route.id)) return { includeThoughts: true, thinkingLevel: route.effort.toUpperCase() };
   const pro = route.id === 'gemini-pro-agent' || route.id.startsWith('gemini-3.1-pro');
   const olderFlash = route.id.startsWith('gemini-3.5-flash') || route.id === 'gemini-3-flash-agent';
   return { includeThoughts: true, thinkingBudget: pro ? (route.effort === 'high' ? 10001 : 1001) : route.effort === 'high' ? (olderFlash ? 10000 : -1) : route.effort === 'medium' ? 4000 : 1000 };

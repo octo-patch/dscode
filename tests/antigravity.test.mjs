@@ -12,10 +12,10 @@ import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local';
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment';
 import Credentials from '../plugins/credentials/index.mjs';
 import * as plugin from '../plugins/antigravity/index.mjs';
-import { AntigravityClient, ENDPOINTS } from '../plugins/antigravity/client.mjs';
+import { AntigravityClient, ENDPOINTS, USER_AGENT } from '../plugins/antigravity/client.mjs';
 import { authorize, callbackServer, exchangeCode, AntigravitySession, GRANT_REF, parseGrant } from '../plugins/antigravity/oauth.mjs';
 import { AntigravityLogin, antigravityCommand } from '../plugins/antigravity/command.mjs';
-import { AntigravityModels, FALLBACK_MODELS, parseModels, modelRoute } from '../plugins/antigravity/models.mjs';
+import { AntigravityModels, FALLBACK_MODELS, parseModels, modelRoute, defaultEffort, thinkingConfig } from '../plugins/antigravity/models.mjs';
 import { AntigravityAdapter } from '../plugins/antigravity/adapter.mjs';
 import { requestBody, translate } from '../plugins/antigravity/wire.mjs';
 import { sseData } from '../plugins/providers/chat-stream.mjs';
@@ -29,6 +29,7 @@ const memory = initial => { let value = initial; return { read: async () => valu
 const user = text => ({ role: 'user', content: [{ type: 'text', text }] });
 const options = () => ({ provider: 'antigravity', model: 'gemini-3.8-flash', system: 'Use DSCODE tools.', sessionId: 'test-session', messages: [user('hello')], tools: [{ name: 'read', description: 'Read a file', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } }] });
 const catalog = { models: { 'gemini-3.8-flash-low': { model: 'MODEL_LIVE', displayName: 'Gemini 3.8 Flash Low' } } };
+const flash38 = FALLBACK_MODELS.find(m => m.id === 'gemini-3.8-flash');
 const chunk = (parts, finishReason) => ({ response: { candidates: [{ content: { role: 'model', parts }, ...(finishReason ? { finishReason } : {}) }] } });
 const sse = packets => new Response(packets.map(p => `data: ${JSON.stringify(p)}\r\n\r\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
 const streamed = packets => translate(sseData(sse(packets).body), { model: 'gemini-3.8-flash', runtimeModel: 'gemini-3.8-flash-low' });
@@ -141,6 +142,38 @@ test('model discovery groups actual Gemini routes, filters non-chat models and h
   assert.throws(() => parseModels({}), e => e.code === 'MALFORMED_RESPONSE');
 });
 
+test('Gemini 4 Argon selects thinkingLevel on one runtime model and never sends thinkingBudget', () => {
+  const argon = FALLBACK_MODELS.find(m => m.id === 'gemini-4-argon');
+  assert.equal(argon.name, 'Gemini 4 Argon'); assert.equal(defaultEffort(argon), 'medium');
+  for (const effort of ['low', 'medium', 'high']) {
+    const body = requestBody(options(), argon, modelRoute(argon, effort), 'project');
+    assert.equal(body.model, `gemini-4-argon-${effort}`); assert.match(body.request.labels.model_enum, /^MODEL_PLACEHOLDER_M41[789]$/);
+    assert.deepEqual(body.request.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel: effort.toUpperCase() });
+    assert(!JSON.stringify(body).includes('thinkingBudget'));
+  }
+  assert.equal(modelRoute(argon).effort, 'medium');
+  assert.equal(thinkingConfig(modelRoute(flash38, 'high')).thinkingBudget, -1);
+
+  const [single] = parseModels({ models: { 'gemini-4-argon': { model: 'MODEL_ARGON', inputTokenLimit: 1000000, maxOutputTokens: 60000 } } });
+  assert.equal(single.name, 'Gemini 4 Argon'); assert.equal(single.contextWindow, 1000000); assert.equal(single.maxTokens, 60000);
+  assert.deepEqual(Object.keys(single.routes), ['low', 'medium', 'high']); assert.equal(defaultEffort(single), 'medium');
+  assert(Object.values(single.routes).every(r => r.id === 'gemini-4-argon' && r.modelEnum === 'MODEL_ARGON'));
+
+  // Shape observed from a live Ultra account catalog on 2026-10-13.
+  const live = parseModels({ models: Object.fromEntries([['high', 417], ['low', 419], ['medium', 418]].map(([effort, n]) =>
+    [`gemini-4-argon-${effort}`, { displayName: `Gemini 4 Argon (${effort})`, model: `MODEL_PLACEHOLDER_M${n}`, maxOutputTokens: 65536 }])) });
+  assert.equal(live.length, 1); assert.equal(live[0].name, 'Gemini 4 Argon'); assert.equal(live[0].contextWindow, 1048576);
+  assert.equal(defaultEffort(live[0]), 'medium'); assert.equal(modelRoute(live[0]).modelEnum, 'MODEL_PLACEHOLDER_M418');
+  assert.deepEqual(thinkingConfig(modelRoute(live[0], 'high')), { includeThoughts: true, thinkingLevel: 'HIGH' });
+  assert.equal(modelRoute(live[0], 'high').id, 'gemini-4-argon-high');
+
+  const partial = parseModels({ models: { 'gemini-4-argon-low': {}, 'gemini-4-argon-high': {}, 'gemini-4-argon-cyber-permissive': {} } });
+  assert.deepEqual(Object.keys(partial[0].routes), ['low', 'high']); assert.equal(defaultEffort(partial[0]), 'low');
+  assert.equal(partial[1].id, 'gemini-4-argon-cyber-permissive'); assert.deepEqual(Object.keys(partial[1].routes), ['low', 'medium', 'high']);
+  // The service lists Argon only to Antigravity CLI 1.2.9 or later.
+  assert.match(USER_AGENT, /^antigravity\/cli\/1\.2\.9 \(aidev_client; os_type=\w+; arch=\w+; cl=\d+; auth_method=consumer\)$/);
+});
+
 test('catalog requests are cached, recover after errors, and do not retain another account catalog', async () => {
   const store = memory(), session = new AntigravitySession(store); let calls = 0;
   const client = { models: async () => { calls++; return catalog; } };
@@ -157,7 +190,7 @@ test('catalog requests are cached, recover after errors, and do not retain anoth
 });
 
 test('request carries the DSCODE system, tools, stable session and native thinking configuration', () => {
-  const model = FALLBACK_MODELS[0], route = modelRoute(model, 'medium'), o = options();
+  const model = flash38, route = modelRoute(model, 'medium'), o = options();
   const body = requestBody(o, model, route, 'project');
   assert.equal(body.model, 'gemini-3.8-flash-medium'); assert.equal(body.project, 'project');
   assert.equal(body.request.systemInstruction.parts[0].text, o.system);
@@ -177,7 +210,7 @@ test('SSE reasoning, signed tool calls and usage replay across a JSON-persisted 
   const content = chunks.filter(c => c.type === 'block-end').map(c => c.block), call = content[1];
   const assistant = JSON.parse(JSON.stringify({ role: 'assistant', source: { kind: 'model', provider: 'antigravity', model: 'gemini-3.8-flash', replayState: chunks.at(-1).replayState }, content }));
   const o = { ...options(), messages: [user('read'), assistant, { role: 'tool', toolCallId: call.id, content: [{ type: 'text', text: 'file contents' }] }] };
-  const model = FALLBACK_MODELS[0], body = requestBody(o, model, modelRoute(model), 'project');
+  const model = flash38, body = requestBody(o, model, modelRoute(model), 'project');
   assert.equal(body.request.contents[1].parts[1].thoughtSignature, 'call-signature');
   assert.equal(body.request.contents[2].parts[0].functionResponse.name, 'read');
   assert.equal(body.request.contents[2].parts[0].functionResponse.response.output, 'file contents');

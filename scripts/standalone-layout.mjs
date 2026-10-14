@@ -6,6 +6,8 @@ import { createHash } from 'node:crypto';
 export const MARKER = '.dscode-standalone.json';
 export const RELEASES = 'https://api.github.com/repos/qiz029/dscode/releases';
 export const VERSION = /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/;
+// Distributions without a merged /usr keep tar in /bin.
+export const TAR = existsSync('/usr/bin/tar') ? '/usr/bin/tar' : '/bin/tar';
 export const inside = (parent, child) => { const path = relative(parent, child); return path === '' || (!path.startsWith('..') && !isAbsolute(path)); };
 
 // Resolve existing ancestors as well: a symlink must not turn a private home into ~/.dsh.

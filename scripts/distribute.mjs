@@ -10,8 +10,10 @@ const node = '24.21.0';
 // Official nodejs.org/dist/v24.21.0/SHASUMS256.txt. Never resolve latest or
 // copy a Homebrew-linked Node into a redistributable application.
 const hashes = {
-  arm64: 'bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057',
-  x64: '1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097',
+  'darwin-arm64': 'bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057',
+  'darwin-x64': '1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097',
+  'linux-arm64': '724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5',
+  'linux-x64': '6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff',
 };
 const entries = ['package.json', 'package-lock.json', 'LICENSE', 'bin', 'scripts', 'plugins', 'extensions',
   'presets', 'packages/tui', 'packages/launcher/locks.mjs', 'config/cordis.patch.yml', 'config/auto-review.patch.yml',
@@ -23,10 +25,13 @@ function run(command, args, cwd) {
 }
 const artifacts = join(root, 'artifacts');
 mkdirSync(artifacts, { recursive: true });
-const archs = (process.env.DSCODE_PREBUILT_ARCHS ?? 'arm64,x64').split(',').filter(Boolean);
-if (!archs.length || archs.some(arch => !hashes[arch])) throw Error('DSCODE_PREBUILT_ARCHS must select arm64 and/or x64. Source-only releases are no longer supported.');
-for (const arch of archs) {
-  const platform = `darwin-${arch}`;
+// DSCODE_PREBUILT_ARCHS (arm64/x64) still selects macOS builds for older scripts.
+const selected = process.env.DSCODE_PREBUILT_PLATFORMS
+  ?? (process.env.DSCODE_PREBUILT_ARCHS ? process.env.DSCODE_PREBUILT_ARCHS.split(',').filter(Boolean).map(arch => `darwin-${arch}`).join(',') : Object.keys(hashes).join(','));
+const platforms = selected.split(',').filter(Boolean);
+if (!platforms.length || platforms.some(platform => !hashes[platform])) throw Error(`DSCODE_PREBUILT_PLATFORMS must select from ${Object.keys(hashes).join(', ')}. Source-only releases are no longer supported.`);
+for (const platform of platforms) {
+  const [os, arch] = platform.split('-');
   const work = mkdtempSync(join(artifacts, '.standalone-'));
   const stage = join(work, 'app');
   try {
@@ -35,7 +40,7 @@ for (const arch of archs) {
       cpSync(join(root, entry), join(stage, entry), { recursive: true,
         filter: source => !source.includes('/packages/tui/lib/') && source !== join(root, 'packages/tui/lib') });
     }
-    run('npm', ['ci', '--ignore-scripts', '--no-audit', '--os=darwin', `--cpu=${arch}`, '--cache', join(root, '.npm-cache')], stage);
+    run('npm', ['ci', '--ignore-scripts', '--no-audit', `--os=${os}`, `--cpu=${arch}`, '--cache', join(root, '.npm-cache')], stage);
     run(process.execPath, ['scripts/build-tui.mjs'], stage);
     run(process.execPath, ['--input-type=module', '-e', `
       import { patchRuntime, patchAppBootPackage } from './scripts/patch-runtime.mjs';
@@ -54,7 +59,7 @@ for (const arch of archs) {
     const response = await fetch(`https://nodejs.org/dist/v${node}/${name}.tar.gz`);
     if (!response.ok) throw Error(`Could not download private Node (${response.status})`);
     const bytes = Buffer.from(await response.arrayBuffer());
-    if (createHash('sha256').update(bytes).digest('hex') !== hashes[arch]) throw Error('Official Node archive checksum mismatch');
+    if (createHash('sha256').update(bytes).digest('hex') !== hashes[platform]) throw Error('Official Node archive checksum mismatch');
     const archive = join(work, 'node.tar.gz');
     writeFileSync(archive, bytes);
     run('tar', ['-xzf', archive, '-C', work], root);

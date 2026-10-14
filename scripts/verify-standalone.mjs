@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { TAR } from './standalone-layout.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
@@ -30,7 +31,7 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 try {
-  run('/usr/bin/tar', ['-xzf', archive, '-C', app]);
+  run(TAR, ['-xzf', archive, '-C', app]);
   const cli = join(app, 'dscode');
   assert.equal(run(cli, ['--version']).trim(), version);
   run(cli, ['--check']);

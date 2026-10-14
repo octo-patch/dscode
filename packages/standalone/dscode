@@ -1,12 +1,16 @@
 #!/bin/sh
 set -eu
 # Resolve the installed symlink, without relying on a system Node or dsh.
+# System tools by absolute path; distributions without a merged /usr keep them in /bin.
+dirname=/usr/bin/dirname readlink=/usr/bin/readlink
+[ -x "$dirname" ] || dirname=/bin/dirname
+[ -x "$readlink" ] || readlink=/bin/readlink
 entry=$0
 while [ -L "$entry" ]; do
-  parent=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$entry")" && pwd)
-  entry=$(/usr/bin/readlink "$entry")
+  parent=$(CDPATH= cd -- "$("$dirname" -- "$entry")" && pwd)
+  entry=$("$readlink" "$entry")
   case "$entry" in /*) ;; *) entry=$parent/$entry ;; esac
 done
-root=$(CDPATH= cd -- "$(/usr/bin/dirname -- "$entry")" && pwd)
+root=$(CDPATH= cd -- "$("$dirname" -- "$entry")" && pwd)
 unset NODE_OPTIONS NODE_PATH
 exec "$root/runtime/bin/node" "$root/scripts/standalone.mjs" "$@"

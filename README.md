@@ -9,6 +9,7 @@
 ![Watch the 90-second DSCODE demo](assets/demo.gif)
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?logo=apple&logoColor=white)
+![Linux glibc](https://img.shields.io/badge/Linux-glibc%20x64%20%7C%20arm64-111827?logo=linux&logoColor=white)
 ![Bundled Node.js](https://img.shields.io/badge/Node.js-bundled-43853D?logo=node.js&logoColor=white)
 ![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2-2563EB)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -22,7 +23,7 @@
 
 </div>
 
-DSCODE is a terminal coding agent for macOS, built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Dedicated file tools read and edit code with file-version checks; a persistent shell handles searches, builds and tests. The TUI, the CLI and your scripts all share one session runtime instead of each starting their own. It installs as a pinned, reproducible harness—DSH dependencies, TUI and plugins are versioned and verified together.
+DSCODE is a terminal coding agent for macOS and Linux, built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). Dedicated file tools read and edit code with file-version checks; a persistent shell handles searches, builds and tests. The TUI, the CLI and your scripts all share one session runtime instead of each starting their own. It installs as a pinned, reproducible harness—DSH dependencies, TUI and plugins are versioned and verified together.
 
 Most coding agents work alone. DSCODE is built on the opposite assumption: sessions on your machine are **visible to each other**, so one can hand a task over, another can review the diff, and an independent reviewer decides approvals from **your instruction** rather than from a rule table.
 
@@ -53,6 +54,8 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 | **[Agent email](docs/email.md)** | A local `[ToAgent]` inbox shared by all sessions: Enter steers a message into the live session as user-selected context, and with Gmail configured the agent can send mail through the same approval flow. |
 
 ## 🆕 What's new
+
+**0.7.46** — Self-contained packages for 64-bit glibc Linux (x64 and arm64). The same `curl` installer, `dscode update` and direct downloads now work on Linux; install bubblewrap for command sandboxing. See the [release notes](docs/releases/0.7.46.md).
 
 **0.7.45** — The Antigravity provider recognises Gemini 4 Argon and selects its low/medium/high reasoning with the model's `thinkingLevel` instead of a token budget, which Argon rejects. Access is limited by Google to eligible accounts and live Argon generation is not yet verified. See the [release notes](docs/releases/0.7.45.md).
 
@@ -92,7 +95,7 @@ Every release is listed in the **[changelog](docs/CHANGELOG.md)**; the [0.7.29 n
 
 ## 🚀 Quick start
 
-Requires **macOS 14+**; browser tasks also need Google Chrome, and repository/patch operations use Git. **No system Node, npm, pnpm or DSH installation is required.**
+Requires **macOS 14+** or **64-bit Linux with glibc** (x64 or arm64; musl distributions such as Alpine are not supported). On Linux, install bubblewrap (`apt install bubblewrap`, `dnf install bubblewrap`) so commands run sandboxed; without it DSCODE falls back to Landlock and refuses sandboxed commands when neither is usable. Browser tasks also need Google Chrome, and repository/patch operations use Git. **No system Node, npm, pnpm or DSH installation is required.**
 
 **Install with one command:**
 
@@ -100,7 +103,7 @@ Requires **macOS 14+**; browser tasks also need Google Chrome, and repository/pa
 curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
 ```
 
-The installer detects Apple Silicon or Intel, downloads the latest self-contained release and verifies its SHA-256 checksum. It installs the complete application into `~/.local/share/dscode-app` and links `~/.local/bin/dscode`. Then run `dscode` in your project directory. If `~/.local/bin` is not on PATH, add this line to your shell configuration and run it in the current terminal:
+The installer detects macOS or Linux and the processor architecture, downloads the latest self-contained release and verifies its SHA-256 checksum. It installs the complete application into `~/.local/share/dscode-app` and links `~/.local/bin/dscode`. Then run `dscode` in your project directory. If `~/.local/bin` is not on PATH, add this line to your shell configuration and run it in the current terminal:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -112,18 +115,18 @@ The package includes pinned Node, Harness, TUI, plugins and native dependencies.
 
 ```sh
 dscode update             # upgrade to the latest self-contained release
-dscode update 0.7.45      # install an exact self-contained release
+dscode update 0.7.46      # install an exact self-contained release
 ```
 
 Exit running DSCODE sessions and schedulers first. The updater verifies and replaces the whole application, preserving settings, credentials and sessions; a failed replacement restores the old program. In the TUI, `/update` schedules the same updater after you exit. Re-running the installer also updates an installation it owns.
 
 **Coming from an older installation?** Legacy npm/Hub versions need a one-time migration; their old `dscode update` does not switch to this distribution. The installer refuses to overwrite a `dscode` command owned by another installation. Homebrew-managed packages use `brew upgrade dscode`; the maintained tap installs the same self-contained release archives. See [Distribution](docs/distribution.md) for migration steps. The commands above require a published self-contained release and do not fall back to legacy packages.
 
-**Prefer a direct download?** Get one package from [Releases](https://github.com/qiz029/dscode/releases): `darwin-arm64` for Apple Silicon, or `darwin-x64` for Intel. For example:
+**Prefer a direct download?** Get one package from [Releases](https://github.com/qiz029/dscode/releases): `darwin-arm64` for Apple Silicon, `darwin-x64` for Intel Macs, or `linux-x64` / `linux-arm64` for Linux. For example:
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.45-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.46-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -152,7 +155,7 @@ The self-contained package uses its own pinned runtime and does not reuse or mod
 
 An experimental combined Desktop package adds the DSCODE preset, custom-model and account settings, browser preview, durable session communication, cross-session memory and opt-in scheduling to the official application. **Settings → DSCODE → Schedules** manages tasks and enables delivery while Desktop stays open. Build and local installation instructions are in [Browser use](docs/browser-use.md#install-the-experimental-combined-desktop-package). Native installation, upgrade, removal and reinstallation with scheduling enabled, plus rendered account and scheduling controls, were checked on macOS Desktop 0.2.0-rc.2; qualification limits are covered in [Triggers](docs/triggers.md#experimental-desktop-scheduling). The package also includes an experimental [native Computer Use adapter](docs/computer-use.md); window observation and input still await qualification with macOS Accessibility permission. Durable [time context](docs/session-communication.md#time-context-for-delayed-work) gives DSCODE agents arrival times, relay waits and previous turn endings while keeping ordinary chat clear. Namespaced [Desktop diagnostics](docs/tui-commands.md#experimental-desktop-diagnostics) inspect the selected session, skills and Host MCP entries; matching user guides ship with the package. The [Desktop email inbox](docs/email.md#experimental-desktop-inbox) previews shared local mail, connects IMAP or Gmail OAuth, and adds a selected message to a DSCODE session. Background sync is opt-in; outgoing mail keeps the existing approval and receipt rules. The [Session usage sidebar](docs/session-metrics.md#experimental-desktop-usage) shows DSCODE cost, context, cache, request speed and per-turn estimates. The [Delegation board sidebar](docs/tui-commands.md#experimental-desktop-delegation-board) follows the selected main session’s tasks, dependencies, worktrees and verification evidence. The Desktop plugin is distributed separately from the terminal packages; terminal popups and terminal-only commands keep their existing UI.
 
-The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version 0.7.35 removes bundled [Plugin Hub](docs/plugin-hub.md) UI, discovery tools and runtime dependencies; DSCODE remains listed in the Hub catalog. It targets Harness runtime 0.2.0-rc.2. In official **Plugins → Add plugin**, enter `@toddzheng024/dscode-desktop@0.7.45`, install, then choose **Enable now**. Fully quit and reopen Desktop after updating. Both `preview` and the default `latest` channel receive this verified preview release.
+The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version 0.7.35 removes bundled [Plugin Hub](docs/plugin-hub.md) UI, discovery tools and runtime dependencies; DSCODE remains listed in the Hub catalog. It targets Harness runtime 0.2.0-rc.2. In official **Plugins → Add plugin**, enter `@toddzheng024/dscode-desktop@0.7.46`, install, then choose **Enable now**. Fully quit and reopen Desktop after updating. Both `preview` and the default `latest` channel receive this verified preview release.
 
 **Settings → DSCODE** groups setup, Models, Accounts and Schedules at the same level; **Plugins → DSCODE · Community** opens the same page. DSCODE browser tools are scoped to DSCODE sessions. Existing Desktop models/accounts work through the normal picker; optional provider settings use the native credential store. Enable **Show coding view** and **Agent presets**, then choose DSCODE for a new session after fully restarting.
 

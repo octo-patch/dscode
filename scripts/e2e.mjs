@@ -23,7 +23,7 @@ if (args.has('--help') || args.has('-h')) {
 
 Builds docker/e2e.Dockerfile and runs the Linux end-to-end steps inside it: the
 provisioned runtime, the unit suite, the native Harness probes, the packaged
-tarballs, and the installed-bundle Hub lifecycle. --no-hub stops after the tarball
+tarballs, the self-contained Linux package, and the installed-bundle Hub lifecycle. --no-hub stops after the tarball
 checks, which drops the one step that never runs inside a macOS session.`);
   process.exit(0);
 }
@@ -41,6 +41,8 @@ if (args.has('--inside')) {
     ['unit and component contracts', ['npm', 'test']],
     ['native Harness probes on Linux (no Seatbelt, so the PTY path runs)', ['npm', 'run', 'test:integration']],
     ['packaged tarballs: build, unpack, integrity', ['npm', 'run', 'test:package']],
+    // The package Linux users install: private Node, native PTY, shell installer, full update.
+    ['self-contained Linux package: build and qualify', ['sh', '-c', 'DSCODE_PREBUILT_PLATFORMS=linux-$(node -p process.arch) npm run dist && node scripts/verify-standalone.mjs']],
     ...(hub ? [
       ['package the publishable bundle', ['npm', 'run', 'build:packages']],
       ['build the Hub release metadata', ['npm', 'run', 'release:hub']],

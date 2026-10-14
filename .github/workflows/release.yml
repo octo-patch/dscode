@@ -76,8 +76,31 @@ jobs:
           name: standalone-intel-verification
           path: artifacts/local/standalone-darwin-x64.json
 
+  # Linux packages are cross-built on macOS (no install scripts run) and qualified on
+  # native runners, the same way the Intel macOS candidate is.
+  verify-linux:
+    needs: build
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidates
+      - run: tar -xzf release-candidates.tar.gz
+      - run: node scripts/verify-standalone.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-${{ matrix.runner }}-verification
+          path: artifacts/local/standalone-linux-*.json
+
   publish-terminal:
-    needs: [build, verify-intel]
+    needs: [build, verify-intel, verify-linux]
     if: github.ref_type == 'tag' || inputs.publish
     runs-on: macos-14
     environment: release
@@ -95,7 +118,9 @@ jobs:
         run: |
           version=$(node -p "require('./package.json').version")
           test -f "docs/releases/$version.md"
-          set -- "artifacts/dscode-$version-darwin-arm64-standalone.tar.gz" "artifacts/dscode-$version-darwin-x64-standalone.tar.gz" artifacts/dscode-*.sha256 artifacts/dscode.rb
+          set -- "artifacts/dscode-$version-darwin-arm64-standalone.tar.gz" "artifacts/dscode-$version-darwin-x64-standalone.tar.gz" \
+            "artifacts/dscode-$version-linux-x64-standalone.tar.gz" "artifacts/dscode-$version-linux-arm64-standalone.tar.gz" artifacts/dscode-*.sha256 artifacts/dscode.rb
+          for file in "$@"; do test -f "$file"; done
           if gh release view "v$version" >/dev/null 2>&1; then
             gh release upload "v$version" "$@" --clobber
           else

@@ -9,6 +9,7 @@
 ![观看 DSCODE 90 秒演示](assets/demo.gif)
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?logo=apple&logoColor=white)
+![Linux glibc](https://img.shields.io/badge/Linux-glibc%20x64%20%7C%20arm64-111827?logo=linux&logoColor=white)
 ![Bundled Node.js](https://img.shields.io/badge/Node.js-bundled-43853D?logo=node.js&logoColor=white)
 ![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2-2563EB)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -22,7 +23,7 @@
 
 </div>
 
-DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 macOS 终端编码 agent。专用文件工具通过文件版本检查来读取和编辑代码，持久 Shell 负责搜索、构建和测试。TUI、CLI 与脚本共用同一个会话运行时，而不是各自启动一套。它以固定版本的可复现 harness 安装——DSH 依赖、TUI 与插件一起打包、一起校验。
+DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 macOS 与 Linux 终端编码 agent。专用文件工具通过文件版本检查来读取和编辑代码，持久 Shell 负责搜索、构建和测试。TUI、CLI 与脚本共用同一个会话运行时，而不是各自启动一套。它以固定版本的可复现 harness 安装——DSH 依赖、TUI 与插件一起打包、一起校验。
 
 多数编码 agent 是单打独斗。DSCODE 建在相反的假设上：同一台机器上的会话**彼此可见**——一个可以把任务交出去，另一个可以审阅 diff，而放行与否由一个独立审核模型按**你的指令**判断，而不是查规则表。
 
@@ -53,6 +54,8 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | **[Agent 邮件](docs/email.md)** | 所有 session 共用的本地 `[ToAgent]` 收件箱：Enter 把邮件作为用户选择的上下文 steer 进当前会话；配置 Gmail 后 agent 可走同一审批流程发信。 |
 
 ## 🆕 最新变化
+
+**0.7.46** — 新增 64 位 glibc Linux（x64 与 arm64）自包含安装包。同一条 `curl` 安装命令、`dscode update` 和直接下载现已支持 Linux；请安装 bubblewrap 以启用命令沙箱。详见[发布说明](docs/releases/0.7.46.md)。
 
 **0.7.45** — Antigravity 接入可识别 Gemini 4 Argon，并改用模型的 `thinkingLevel` 选择 low/medium/high 推理档位，不再发送 Argon 会拒绝的思考预算。访问资格由 Google 按账户决定，Argon 线上生成尚未验证。详见[发布说明](docs/releases/0.7.45.md)。
 
@@ -92,7 +95,7 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 🚀 快速开始
 
-需要 **macOS 14+**；浏览器任务另需 Google Chrome，Git 用于代码仓库及补丁操作。**无需安装 Node、npm、pnpm 或 DSH。**
+需要 **macOS 14+** 或 **使用 glibc 的 64 位 Linux**（x64 或 arm64；不支持 Alpine 等 musl 发行版）。在 Linux 上请安装 bubblewrap（`apt install bubblewrap`、`dnf install bubblewrap`），让命令在沙箱中运行；未安装时 DSCODE 退而使用 Landlock，两者都不可用时拒绝执行需要沙箱的命令。浏览器任务另需 Google Chrome，Git 用于代码仓库及补丁操作。**无需安装 Node、npm、pnpm 或 DSH。**
 
 **一条命令安装：**
 
@@ -100,7 +103,7 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
 ```
 
-安装器自动识别 Apple 芯片或 Intel，下载最新的自包含发布包并验证 SHA-256 校验和。完整程序安装到 `~/.local/share/dscode-app`，命令链接位于 `~/.local/bin/dscode`。安装后，在项目目录运行 `dscode` 即可。如果 `~/.local/bin` 不在 PATH 中，请将下面这行加入 shell 配置，并在当前终端执行一次：
+安装器自动识别 macOS 或 Linux 及处理器架构，下载最新的自包含发布包并验证 SHA-256 校验和。完整程序安装到 `~/.local/share/dscode-app`，命令链接位于 `~/.local/bin/dscode`。安装后，在项目目录运行 `dscode` 即可。如果 `~/.local/bin` 不在 PATH 中，请将下面这行加入 shell 配置，并在当前终端执行一次：
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
@@ -112,18 +115,18 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```sh
 dscode update             # 升级到最新的自包含发布版
-dscode update 0.7.45      # 安装指定的自包含发布版
+dscode update 0.7.46      # 安装指定的自包含发布版
 ```
 
 先退出正在运行的 DSCODE 会话和调度器。升级器校验后整体替换程序，保留设置、凭据和会话；替换失败会恢复旧程序。在 TUI 中输入 `/update`，会安排在退出后执行同一个升级器。再次运行安装命令，也会升级由该安装器管理的安装。
 
 **从旧安装迁移？** 旧 npm/Hub 版本需要迁移一次，旧版 `dscode update` 不会自动切换到新分发方式。安装器不会覆盖其他安装所拥有的 `dscode` 命令。Homebrew 管理的包使用 `brew upgrade dscode`；维护中的 tap 已使用同一份自包含发布包。迁移步骤见[分发说明](docs/distribution.md)。上述命令需要已发布的自包含包，不会回退到旧版安装包。
 
-**也可以直接下载：** 从 [Releases](https://github.com/qiz029/dscode/releases) 选择一个包：Apple 芯片选择 `darwin-arm64`，Intel 选择 `darwin-x64`。例如：
+**也可以直接下载：** 从 [Releases](https://github.com/qiz029/dscode/releases) 选择一个包：Apple 芯片选择 `darwin-arm64`，Intel Mac 选择 `darwin-x64`，Linux 选择 `linux-x64` 或 `linux-arm64`。例如：
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.45-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.46-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -152,7 +155,7 @@ dscode --version                  # 输出 DSCODE 版本
 
 实验性 Desktop 组合包可向官方应用添加 DSCODE 预设、自定义模型与账户设置、浏览器预览、持久化会话通信、跨会话记忆及按需启用的任务调度。**Settings → DSCODE → Schedules** 可管理任务，并在 Desktop 保持运行时投递。构建及本地安装步骤见[浏览器操作](docs/browser-use.md#install-the-experimental-combined-desktop-package)。启用调度后的原生安装、升级、移除和重新安装，以及账户和调度界面的实际交互，已在 macOS Desktop 0.2.0-rc.2 上验证；验证边界见[触发器](docs/triggers.md#experimental-desktop-scheduling)。该包还包含实验性的[原生 Computer Use 接入](docs/computer-use.md)；窗口观察和输入操作仍待获得 macOS 辅助功能权限后验证。持久化的[时间上下文](docs/session-communication.md#time-context-for-delayed-work)会向 DSCODE agent 提供消息到达时间、转发等待时长和上一轮结束时间，普通聊天正文保持简洁。带独立命令前缀的 [Desktop 诊断](docs/tui-commands.md#experimental-desktop-diagnostics)可检查所选会话、技能与 Host MCP 条目，匹配版本的使用指南随包提供。[Desktop 邮件收件箱](docs/email.md#experimental-desktop-inbox)可预览共享本地邮件、连接 IMAP 或 Gmail OAuth，并将所选邮件加入 DSCODE 会话。背景同步需手动启用；发信沿用现有审批与回执规则。[Session usage 侧栏](docs/session-metrics.md#experimental-desktop-usage)展示 DSCODE 的费用、上下文、缓存、请求速度及逐回合估算。[Delegation board 侧栏](docs/tui-commands.md#experimental-desktop-delegation-board)展示所选主会话的任务、依赖、worktree 和验证依据。Desktop 插件与终端包分别分发；终端弹窗及终端专属命令继续使用现有界面。
 
-Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑的 [Plugin Hub](docs/plugin-hub.md) 界面、发现工具和运行依赖，DSCODE 仍在 Hub 目录中展示。适用于 Harness runtime 0.2.0-rc.2。在官方 **Plugins → Add plugin** 中输入 `@toddzheng024/dscode-desktop@0.7.45`，安装后选择 **Enable now**。更新后需完全退出并重新打开 Desktop。`preview` 和默认 `latest` 分发入口均更新到这个经过验证的预览版。
+Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑的 [Plugin Hub](docs/plugin-hub.md) 界面、发现工具和运行依赖，DSCODE 仍在 Hub 目录中展示。适用于 Harness runtime 0.2.0-rc.2。在官方 **Plugins → Add plugin** 中输入 `@toddzheng024/dscode-desktop@0.7.46`，安装后选择 **Enable now**。更新后需完全退出并重新打开 Desktop。`preview` 和默认 `latest` 分发入口均更新到这个经过验证的预览版。
 
 **Settings → DSCODE** 中的使用说明、Models、Accounts、Schedules 保持同级；**Plugins → DSCODE · Community** 打开相同页面。DSCODE 浏览器工具仅用于 DSCODE 会话。已有桌面模型和账户可直接在正常模型选择器中使用，额外提供方配置使用原生凭据存储。启用 **Show coding view** 和 **Agent presets**，完全重启后在新会话选择 DSCODE。
 

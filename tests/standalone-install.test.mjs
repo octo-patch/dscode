@@ -44,10 +44,11 @@ test('installer repairs 0.7.41 using the verified new package rather than its br
   assert.equal(result.status, 0, result.stderr);
   assert(result.stdout.includes(`repaired-${f.install}-2.0.0`));
 });
-for (const corrupt of [false, true]) test(`piped installer downloads one platform package and ${corrupt ? 'rejects corruption' : 'verifies it without Node'}`, async t => {
+async function piped(t, { system = 'Darwin', machine = 'arm64', glibc = true, corrupt = false } = {}) {
   const f = fixture(t), tools = join(f.work, 'tools'); mkdirSync(tools);
-  // Keep the test portable while exercising the macOS-only installer contract.
-  writeFileSync(join(tools, 'uname'), '#!/bin/sh\ncase "$1" in -s) echo Darwin ;; -m) echo arm64 ;; esac\n'); chmodSync(join(tools, 'uname'), 0o755);
+  // Fake the platform probes so every target is exercised on any test host.
+  writeFileSync(join(tools, 'uname'), `#!/bin/sh\ncase "$1" in -s) echo ${system} ;; -m) echo ${machine} ;; esac\n`); chmodSync(join(tools, 'uname'), 0o755);
+  writeFileSync(join(tools, 'getconf'), glibc ? '#!/bin/sh\necho glibc 2.36\n' : '#!/bin/sh\nexit 1\n'); chmodSync(join(tools, 'getconf'), 0o755);
   const archive = join(f.work, 'package.tgz'); assert.equal(spawnSync('tar', ['-czf', archive, '-C', f.app, '.']).status, 0);
   const bytes = readFileSync(archive), digest = corrupt ? '0'.repeat(64) : createHash('sha256').update(bytes).digest('hex');
   const requests = [];
@@ -66,8 +67,24 @@ for (const corrupt of [false, true]) test(`piped installer downloads one platfor
     child.stdout.on('data', b => stdout += b); child.stderr.on('data', b => stderr += b);
     child.on('exit', status => done({ status, stdout, stderr })); child.stdin.end(script);
   });
+  return { ...result, requests, installed: existsSync(f.install) };
+}
+for (const corrupt of [false, true]) test(`piped installer downloads one platform package and ${corrupt ? 'rejects corruption' : 'verifies it without Node'}`, async t => {
+  const result = await piped(t, { corrupt });
   assert.equal(result.status === 0, !corrupt, result.stderr);
-  assert.equal(existsSync(f.install), !corrupt);
+  assert.equal(result.installed, !corrupt);
   if (corrupt) assert.match(result.stderr, /checksum mismatch/);
-  assert(requests.includes('/releases/download/v2.0.0/dscode-2.0.0-darwin-arm64-standalone.tar.gz'));
+  assert(result.requests.includes('/releases/download/v2.0.0/dscode-2.0.0-darwin-arm64-standalone.tar.gz'));
+});
+for (const [machine, platform] of [['x86_64', 'linux-x64'], ['aarch64', 'linux-arm64']]) test(`piped installer selects the ${platform} package on glibc Linux`, async t => {
+  const result = await piped(t, { system: 'Linux', machine });
+  assert.equal(result.status, 0, result.stderr); assert(result.installed);
+  assert(result.requests.includes(`/releases/download/v2.0.0/dscode-2.0.0-${platform}-standalone.tar.gz`));
+});
+test('piped installer refuses musl Linux and unsupported systems before downloading a package', async t => {
+  for (const [options, message] of [[{ system: 'Linux', machine: 'x86_64', glibc: false }, /require glibc/], [{ system: 'FreeBSD' }, /macOS and Linux only/], [{ system: 'Linux', machine: 'riscv64' }, /Unsupported architecture/]]) {
+    const result = await piped(t, options);
+    assert.notEqual(result.status, 0); assert.match(result.stderr, message); assert(!result.installed);
+    assert(!result.requests.some(url => url.includes('/download/')));
+  }
 });

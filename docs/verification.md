@@ -2,6 +2,17 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## Self-contained Linux packages — 2026-10-14
+
+Version 0.7.46 cross-builds `linux-x64` and `linux-arm64` archives on macOS.
+`verify-standalone.mjs` passed for both in Debian bookworm containers (arm64
+native, x64 under amd64 emulation). A piped install from a local release
+fixture succeeded in a container without `shasum`, and the TUI rendered in a
+pseudo-terminal. `npm run test:e2e` passed eight steps in 5.1 minutes on Node 24
+linux/arm64, including the new package qualification step. Release CI qualifies
+both archives on native Ubuntu runners before publication; other distributions,
+Landlock-only confinement and live model calls remain unverified.
+
 ## Release CI viewport fixture — 2026-10-13
 
 The 0.7.43 tag at `ee2df139f212702d337aab961038e8419568f0bf` failed before

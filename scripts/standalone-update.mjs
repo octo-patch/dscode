@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, existsSync, renameSync, rmSync, writeFileSync }
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { RELEASES, readPackage, VERSION } from './standalone-layout.mjs';
+import { RELEASES, readPackage, TAR, VERSION } from './standalone-layout.mjs';
 import { newerVersion } from '../plugins/tui-tools/update.mjs';
 
 export function executePackageCommand(command, args, options = {}) {
@@ -42,9 +42,9 @@ export async function updateStandalone(args, { root, env, fetchImpl = fetch, exe
   try {
     writeFileSync(archive, bytes, { mode: 0o600 });
     mkdirSync(staged);
-    const names = exec('/usr/bin/tar', ['-tzf', archive]).trim().split('\n');
+    const names = exec(TAR, ['-tzf', archive]).trim().split('\n');
     if (names.some(path => path.startsWith('/') || path.split('/').includes('..'))) throw Error('Unsafe package archive paths.');
-    exec('/usr/bin/tar', ['-xzf', archive, '-C', staged]);
+    exec(TAR, ['-xzf', archive, '-C', staged]);
     const next = readPackage(staged, platform);
     if (next.version !== version) throw Error('Package version does not match the requested release.');
     exec(join(staged, 'dscode'), ['--check'], { env });

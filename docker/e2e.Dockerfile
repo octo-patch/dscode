@@ -4,8 +4,9 @@
 # so `verify:hub` (install the bundle, boot the installed profile, fail an upgrade,
 # roll back) can never run there, and nothing verified the harness on Linux at all.
 # The Docker Official Images mirror avoids Docker Hub's anonymous pull quota on
-# shared CI runners while retaining the same Node/Debian image.
-FROM public.ecr.aws/docker/library/node:22-bookworm-slim
+# shared CI runners while retaining the same Node/Debian image. Node 24 matches the
+# macOS checks and the private runtime the self-contained packages ship.
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim
 
 # git: verify:hub initialises a repository and the worktree probe creates its own.
 # curl: install.sh needs it on the piped path, and its unit tests run it for real.

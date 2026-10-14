@@ -10,6 +10,16 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.46] - 2026-10-14
+
+### Added
+
+- Publish self-contained packages for 64-bit glibc Linux (`linux-x64`, `linux-arm64`). The `curl` installer detects Linux and `aarch64`/`x86_64`, verifies with `sha256sum` when `shasum` is absent, and refuses musl systems before downloading; `dscode update` and direct downloads use the same archives. Release CI qualifies both on native Linux runners before publishing, and the Linux e2e workflow builds and qualifies the package for its container on every pull request. Command sandboxing uses bubblewrap, falling back to Landlock; clipboard image paste, Computer Use, Desktop and Homebrew remain macOS-only.
+
+### Changed
+
+- Run the Linux e2e container on Node 24, matching the macOS checks and the bundled runtime. Resolve system tools from `/usr/bin` or `/bin` in the launcher, installer and updater, for distributions without a merged `/usr`.
+
 ## [0.7.45] - 2026-10-13
 
 ### Added

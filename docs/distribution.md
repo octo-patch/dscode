@@ -1,14 +1,16 @@
 # Self-contained package distribution
 
-The terminal is distributed as one complete application archive per platform. Download `dscode-<version>-darwin-arm64-standalone.tar.gz` for Apple Silicon or `dscode-<version>-darwin-x64-standalone.tar.gz` for Intel. Each archive contains its own Node 24.21.0, pinned Harness, compiled TUI, plugins and native modules. No system Node, npm, pnpm or DSH is needed, and first launch does not download runtime dependencies.
+The terminal is distributed as one complete application archive per platform. Download `dscode-<version>-darwin-arm64-standalone.tar.gz` for Apple Silicon, `dscode-<version>-darwin-x64-standalone.tar.gz` for Intel Macs, or `dscode-<version>-linux-x64-standalone.tar.gz` / `dscode-<version>-linux-arm64-standalone.tar.gz` for Linux. Each archive contains its own Node 24.21.0, pinned Harness, compiled TUI, plugins and native modules. No system Node, npm, pnpm or DSH is needed, and first launch does not download runtime dependencies.
 
-macOS 14+ is supported. Git is used for repository and patch operations. Google Chrome and macOS Accessibility/Screen Recording permission are needed only for the features that use them. Models, external MCP servers and project tools retain their own configuration and requirements.
+macOS 14+ and 64-bit Linux with glibc (x64 and arm64) are supported. The Linux packages bundle glibc builds of Node and the native modules, so musl distributions such as Alpine cannot run them; the installer refuses them. Git is used for repository and patch operations. Google Chrome and macOS Accessibility/Screen Recording permission are needed only for the features that use them.
+
+On Linux, commands run inside bubblewrap; install it with your package manager (`apt install bubblewrap`, `dnf install bubblewrap`). Without it the sandbox falls back to Landlock, and when neither is usable sandboxed commands are refused rather than run unconfined. Clipboard image paste, Computer Use and the Desktop package remain macOS-only. `dscode trigger install` prints the equivalent crontab line to add instead of loading a launchd agent. Homebrew covers macOS only; on Linux use the installer or a direct download. Models, external MCP servers and project tools retain their own configuration and requirements.
 
 ## Download and run
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.45-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.46-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -19,12 +21,12 @@ The optional installer downloads and verifies the same package:
 ```sh
 curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh
 # Pin an exact release:
-curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.45
+curl -fsSL https://raw.githubusercontent.com/qiz029/dscode/main/install.sh | sh -s -- 0.7.46
 # Or install an already unpacked package, without a download:
 sh dscode-app/install.sh
 ```
 
-The installer uses standard macOS shell tools, not Node. It verifies the published SHA-256 sidecar before extraction, checks the package with its private runtime, then installs it at `~/.local/share/dscode-app` and links `~/.local/bin/dscode`. Put that bin directory on PATH. Absolute `DSCODE_INSTALL_DIR` and `DSCODE_BIN_DIR` override those locations. An existing foreign command is never overwritten. Re-running the installer for a managed package delegates to its updater. Releases without a self-contained package or checksum are refused; there is no source/npm fallback.
+The installer uses standard system shell tools, not Node. It selects the package from `uname` (macOS or Linux, arm64/aarch64 or x86_64), checks for glibc on Linux, and uses `shasum` or `sha256sum`, whichever the system provides. It verifies the published SHA-256 sidecar before extraction, checks the package with its private runtime, then installs it at `~/.local/share/dscode-app` and links `~/.local/bin/dscode`. Put that bin directory on PATH. Absolute `DSCODE_INSTALL_DIR` and `DSCODE_BIN_DIR` override those locations. An existing foreign command is never overwritten. Re-running the installer for a managed package delegates to its updater. Releases without a self-contained package or checksum are refused; there is no source/npm fallback.
 
 ## Existing DSH installations
 
@@ -40,7 +42,7 @@ The application does not import `~/.dsh` configuration, Hub tokens or the old `~
 
 ```sh
 dscode update             # newest published self-contained release
-dscode update 0.7.45      # an exact release, including an explicit rollback
+dscode update 0.7.46      # an exact release, including an explicit rollback
 ```
 
 Exit running DSCODE sessions and schedulers first. Startup and update share kernel admission locks; each running child retains protection even if its launcher is killed. Both the program location and the selected data directory are protected. Concurrent ordinary sessions from the same package remain supported. A different package must wait until those sessions exit before taking over the same data directory. The stable `dscode-app` profile preserves native model/settings edits in `cordis.patch.yml` across upgrades and package relocation. Generated application defaults live in a separate private base bundle under the data directory.
@@ -81,8 +83,8 @@ make release                        # full local terminal candidate gate
 make publish                        # attach terminal assets to GitHub
 ```
 
-`DSCODE_PREBUILT_ARCHS=arm64` or `x64` selects one build for development. An empty selection is an error. Builds install the repository lockfile in a fresh staging directory, compile the TUI and apply runtime patches there, then add the official Node archive verified against checked-in SHA-256 hashes. They never copy a developer's node_modules, credentials or runtime state. Both runtime archives include Node's license.
+`npm run dist` builds all four platforms. `DSCODE_PREBUILT_PLATFORMS` selects a comma-separated subset of `darwin-arm64`, `darwin-x64`, `linux-x64` and `linux-arm64` for development; the older `DSCODE_PREBUILT_ARCHS=arm64` or `x64` still selects macOS builds. An empty or unknown selection is an error. Linux packages are cross-built without running install scripts, from the prebuilt native modules each dependency publishes. Builds install the repository lockfile in a fresh staging directory, compile the TUI and apply runtime patches there, then add the official Node archive verified against checked-in SHA-256 hashes. They never copy a developer's node_modules, credentials or runtime state. Every runtime archive includes Node's license.
 
-Release CI validates the ARM64 archive and downloads that exact candidate for a separate Intel qualification. Verification covers an unusable foreign Node/npm/DSH on PATH, foreign DSH variables, an untouched global DSH home, native module imports and a real PTY, cold profile composition, local Host diagnostics and local installation. Native macOS permission UI and real model inference remain separate acceptance checks.
+Release CI validates the ARM64 archive and downloads those exact candidates for separate Intel macOS, Linux x64 and Linux arm64 qualification on native runners; nothing is published unless all four pass. The Linux e2e workflow also builds and qualifies the Linux package for its container on every pull request. Verification covers an unusable foreign Node/npm/DSH on PATH, foreign DSH variables, an untouched global DSH home, native module imports and a real PTY, cold profile composition, local Host diagnostics and local installation. Native macOS permission UI and real model inference remain separate acceptance checks.
 
 The default terminal release has no npm or Hub publication dependency. Desktop continues through its own package and verification path. Historical npm/Hub tooling remains documented in [Legacy Hub distribution](hub-distribution.md); it is not used to install or update the self-contained terminal.

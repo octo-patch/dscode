@@ -1,0 +1,21 @@
+[package]
+name = "dscode-client-core"
+version = "0.1.0"
+description = "UI-free DSCODE runtime client: carrier transport, Typert and DSCODE operations"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+flume.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+socket2.workspace = true
+uuid.workspace = true
+
+[build-dependencies]
+prettyplease = "0.2"
+schemars = "0.8.22"
+serde_json.workspace = true
+syn = "2"
+typify = "0.6.2"

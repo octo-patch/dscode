@@ -22,3 +22,6 @@ release-candidates.tar.gz
 
 # Compiled output of the vendored terminal (built by scripts/build-tui.mjs for release)
 packages/tui/lib/
+
+# Rust desktop client build output
+clients/desktop/target/

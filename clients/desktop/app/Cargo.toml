@@ -1,0 +1,13 @@
+[package]
+name = "dscode-desktop"
+version = "0.1.0"
+description = "DSCODE desktop client"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dscode-client-core = { path = "../core" }
+flume.workspace = true
+gpui-kit = "0.7.3"
+serde_json.workspace = true

@@ -7,7 +7,7 @@ It speaks the protocol in [Client and runtime protocol](../../docs/runtime-proto
 | Crate | What it is |
 |---|---|
 | `core` (`dscode-client-core`) | UI-free client: carrier transport (HTTP/1.1 over Unix socket or TCP, chunked NDJSON streams with uplink), Typert unary calls, DSCODE operations, `host/status`. Blocking I/O, one thread per stream, items delivered on `flume` channels that work from blocking and async code. `build.rs` generates `protocol::types` and one `protocol::ops` marker per operation from [`protocol/dscode-runtime.schema.json`](../../protocol/dscode-runtime.schema.json); `Client::invoke::<ops::ModelsSave>(&args)` and `Client::watch::<ops::ModelsDefaults>(&args)` are typed end to end. |
-| `app` (`dscode-desktop`) | GPUI window: connects, creates a session, streams the reply as Markdown, shows tool calls and results, and answers approvals. |
+| `app` (`dscode-desktop`) | GPUI window: connects, creates a session, streams the reply as Markdown, shows tool calls and results, and answers approvals. Everything it sends and reads goes through the generated types: `$events` frames and typed approval answers, `session/create` and `session/follow`, `session/deliver` and `session/interrupt`, and session events as `SessionEventKnown` variants. An event kind it does not know is skipped; a known kind that does not decode is logged to stderr and skipped. |
 
 ## Run it
 
@@ -32,6 +32,7 @@ Fixture prompts: `APPROVE` asks to write outside the workspace (an approval), `A
 
 - `chat` example over the socket and over TCP: live text deltas, an approval rejected through `$events/result`, and a wrong token refused as `dscode/unauthorized`.
 - The window against the fixture Host: two turns streamed, `APPROVE 写一个文件` delivered and shown with CJK text intact, two approval requests rejected (one through the accessibility press action, one by mouse), the rejected tool results and the final reply rendered, and Stop/Send following the running state.
+- The window on the generated types (2026-10-15), against a fixture Host: a reply streamed, `APPROVE 写一个文件` raised an approval that arrived as a typed `ApprovalRequestPayload` with its Chinese reason, and a typed `Rejected` answer produced the rejected tool result and the final reply. Nothing failed to decode (stderr stayed empty).
 - `cargo test`: transport framing (chunked decoding, request heads, token only on TCP), address parsing, result unwrapping, and the transcript fold.
 
 ## Known gaps and findings
@@ -39,6 +40,6 @@ Fixture prompts: `APPROVE` asks to write outside the workspace (an approval), `A
 - **Redraw while hidden.** With the window behind another window, state kept updating but no new frame (and no new accessibility tree) was presented until the window came to the front. Whether a visible but unfocused window redraws is not yet checked.
 - **Input methods.** Text was entered with synthesized key events, not through a real input method; Pinyin composition on macOS and fcitx/ibus on Linux remain untested.
 - **Not implemented yet:** choosing a server and the default local Host (needs the launcher's `ensureHost`), resuming sessions and paging history, reconnecting, subagent and `/btw` feeds, slash commands, questions (`user-questions/request`), attachments, model selection, and every other DSCODE operation.
-- **Protocol definition.** All DSCODE operations and session events come from the shared contract ([Client and runtime protocol](../../docs/runtime-protocol.md#dscode-operation-catalog)); `types::SessionEvent` is open (`SessionEventKnown` or an unknown member). The window itself still reads events as JSON and has not moved to the generated types. Typert calls (`session/create`, `session/follow`, `$events`) are not in the schema yet, and a protocol version to replace the exact-release check does not exist yet.
-- **typify workarounds** (`core/build.rs`): `const` is rewritten as a one-value `enum`, since typify keeps a `const` as a plain string and an untagged union of blocks would then misread one block kind as another.
+- **Protocol definition.** All DSCODE operations and session events come from the shared contract ([Client and runtime protocol](../../docs/runtime-protocol.md#dscode-operation-catalog)); `types::SessionEvent` is open (`SessionEventKnown` or an unknown member). Typert calls, `$events`, `session/follow` and the approval and question waterfalls are in the schema too (`Client::typert::<typert::SessionCreate>`, `typert_stream::<typert::SessionFollow>`, the `Waterfall` trait); follow events arrive as upstream's generic `SessionWireEvent`, and `.known()` reads one as a `SessionEvent`. On connect the client checks `host/status.protocol` against the schema's `PROTOCOL` (`protocol::compatibility`): the same major works, and a Host from before protocol negotiation is refused.
+- **typify workarounds** (`core/build.rs`): `const` is rewritten as a one-value `enum`, since typify keeps a `const` as a plain string and an untagged union of blocks would then misread one block kind as another; the "other" member of an open union gets `additionalProperties: {}` so its fields are kept.
 - Linux and Windows builds have not been attempted.

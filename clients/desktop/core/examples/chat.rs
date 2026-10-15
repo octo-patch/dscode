@@ -74,6 +74,9 @@ fn main() -> ExitCode {
 fn run(options: Options) -> Result<(), Error> {
     let client = Client::new(options.target.clone());
     let status = client.host_status()?;
+    if let Err(reason) = dscode_client_core::protocol::compatibility(&status, dscode_client_core::protocol::PROTOCOL) {
+        return Err(Error::Protocol(format!("the runtime {reason}")));
+    }
     eprintln!("[runtime {} · DSCODE {} · pid {}]", client.target(), status.version, status.pid);
 
     // 1. Attach. The first item names this client; approvals arrive later as waterfalls.

@@ -103,8 +103,10 @@ impl<T: DeserializeOwned> TypedStream<T> {
     /// Block for the next item; `None` once the stream ended or was closed.
     pub fn recv(&self) -> Option<Result<T>> {
         match self.inner.recv()? {
-            StreamEvent::Item(item) => Some(serde_json::from_value(item).map_err(|error| {
-                Error::protocol(format!("{} sent an unexpected item: {error}", self.inner.endpoint()))
+            StreamEvent::Item(item) => Some(serde_json::from_value(item.clone()).map_err(|error| {
+                let raw = item.to_string();
+                let shown = raw.char_indices().nth(400).map_or(raw.as_str(), |(cut, _)| &raw[..cut]);
+                Error::protocol(format!("{} sent an unexpected item: {error}: {shown}", self.inner.endpoint()))
             })),
             StreamEvent::End => None,
             StreamEvent::Failed(error) => Some(Err(error)),

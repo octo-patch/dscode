@@ -1,6 +1,6 @@
 use crate::error::{Error, Result};
 use crate::http::{self, Conn};
-use crate::protocol::{Method, Watch};
+use crate::protocol::{Method, TypertMethod, TypertStream, Watch};
 use crate::stream::{Stream, TypedStream};
 use crate::target::Target;
 use serde::Deserialize;
@@ -22,6 +22,9 @@ pub struct Client {
 #[serde(rename_all = "camelCase")]
 pub struct HostStatus {
     pub version: String,
+    /// Absent on DSCODE 0.7.48 and older.
+    #[serde(default)]
+    pub protocol: Option<crate::protocol::Protocol>,
     pub pid: u32,
     #[serde(default)]
     pub clients: u32,
@@ -85,6 +88,19 @@ impl Client {
     pub fn watch<W: Watch>(&self, args: &W::Args) -> Result<TypedStream<W::Item>> {
         let args = serde_json::to_value(args).map_err(|error| Error::protocol(format!("{}: {error}", W::NAME)))?;
         Ok(TypedStream::new(self.open_dscode_stream(W::NAME, args)?))
+    }
+
+    /// An upstream Typert call from the generated contract.
+    pub fn typert<M: TypertMethod>(&self, args: &M::Args) -> Result<M::Result> {
+        let args = serde_json::to_value(args).map_err(|error| Error::protocol(format!("{}: {error}", M::NAME)))?;
+        let value = self.call(M::NAME, args)?;
+        serde_json::from_value(value).map_err(|error| Error::protocol(format!("{} returned an unexpected shape: {error}", M::NAME)))
+    }
+
+    /// An upstream Typert stream from the generated contract, decoding each item.
+    pub fn typert_stream<S: TypertStream>(&self, args: &S::Args) -> Result<TypedStream<S::Item>> {
+        let args = serde_json::to_value(args).map_err(|error| Error::protocol(format!("{}: {error}", S::NAME)))?;
+        Ok(TypedStream::new(self.open_stream(S::NAME, args)?))
     }
 
     /// `host/status` with the launcher's two-second probe timeout.

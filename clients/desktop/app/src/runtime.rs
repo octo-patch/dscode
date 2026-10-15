@@ -1,19 +1,20 @@
 //! Bridge between the blocking core client and the UI: connection work and
 //! streams run on their own threads and report through one channel of
-//! `RuntimeEvent`s, which the view drains on the GPUI executor.
+//! `RuntimeEvent`s, which the view drains on the GPUI executor. Everything on
+//! the wire goes through the types generated from the protocol schema.
 
-use dscode_client_core::{Client, Error, StreamEvent, Target};
-use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use dscode_client_core::protocol::{self, ops, typert, types, Waterfall};
+use dscode_client_core::{Client, Error, Target};
+use std::collections::HashMap;
 use std::thread;
 
 pub enum RuntimeEvent {
     Connected { label: String, version: String, cwd: String, session: Session },
     Failed(String),
     /// Committed session events, oldest first (a snapshot page or one event).
-    Committed(Vec<Value>),
+    Committed(Vec<types::SessionEvent>),
     Live(Live),
-    Approval { event_id: String, tool: String, reason: String },
+    Approval { event_id: String, payload: types::ApprovalRequestPayload },
     Withdrawn(String),
     Running(bool),
 }
@@ -29,35 +30,43 @@ pub enum Live {
 pub struct Session {
     client: Client,
     session_id: String,
-    client_id: Arc<Mutex<String>>,
+    client_id: String,
 }
 
 impl Session {
     pub fn deliver(&self, text: String, events: flume::Sender<RuntimeEvent>) {
-        let args = json!({"sessionId": self.session_id, "mode": "followup", "content": [{"type": "text", "text": text}]});
-        self.background("session/deliver", args, events);
+        let args = types::SessionDeliverArgs {
+            content: vec![types::ContentBlock::TextBlock(types::TextBlock { text, type_: types::TextBlockType::Text })],
+            context: None,
+            mode: types::SessionDeliverArgsMode::Followup,
+            session_id: self.session_id.clone(),
+        };
+        self.background::<ops::SessionDeliver>(args, events);
     }
 
     pub fn interrupt(&self, events: flume::Sender<RuntimeEvent>) {
-        self.background("session/interrupt", json!({"sessionId": self.session_id}), events);
+        self.background::<ops::SessionInterrupt>(types::SessionInterruptArgs { session_id: self.session_id.clone() }, events);
     }
 
-    pub fn answer(&self, event_id: String, decision: &'static str, events: flume::Sender<RuntimeEvent>) {
-        let client = self.client.clone();
-        let client_id = self.client_id.lock().unwrap().clone();
+    pub fn answer(&self, event_id: String, decision: <typert::ApprovalRequest as Waterfall>::Answer, events: flume::Sender<RuntimeEvent>) {
+        let (client, client_id) = (self.client.clone(), self.client_id.clone());
         thread::spawn(move || {
-            let outcome = json!({"kind": "result", "value": decision});
-            if let Err(error) = client.call("$events/result", json!({"clientId": client_id, "eventId": event_id, "outcome": outcome})) {
+            let value = serde_json::to_value(decision).ok();
+            let answer = types::RemoteEventResult { client_id, event_id, outcome: types::RemoteEventResultOutcome::Result { value } };
+            if let Err(error) = client.typert::<typert::EventsResult>(&answer) {
                 let _ = events.send(RuntimeEvent::Failed(format!("answering the approval failed: {error}")));
             }
         });
     }
 
-    fn background(&self, operation: &'static str, args: Value, events: flume::Sender<RuntimeEvent>) {
+    fn background<M: protocol::Method>(&self, args: M::Args, events: flume::Sender<RuntimeEvent>)
+    where
+        M::Args: Send + 'static,
+    {
         let client = self.client.clone();
         thread::spawn(move || {
-            if let Err(error) = client.call_dscode(operation, args) {
-                let _ = events.send(RuntimeEvent::Failed(format!("{operation}: {error}")));
+            if let Err(error) = client.invoke::<M>(&args) {
+                let _ = events.send(RuntimeEvent::Failed(format!("{}: {error}", M::NAME)));
             }
         });
     }
@@ -76,49 +85,65 @@ pub fn connect(target: Target, cwd: Option<String>, events: flume::Sender<Runtim
 fn open(target: Target, cwd: Option<String>, events: &flume::Sender<RuntimeEvent>) -> Result<(), Error> {
     let client = Client::new(target);
     let status = client.host_status()?;
+    let host_behind = protocol::compatibility(&status, protocol::PROTOCOL).map_err(|reason| Error::Protocol(format!("the runtime {reason}")))?;
 
-    let attach = client.open_stream("$events", json!({}))?;
+    let attach = client.typert_stream::<typert::Events>(&types::NoArgs(HashMap::new()))?;
     let client_id = match attach.recv() {
-        Some(StreamEvent::Item(item)) if item["type"] == "ready" => item["clientId"].as_str().unwrap_or_default().to_owned(),
+        Some(Ok(types::RemoteEventDownlinkFrame::ReadyFrame(ready))) => ready.client_id,
+        Some(Err(error)) => return Err(error),
         other => return Err(Error::Protocol(format!("expected ready on $events, got {other:?}"))),
     };
 
     let cwd = cwd.or(status.default_cwd).unwrap_or_else(|| ".".into());
-    let created = client.call("session/create", json!({"request": {"cwd": cwd, "agentPreset": "dscode"}}))?;
-    let session_id = created["sessionId"].as_str().ok_or_else(|| Error::Protocol("session/create returned no sessionId".into()))?.to_owned();
-    let request = json!({"address": {"kind": "session", "sessionId": session_id}, "assistantStream": true, "maxMessages": 1000});
-    let follow = client.open_stream("session/follow", json!({"request": request}))?;
+    let request = types::SessionCreateRequest { agent_preset: Some("dscode".into()), cwd: Some(cwd.clone()), session_id: None, workspace_id: None };
+    let session_id = client.typert::<typert::SessionCreate>(&types::SessionCreateArgs { request })?.session_id;
+    let follow_request = types::SessionFollowRequest {
+        address: types::SessionAddress::Session { session_id: session_id.clone() },
+        assistant_stream: Some(true),
+        max_messages: Some(1000.0),
+        turn_window: None,
+    };
+    let follow = client.typert_stream::<typert::SessionFollow>(&types::SessionFollowArgs { request: follow_request })?;
 
-    let session = Session { client: client.clone(), session_id: session_id.clone(), client_id: Arc::new(Mutex::new(client_id)) };
-    let _ = events.send(RuntimeEvent::Connected { label: client.target().to_string(), version: status.version, cwd, session: session.clone() });
+    let session = Session { client: client.clone(), session_id: session_id.clone(), client_id };
+    let version = if host_behind { format!("{} (older protocol; some features may be missing)", status.version) } else { status.version };
+    let _ = events.send(RuntimeEvent::Connected { label: client.target().to_string(), version, cwd, session: session.clone() });
 
     // $events: approvals for the session this window drives; pass everything else on.
     {
         let (events, session) = (events.clone(), session.clone());
         thread::spawn(move || {
-            while let Some(StreamEvent::Item(item)) = attach.recv() {
-                match item["type"].as_str() {
-                    Some("waterfall") => {
-                        let event_id = item["eventId"].as_str().unwrap_or_default().to_owned();
-                        if item["event"] == "approval/request" && item["agentId"] == session.session_id.as_str() {
-                            let request = &item["request"];
-                            let _ = events.send(RuntimeEvent::Approval {
-                                event_id,
-                                tool: request["toolName"].as_str().unwrap_or("tool").to_owned(),
-                                reason: display_reason(&request["displayReason"]).or_else(|| display_reason(&request["reason"])).unwrap_or_default(),
-                            });
-                        } else {
-                            let client_id = session.client_id.lock().unwrap().clone();
-                            let _ = session.client.call("$events/result", json!({"clientId": client_id, "eventId": event_id, "outcome": {"kind": "next"}}));
+            while let Some(frame) = attach.recv() {
+                let event = match frame {
+                    Ok(types::RemoteEventDownlinkFrame::InvocationFrame(invocation)) => {
+                        let ours = invocation.event == typert::ApprovalRequest::EVENT && invocation.agent_id == session.session_id;
+                        let payload = ours.then(|| serde_json::from_value::<types::ApprovalRequestPayload>(invocation.request.clone().into()));
+                        match payload {
+                            Some(Ok(payload)) => RuntimeEvent::Approval { event_id: invocation.event_id, payload },
+                            other => {
+                                if let Some(Err(error)) = other {
+                                    eprintln!("dscode-desktop: unreadable approval request: {error}");
+                                }
+                                pass_on(&session, invocation.event_id);
+                                continue;
+                            }
                         }
                     }
-                    Some("cancel") => {
-                        let _ = events.send(RuntimeEvent::Withdrawn(item["eventId"].as_str().unwrap_or_default().to_owned()));
+                    Ok(types::RemoteEventDownlinkFrame::CancellationFrame(cancel)) => RuntimeEvent::Withdrawn(cancel.event_id),
+                    Ok(types::RemoteEventDownlinkFrame::EmitFrame(emit)) if emit.event == "api-session/status" => {
+                        if emit.args.first().and_then(|id| id.as_str()) != Some(session.session_id.as_str()) {
+                            continue;
+                        }
+                        RuntimeEvent::Running(emit.args.get(1).and_then(|running| running.as_bool()).unwrap_or(false))
                     }
-                    Some("emit") if item["event"] == "api-session/status" && item["args"][0] == session.session_id.as_str() => {
-                        let _ = events.send(RuntimeEvent::Running(item["args"][1].as_bool().unwrap_or(false)));
+                    Ok(_) => continue,
+                    Err(error) => {
+                        eprintln!("dscode-desktop: {error}");
+                        continue;
                     }
-                    _ => {}
+                };
+                if events.send(event).is_err() {
+                    return;
                 }
             }
             let _ = events.send(RuntimeEvent::Failed("the runtime connection closed".into()));
@@ -127,52 +152,57 @@ fn open(target: Target, cwd: Option<String>, events: &flume::Sender<RuntimeEvent
 
     // session/follow: the snapshot, committed events and live assistant frames.
     let events = events.clone();
-    thread::spawn(move || loop {
-        match follow.recv() {
-            Some(StreamEvent::Item(item)) => {
-                let event = match item["type"].as_str() {
-                    Some("snapshot") => {
-                        let records = item["records"].as_array().cloned().unwrap_or_default();
-                        RuntimeEvent::Committed(records.into_iter().map(|record| record["event"].clone()).collect())
-                    }
-                    Some("event") => RuntimeEvent::Committed(vec![item["event"].clone()]),
-                    Some("assistant-stream") => match live(&item["frame"]) {
-                        Some(live) => RuntimeEvent::Live(live),
-                        None => continue,
-                    },
-                    _ => continue,
-                };
-                if events.send(event).is_err() {
-                    return;
+    thread::spawn(move || {
+        while let Some(frame) = follow.recv() {
+            let event = match frame {
+                Ok(types::SessionFollowFrame::FollowFrameSnapshot { records, .. }) => {
+                    RuntimeEvent::Committed(records.iter().filter_map(|record| known(&record.event)).collect())
                 }
-            }
-            Some(StreamEvent::Failed(error)) => {
-                let _ = events.send(RuntimeEvent::Failed(error.to_string()));
+                Ok(types::SessionFollowFrame::EventEntry(entry)) => match known(&entry.event) {
+                    Some(event) => RuntimeEvent::Committed(vec![event]),
+                    None => continue,
+                },
+                Ok(types::SessionFollowFrame::FollowFrameAssistantStream { frame, .. }) => match live(frame) {
+                    Some(live) => RuntimeEvent::Live(live),
+                    None => continue,
+                },
+                Err(error) => {
+                    eprintln!("dscode-desktop: {error}");
+                    continue;
+                }
+            };
+            if events.send(event).is_err() {
                 return;
             }
-            Some(StreamEvent::End) | None => return,
         }
+        let _ = events.send(RuntimeEvent::Failed("the session stream closed".into()));
     });
     Ok(())
 }
 
-fn live(frame: &Value) -> Option<Live> {
-    match frame["type"].as_str()? {
-        "start" => Some(Live::Start),
-        "end" => Some(Live::End),
-        "chunk" => {
-            let chunk = &frame["chunk"];
-            let text = chunk["text"].as_str().unwrap_or_default().to_owned();
-            match chunk["type"].as_str()? {
-                "text-delta" => Some(Live::Text(text)),
-                _ => None,
-            }
-        }
-        _ => None,
+/// Decline a waterfall this window does not handle, so another client can.
+fn pass_on(session: &Session, event_id: String) {
+    let answer = types::RemoteEventResult { client_id: session.client_id.clone(), event_id, outcome: types::RemoteEventResultOutcome::Next };
+    if let Err(error) = session.client.typert::<typert::EventsResult>(&answer) {
+        eprintln!("dscode-desktop: passing on a request failed: {error}");
     }
 }
 
-/// `displayReason` is either a string or a `{en, zh}` pair.
-fn display_reason(value: &Value) -> Option<String> {
-    value.as_str().map(str::to_owned).or_else(|| value["zh"].as_str().or(value["en"].as_str()).map(str::to_owned))
+/// A follow event as a session event; a known kind with the wrong shape is reported and skipped.
+fn known(event: &types::SessionWireEvent) -> Option<types::SessionEvent> {
+    event.known().map_err(|error| eprintln!("dscode-desktop: unreadable {} event: {error}", event.type_)).ok()
+}
+
+fn live(frame: types::SessionAssistantStreamFrame) -> Option<Live> {
+    match frame {
+        types::SessionAssistantStreamFrame::Start { .. } => Some(Live::Start),
+        types::SessionAssistantStreamFrame::End { .. } => Some(Live::End),
+        // Upstream types the chunk as JSON; it is the model's stream chunk.
+        types::SessionAssistantStreamFrame::Chunk { chunk, .. } => {
+            match serde_json::to_value(chunk).and_then(serde_json::from_value::<types::StreamChunk>) {
+                Ok(types::StreamChunk::TextDelta { text, .. }) => Some(Live::Text(text)),
+                _ => None,
+            }
+        }
+    }
 }

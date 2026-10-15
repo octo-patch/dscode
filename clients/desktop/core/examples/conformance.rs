@@ -5,10 +5,12 @@
 //!
 //!     cargo run --example conformance -- --socket PATH   (a fixture Host)
 
-use dscode_client_core::protocol::{ops, types, Method, Watch};
-use dscode_client_core::{Client, Error, StreamEvent, Target};
+use dscode_client_core::protocol::{ops, typert, types, Method, Waterfall, Watch};
+use dscode_client_core::{Client, Error, Target};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 use std::{env, thread};
@@ -72,29 +74,58 @@ fn run(client: &Client, report: &mut Report) -> Result<(), Error> {
     let status = report.check("host/status", invoke::<ops::HostStatus>(client, none()), |s| format!("DSCODE {} pid {}", s.version, s.pid));
     let cwd = status.map(|s| s.default_cwd).unwrap_or_default();
 
-    // Attach and answer approvals (Typert, outside the DSCODE contract): reject every write.
-    let events = client.open_stream("$events", json!({}))?;
+    // Attach through the typed `$events` stream; reject every approval with a typed answer.
+    let events = client.typert_stream::<typert::Events>(&none())?;
     let client_id = match events.recv() {
-        Some(StreamEvent::Item(item)) => item["clientId"].as_str().unwrap_or_default().to_owned(),
+        Some(Ok(types::RemoteEventDownlinkFrame::ReadyFrame(ready))) => ready.client_id,
         other => return Err(Error::Protocol(format!("no ready on $events: {other:?}"))),
     };
+    let frame_failures = Arc::new(AtomicUsize::new(0));
+    let approvals = Arc::new(AtomicUsize::new(0));
     {
-        let client = client.clone();
+        let (client, frame_failures, approvals) = (client.clone(), frame_failures.clone(), approvals.clone());
         thread::spawn(move || {
-            while let Some(StreamEvent::Item(item)) = events.recv() {
-                if item["type"] == "waterfall" {
-                    let outcome = if item["event"] == "approval/request" { json!({"kind": "result", "value": "rejected"}) } else { json!({"kind": "next"}) };
-                    let _ = client.call("$events/result", json!({"clientId": client_id, "eventId": item["eventId"], "outcome": outcome}));
+            while let Some(frame) = events.recv() {
+                let invocation = match frame {
+                    Ok(types::RemoteEventDownlinkFrame::InvocationFrame(invocation)) => invocation,
+                    Ok(_) => continue,
+                    Err(error) => {
+                        frame_failures.fetch_add(1, Ordering::SeqCst);
+                        println!("FAIL  $events frame: {error}");
+                        continue;
+                    }
+                };
+                let outcome = if invocation.event == typert::ApprovalRequest::EVENT {
+                    match serde_json::from_value::<<typert::ApprovalRequest as Waterfall>::Payload>(Value::Object(invocation.request.clone())) {
+                        Ok(payload) => println!("ok    approval/request payload: {} {:?}", payload.tool_name, payload.call_id),
+                        Err(error) => {
+                            frame_failures.fetch_add(1, Ordering::SeqCst);
+                            println!("FAIL  approval/request payload: {error}");
+                        }
+                    }
+                    approvals.fetch_add(1, Ordering::SeqCst);
+                    json!({"kind": "result", "value": types::ApprovalOutcome::Rejected})
+                } else {
+                    json!({"kind": "next"})
+                };
+                let answer = serde_json::from_value(json!({"clientId": client_id, "eventId": invocation.event_id, "outcome": outcome})).expect("a valid answer");
+                if let Err(error) = client.typert::<typert::EventsResult>(&answer) {
+                    frame_failures.fetch_add(1, Ordering::SeqCst);
+                    println!("FAIL  $events/result: {error}");
                 }
             }
         });
     }
-    let created = client.call("session/create", json!({"request": {"cwd": cwd, "agentPreset": "dscode"}}))?;
-    let session_id = created["sessionId"].as_str().unwrap_or_default().to_owned();
-    let follow = client.open_stream("session/follow", json!({"request": {"address": {"kind": "session", "sessionId": session_id}, "assistantStream": true}}))?;
-    let _snapshot = follow.recv();
+    let request = types::SessionCreateRequest { agent_preset: Some("dscode".into()), cwd: Some(cwd.clone()), session_id: None, workspace_id: None };
+    let created = report.check("session/create", client.typert::<typert::SessionCreate>(&types::SessionCreateArgs { request }), |c| c.session_id.clone());
+    let session_id = created.ok_or_else(|| Error::Protocol("no session".into()))?.session_id;
+    let follow_args = |max: u32| -> types::SessionFollowArgs {
+        serde_json::from_value(json!({"request": {"address": {"kind": "session", "sessionId": session_id}, "assistantStream": true, "maxMessages": max}})).expect("valid follow arguments")
+    };
+    let follow = client.typert_stream::<typert::SessionFollow>(&follow_args(1000))?;
 
     // Two turns through the typed delivery operation: plain text, then a tool call that needs approval.
+    let (mut live_frames, mut follow_events) = (0usize, 0usize);
     for text in ["hello", "APPROVE writing a file"] {
         let message: types::SessionDeliverArgs = serde_json::from_value(json!({"sessionId": session_id, "mode": "followup", "content": [{"type": "text", "text": text}]}))
             .map_err(|e| Error::Protocol(e.to_string()))?;
@@ -105,34 +136,55 @@ fn run(client: &Client, report: &mut Report) -> Result<(), Error> {
                 return Err(Error::Protocol("turn did not end".into()));
             }
             match follow.recv() {
-                Some(StreamEvent::Item(item)) if item["type"] == "event" && item["event"]["type"] == "turn/end" => break,
-                Some(StreamEvent::Item(_)) => {}
-                other => return Err(Error::Protocol(format!("follow stopped: {other:?}"))),
+                Some(Ok(types::SessionFollowFrame::EventEntry(entry))) => {
+                    follow_events += 1;
+                    if matches!(entry.event.known(), Ok(types::SessionEvent::Known(types::SessionEventKnown::TurnEnd { .. }))) {
+                        break;
+                    }
+                }
+                Some(Ok(types::SessionFollowFrame::FollowFrameAssistantStream { .. })) => live_frames += 1,
+                Some(Ok(_)) => {}
+                Some(Err(error)) => {
+                    report.failures += 1;
+                    println!("FAIL  session/follow frame: {error}");
+                }
+                None => return Err(Error::Protocol("follow stopped".into())),
             }
         }
     }
-    follow.close();
+    follow.stream().close();
+    println!("ok    session/follow: {follow_events} events and {live_frames} live assistant frames decoded");
 
     // Every committed event, re-read from a fresh snapshot, must decode as a known SessionEvent member.
-    let follow = client.open_stream("session/follow", json!({"request": {"address": {"kind": "session", "sessionId": session_id}, "assistantStream": true, "maxMessages": 1000}}))?;
-    let records: Vec<Value> = match follow.recv() {
-        Some(StreamEvent::Item(item)) => item["records"].as_array().cloned().unwrap_or_default(),
+    let follow = client.typert_stream::<typert::SessionFollow>(&follow_args(1000))?;
+    let records = match follow.recv() {
+        Some(Ok(types::SessionFollowFrame::FollowFrameSnapshot { records, .. })) => records,
         other => return Err(Error::Protocol(format!("no snapshot: {other:?}"))),
     };
-    follow.close();
+    follow.stream().close();
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
     for record in &records {
-        let event = &record["event"];
-        let kind = event["type"].as_str().unwrap_or("?").to_owned();
-        match serde_json::from_value::<types::SessionEventKnown>(event.clone()) {
-            Ok(_) => *kinds.entry(kind).or_default() += 1,
+        let event = &record.event;
+        match event.known() {
+            Ok(types::SessionEvent::Known(_)) => *kinds.entry(event.type_.clone()).or_default() += 1,
+            Ok(types::SessionEvent::Other { .. }) => {
+                report.failures += 1;
+                println!("FAIL  SessionEventKnown {} (seq {}): not a known member\n      {}", event.type_, event.seq, truncate(&serde_json::to_string(event).unwrap_or_default(), 600));
+            }
             Err(error) => {
                 report.failures += 1;
-                println!("FAIL  SessionEventKnown {kind} (seq {}): {error}\n      {}", event["seq"], truncate(&event.to_string(), 600));
+                println!("FAIL  SessionEvent {} (seq {}): {error}", event.type_, event.seq);
             }
         }
     }
     println!("ok    {} committed events decoded: {kinds:?}", kinds.values().sum::<usize>());
+    report.check("session/list", client.typert::<typert::SessionList>(&serde_json::from_value(json!({"_request": {}})).unwrap()), |l| format!("{} sessions", l.items.len()));
+    report.check("session/fork", client.typert::<typert::SessionFork>(&serde_json::from_value(json!({"request": {"sessionId": session_id}})).unwrap()), |f| f.session_id.clone());
+    report.failures += frame_failures.load(Ordering::SeqCst);
+    if approvals.load(Ordering::SeqCst) == 0 {
+        report.failures += 1;
+        println!("FAIL  no approval/request arrived");
+    }
 
     let some = Some(session_id.clone());
     report.check("sessions/list", invoke::<ops::SessionsList>(client, serde_json::from_value(json!({"options": {"sessions": "all", "cwd": "all", "sort": "newest", "currentCwd": cwd, "query": ""}})).unwrap()), |rows| format!("{} rows", rows.len()));

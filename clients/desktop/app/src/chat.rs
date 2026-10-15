@@ -1,5 +1,6 @@
 use crate::runtime::{self, Live, RuntimeEvent, Session};
 use crate::transcript::{Role, Transcript};
+use dscode_client_core::protocol::types;
 use dscode_client_core::Target;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
@@ -78,7 +79,12 @@ impl ChatView {
                 Live::Text(text) => t.push_live(&text),
                 Live::End => {}
             }),
-            RuntimeEvent::Approval { event_id, tool, reason } => self.approvals.push(Approval { event_id, tool, reason }),
+            RuntimeEvent::Approval { event_id, payload } => {
+                // Prefer the Chinese wording when the asker provided one.
+                let shown = payload.display_reason.map(|reason| reason.extra.get("zh").cloned().unwrap_or(reason.en));
+                let reason = shown.or(payload.reason).unwrap_or_default();
+                self.approvals.push(Approval { event_id, tool: payload.tool_name, reason })
+            }
             RuntimeEvent::Withdrawn(event_id) => self.approvals.retain(|a| a.event_id != event_id),
             RuntimeEvent::Running(running) => self.running = running,
         }
@@ -113,7 +119,8 @@ impl ChatView {
         }
         let approval = self.approvals.remove(0);
         if let Some(session) = &self.session {
-            session.answer(approval.event_id, if allow { "allowed-once" } else { "rejected" }, self.events.clone());
+            let decision = if allow { types::ApprovalOutcome::AllowedOnce } else { types::ApprovalOutcome::Rejected };
+            session.answer(approval.event_id, decision, self.events.clone());
         }
         cx.notify();
     }

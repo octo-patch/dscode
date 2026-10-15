@@ -26,7 +26,15 @@ fn main() {
 
     let mut out = String::from("/// Types of the DSCODE operations' arguments, results and stream items.\npub mod types {\n    #![allow(clippy::all, unused_imports, irrefutable_let_patterns)]\n");
     out.push_str(&prettyplease::unparse(&file));
-    out.push_str("}\n\n/// One marker per operation, binding its wire name to its types.\npub mod ops {\n    use super::{types, Method, Uplink, Watch};\n");
+    let version = &raw["x-protocol-version"];
+    writeln!(
+        out,
+        "}}\n\n/// The protocol version this client was generated for.\npub const PROTOCOL: Protocol = Protocol {{ major: {}, minor: {} }};\n",
+        version["major"].as_u64().expect("x-protocol-version.major"),
+        version["minor"].as_u64().expect("x-protocol-version.minor")
+    )
+    .unwrap();
+    out.push_str("/// One marker per operation, binding its wire name to its types.\npub mod ops {\n    use super::{types, Method, Uplink, Watch};\n");
     for (table, item, trait_name) in [("x-dscode-methods", "result", "Method"), ("x-dscode-streams", "item", "Watch")] {
         let operations = raw[table].as_object().unwrap_or_else(|| panic!("{table} missing"));
         for (name, operation) in operations {
@@ -49,6 +57,37 @@ fn main() {
             }
         }
     }
+    out.push_str("}\n\n/// One marker per upstream Typert call, stream and answered waterfall.\npub mod typert {\n    use super::{types, TypertMethod, TypertStream, Waterfall};\n");
+    for (table, item, trait_name, associated) in [
+        ("x-typert-methods", "result", "TypertMethod", "Result"),
+        ("x-typert-streams", "item", "TypertStream", "Item"),
+    ] {
+        for (name, operation) in raw[table].as_object().unwrap_or_else(|| panic!("{table} missing")) {
+            let marker = pascal(name);
+            if let Some(doc) = operation["description"].as_str() {
+                writeln!(out, "    #[doc = {doc:?}]").unwrap();
+            }
+            writeln!(out, "    pub struct {marker};").unwrap();
+            writeln!(
+                out,
+                "    impl {trait_name} for {marker} {{ const NAME: &'static str = {name:?}; type Args = types::{}; type {associated} = types::{}; }}",
+                operation["args"].as_str().unwrap(),
+                operation[item].as_str().unwrap()
+            )
+            .unwrap();
+        }
+    }
+    for (event, waterfall) in raw["x-typert-waterfalls"].as_object().expect("x-typert-waterfalls missing") {
+        let marker = pascal(event);
+        writeln!(out, "    pub struct {marker};").unwrap();
+        writeln!(
+            out,
+            "    impl Waterfall for {marker} {{ const EVENT: &'static str = {event:?}; type Payload = types::{}; type Answer = types::{}; }}",
+            waterfall["request"].as_str().unwrap(),
+            waterfall["value"].as_str().unwrap()
+        )
+        .unwrap();
+    }
     out.push_str("}\n");
     fs::write(Path::new(&env::var("OUT_DIR").unwrap()).join("protocol.rs"), out).unwrap();
 }
@@ -56,11 +95,19 @@ fn main() {
 /// typify keeps a `const` property as a plain string, so an untagged union of
 /// blocks would accept a reasoning block as a text block. A one-value `enum`
 /// becomes a checked unit enum instead.
+///
+/// The "other" member of an open union (`SessionEventOther`) allows any further
+/// fields; typify keeps them (as a flattened map) only when
+/// `additionalProperties` is a schema rather than `true`.
 fn const_to_enum(value: &mut Value) {
     match value {
         Value::Object(map) => {
             if let Some(constant) = map.remove("const") {
                 map.entry("enum").or_insert_with(|| Value::Array(vec![constant]));
+            }
+            let open_member = map.get("title").and_then(Value::as_str).is_some_and(|title| title.ends_with("Other"));
+            if open_member && map.get("additionalProperties") == Some(&Value::Bool(true)) {
+                map.insert("additionalProperties".into(), Value::Object(Default::default()));
             }
             map.values_mut().for_each(const_to_enum);
         }
@@ -70,5 +117,5 @@ fn const_to_enum(value: &mut Value) {
 }
 
 fn pascal(name: &str) -> String {
-    name.split(['/', '_', '-']).filter(|part| !part.is_empty()).map(|part| part[..1].to_uppercase() + &part[1..]).collect()
+    name.split(|c: char| !c.is_ascii_alphanumeric()).filter(|part| !part.is_empty()).map(|part| part[..1].to_uppercase() + &part[1..]).collect()
 }

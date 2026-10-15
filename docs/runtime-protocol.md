@@ -208,6 +208,16 @@ A stream that fails with a connection error, or ends without being aborted, is r
 
 Unary methods are `POST /dscode/<name>`; streams are endpoint `dscode/<name>`. Argument and result types live in the named source files under `packages/tui/src/host/`.
 
+**Machine-readable contract.** `packages/tui/src/host/protocol.ts` lists every DSCODE operation with its wire types: `DscodeMethods` gives arguments and result, and `DscodeStreams` gives arguments, item and, for `authorization/begin`, uplink. Both sides are checked against it by `npm run typecheck`. On the Host, every registration of a listed name must match its entry. In the terminal, `RuntimeClient.call` and `stream` take their argument and result types from the table, so a caller that reads a field the contract does not have fails to compile. A method with nothing to report answers `null`.
+
+`node scripts/protocol-schema.mjs` turns the table into JSON Schema at `protocol/dscode-runtime.schema.json`. `x-dscode-methods` and `x-dscode-streams` map each wire name to its definitions. Three things in it go beyond a plain export of the TypeScript:
+
+- **Upstream extensions.** Upstream packages add session event kinds and message sources to `SessionEventMap` and `MessageSourceMap` by declaration merging. The script loads every installed upstream declaration file that extends either map, so the schema lists the members those packages define (58 event kinds against DSH 0.2.0-rc.2).
+- **Open unions.** `SessionEvent` and `MessageSource` are open. `SessionEventKnown` and `MessageSourceKnown` are the members the contract describes; anything else arrives as an object with its `type` or `kind`, because plugins, some of them untyped JavaScript, add members at runtime. A client must accept members it does not know. Each event's `data` is a named definition (`permission/preset` → `PermissionPresetEventData`).
+- **Wire forms.** Upstream branded ids (`ReasoningEffortId`, `ToolCallId`, …) appear as their string or number. An `AbortSignal` inside an upstream type appears as the empty object it serializes to. A type name declared by two modules is qualified by its package (`DshAgentModelSelection`); other names stay bare. A result typed `unknown` comes from an untyped JavaScript module, such as `openrouter/account` and the `metrics` and `board` of `status/watch`.
+
+`tests/protocol-schema.test.mjs` checks the committed file, so a stale schema fails `npm run test:unit`. `scripts/verify-protocol.mjs` checks the schema against a real Host; see [Verification](#verification). A client in another language generates its types from the schema; the Rust client in `clients/desktop` does so in its build script.
+
 | Group | Methods | Streams | Source |
 |---|---|---|---|
 | Host | `host/status`, `host/shutdown` | | `plugins/local-carrier/index.mjs` |
@@ -302,6 +312,7 @@ The socket path of a running Host is the `socketPath` field of `dscode host stat
 - `scripts/verify-host.mjs` covers two clients on one session, a client killed mid-turn and reattached through paged history, concurrent Host starts, and idle exit.
 - `scripts/verify-tui-runner.mjs` runs the real terminal in single-process, same-process protocol and separate-Host modes.
 - `scripts/verify-remote.mjs` runs a real `dscode server` and a terminal with separate state directories: token refusal on every route, `dscode config`, the full terminal scenario over TCP, `/export` and the git branch in the server's folder, a server restart mid-session with the terminal reconnecting, content attachments, and refused launches.
+- `scripts/verify-protocol.mjs` checks `protocol/dscode-runtime.schema.json` against a Host running the fixture model. It drives a plain turn, a turn with a rejected approval and a `/btw` child. Every committed event, and every child event, must be a member of `SessionEventKnown`. The `sessions/children` items, the results of 28 methods, the first items of six watches, and the arguments the script sends must each match their definitions.
 - `tests/local-carrier.test.mjs` covers the envelopes, socket permissions, uplink, failure mapping, client abort, bearer-token checks on every TCP route and the version refusal. `tests/remote-runtime.test.mjs` covers the runtime configuration, the server token, content-attachment routing and limits, and stream reopening.
 
 Not covered by an automated case: two clients answering the same waterfall at once, a waterfall answered across a reconnect, a client and server on different machines (the verifier uses loopback), and a long idle stream crossing real NAT.

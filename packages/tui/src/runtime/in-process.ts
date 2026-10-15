@@ -133,11 +133,11 @@ export function createInProcessRuntime(services: InProcessServices): RuntimeClie
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       }) ?? next())
     },
-    call(name, args = {}, signal) {
-      return registry().invoke(name, args, signal) as Promise<never>
+    call(name, args, signal) {
+      return registry().invoke(name, args ?? {}, signal) as Promise<never>
     },
-    stream(name, args = {}, signal = new AbortController().signal, uplink) {
-      return registry().open(name, args, uplink ?? (async function* () {})(), signal) as AsyncIterable<never>
+    stream(name, args, signal = new AbortController().signal, uplink) {
+      return registry().open(name, args ?? {}, uplink ?? (async function* () {})(), signal) as AsyncIterable<never>
     },
     onQuestionRequest(answerer) {
       return ctx.on('user-questions/request', (request, next) => {

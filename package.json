@@ -105,22 +105,24 @@
     "cron-parser": "5.7.0",
     "dsh-code": "file:packages/tui",
     "imapflow": "2.0.5",
+    "jose": "6.2.12",
     "mailparser": "3.9.28",
     "nodemailer": "10.0.10",
     "react": "18.3.1",
-    "ws": "8.21.3",
-    "jose": "6.2.12"
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "@dsh-plugin-hub/cli": "0.5.0",
     "@dsh-plugin-hub/schemas": "0.5.0",
     "@eslint/js": "^10.0.1",
     "@types/react": "^18.3.31",
+    "ajv": "8.20.0",
     "dscode-desktop-computer-use": "npm:@anionex/dsh-computer-use@0.3.3",
     "eslint": "^10.11.0",
     "fflate": "0.8.3",
     "globals": "^17.12.0",
     "react-test-renderer": "18.3.1",
+    "ts-json-schema-generator": "2.9.0",
     "typescript": "^5.9.3",
     "yaml": "2.9.1"
   },

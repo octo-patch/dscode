@@ -66,16 +66,16 @@ export function registerProviders(ctx: Context, registry: DscodeRemoteRegistry):
   return [
     registry.method('providers/directory', () => loadProviderSettings(ctx)),
     registry.stream('providers/watch', (_args, { signal }) => revisions(push => subscribeProviderSettings(ctx, push), signal)),
-    registry.method('providers/saveCredential', ({ target, key }: { target: ProviderTargetView; key: string }) => saveProviderCredential(ctx, target, key)),
-    registry.method('providers/saveConfiguration', ({ target, configuration }: { target: ProviderTargetView; configuration: ProviderConfiguration }) => saveProviderConfiguration(ctx, target, configuration)),
+    registry.method('providers/saveCredential', ({ target, key }: { target: ProviderTargetView; key: string }) => saveProviderCredential(ctx, target, key).then(() => null)),
+    registry.method('providers/saveConfiguration', ({ target, configuration }: { target: ProviderTargetView; configuration: ProviderConfiguration }) => saveProviderConfiguration(ctx, target, configuration).then(() => null)),
     registry.method('providers/discover', ({ target, request }: { target: ProviderTargetView; request: Parameters<typeof discoverProviderModels>[2] }, { signal }) => discoverProviderModels(ctx, target, request, signal)),
-    registry.method('providers/unsetCredential', ({ target }: { target: ProviderTargetView }) => unsetProviderCredential(ctx, target)),
-    registry.method('providers/remove', ({ target }: { target: ProviderTargetView }) => removeProviderSettings(ctx, target)),
+    registry.method('providers/unsetCredential', ({ target }: { target: ProviderTargetView }) => unsetProviderCredential(ctx, target).then(() => null)),
+    registry.method('providers/remove', ({ target }: { target: ProviderTargetView }) => removeProviderSettings(ctx, target).then(() => null)),
 
     registry.method('authorization/directory', () => loadProviderAuthorizations(ctx)),
     registry.stream('authorization/watch', (_args, { signal }) => revisions(push => subscribeProviderAuthorizations(ctx, push), signal)),
     registry.method('authorization/cancel', ({ key }: { key: ProviderAuthorizationRow['key'] }) => { cancelProviderAuthorization(ctx, key); return null }),
-    registry.method('authorization/logout', ({ row }: { row: ProviderAuthorizationRow }) => logoutProviderAuthorization(ctx, row)),
+    registry.method('authorization/logout', ({ row }: { row: ProviderAuthorizationRow }) => logoutProviderAuthorization(ctx, row).then(() => null)),
     // One login attempt: notices and prompts flow down, answers flow up.
     registry.stream('authorization/begin', ({ key, method }: { key: ProviderAuthorizationRow['key']; method: string }, { signal, uplink }) => (async function* () {
       const out: AuthorizationStreamItem[] = []

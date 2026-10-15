@@ -6,6 +6,7 @@
  * @module dsh-code/runtime/watch
  */
 
+import type { WatchArgs, WatchItem } from '../host/protocol.ts'
 import type { RuntimeClient } from './types.ts'
 
 /** Reconnect delays; the last one repeats until the Host answers again. */
@@ -62,34 +63,37 @@ export async function resilient<T>(open: (signal: AbortSignal) => AsyncIterable<
   }
 }
 
-export interface RemoteWatch<T> {
+export interface RemoteWatch<T, A = Record<string, unknown>> {
   readonly value: T
   /** Settles with the first pushed value, or rejects when the stream fails before one. */
   readonly ready: Promise<void>
   subscribe(listener: () => void): () => void
   /** Reopen with new arguments (for example after a session switch). */
-  retarget(args: Record<string, unknown>): void
+  retarget(args: A): void
   dispose(): void
 }
 
-export function remoteWatch<T>(
+export function remoteWatch<N extends string>(runtime: RuntimeClient, name: N, initial: WatchItem<N>, args: WatchArgs<N>, onError?: (error: unknown) => void): RemoteWatch<WatchItem<N>, WatchArgs<N>>
+export function remoteWatch<N extends string>(runtime: RuntimeClient, name: N, initial: undefined, args: WatchArgs<N>, onError?: (error: unknown) => void): RemoteWatch<WatchItem<N> | undefined, WatchArgs<N>>
+export function remoteWatch<N extends string>(
   runtime: RuntimeClient,
-  name: string,
-  initial: T,
-  args: Record<string, unknown>,
+  name: N,
+  initial: WatchItem<N> | undefined,
+  args: WatchArgs<N>,
   onError: (error: unknown) => void = () => {},
-): RemoteWatch<T> {
+): RemoteWatch<WatchItem<N> | undefined, WatchArgs<N>> {
+  type T = WatchItem<N> | undefined
   let value = initial
   let controller: AbortController | undefined
   let settleReady: { resolve(): void; reject(error: unknown): void } | undefined
   const ready = new Promise<void>((resolve, reject) => { settleReady = { resolve, reject } })
   ready.catch(() => {})
   const listeners = new Set<() => void>()
-  const open = (next: Record<string, unknown>): void => {
+  const open = (next: WatchArgs<N>): void => {
     controller?.abort()
     const current = new AbortController()
     controller = current
-    void resilient(signal => runtime.stream<T>(name, next, signal), current.signal, item => {
+    void resilient(signal => runtime.stream(name, next, signal), current.signal, item => {
       if (current.signal.aborted) return
       value = item
       settleReady?.resolve()

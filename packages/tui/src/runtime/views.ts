@@ -16,6 +16,7 @@ import { setMetricSource } from '../../../../plugins/session-metrics/view.mjs'
 import { setSpeedSource } from '../../../../plugins/openai/speed.mjs'
 import { setBoardSource } from '../../../../plugins/dscode/board.mjs'
 import { readPathFacts, type FilePathInspection, type ImagePathInspection } from '../attachments.ts'
+import type { ProviderAuthorizationRow } from '../authorization.ts'
 import type { CustomClient } from '../custom-provider-panel.ts'
 import type { GitDiffView, ReviewBranch, ReviewCommit } from '../git-workflow.ts'
 import type { SkillsState } from '../host/catalog.ts'
@@ -64,14 +65,14 @@ function uplinkQueue<T>(): { push(item: T): void; close(): void; iterable: Async
 /** Run one provider login on the Host, answering its prompts through `interaction`. */
 export async function beginAuthorization(
   runtime: RuntimeClient,
-  key: unknown,
+  key: ProviderAuthorizationRow['key'],
   method: string,
   interaction: AuthorizationInteraction,
   signal?: AbortSignal,
 ): Promise<AuthorizationStatus> {
   const uplink = uplinkQueue<AuthorizationUplinkItem>()
   try {
-    for await (const item of runtime.stream<AuthorizationStreamItem>('authorization/begin', { key, method }, signal, uplink.iterable)) {
+    for await (const item of runtime.stream('authorization/begin', { key, method }, signal, uplink.iterable)) {
       if (item.type === 'notify') interaction.notify(item.notice)
       else if (item.type === 'prompt') {
         const id = item.id
@@ -101,9 +102,9 @@ export function customClient(runtime: RuntimeClient): CustomClient {
 export function remoteMentions(runtime: RuntimeClient, sessionId: string | undefined, cwd: string): MentionsApi {
   const scope = { ...(sessionId === undefined ? {} : { sessionId }), cwd }
   return {
-    candidates: (query, signal) => runtime.call<readonly MentionCandidate[]>('mentions/candidates', { ...scope, query }, signal),
+    candidates: (query, signal) => runtime.call('mentions/candidates', { ...scope, query }, signal),
     parse: text => parseSessionReferenceText(text),
-    prepare: (parsed, signal) => runtime.call<PreparedMention>('mentions/prepare', { ...scope, parsed }, signal),
+    prepare: (parsed, signal) => runtime.call('mentions/prepare', { ...scope, parsed }, signal),
     sessionMention: candidate => formatSessionReferenceMention({ sessionId: candidate.sessionId, label: candidate.label }),
   }
 }
@@ -118,7 +119,7 @@ export interface RemoteSkillsView {
 }
 
 export function watchRemoteSkills(runtime: RuntimeClient, cwd: string): RemoteSkillsView {
-  const state = remoteWatch<SkillsState>(runtime, 'skills/watch', { rows: [] }, { cwd })
+  const state = remoteWatch(runtime, 'skills/watch', { rows: [] }, { cwd })
   return {
     get rows() { return state.value.rows },
     get count() { return state.value.count },
@@ -142,10 +143,11 @@ export function mirrorStatusSources(runtime: RuntimeClient): { follow(sessionId:
   const open = (): void => {
     controller?.abort()
     state = undefined
-    if (sessionId === undefined) return
+    const followed = sessionId
+    if (followed === undefined) return
     const current = new AbortController()
     controller = current
-    void resilient(signal => runtime.stream<StatusState>('status/watch', { sessionId, modelLabel: label }, signal), current.signal, item => { state = item }).catch(() => {})
+    void resilient(signal => runtime.stream('status/watch', { sessionId: followed, modelLabel: label }, signal), current.signal, item => { state = item }).catch(() => {})
   }
   const disposers = [
     setMetricSource((id: string) => id === sessionId ? state?.metrics : undefined),
@@ -165,7 +167,7 @@ export function mirrorStatusSources(runtime: RuntimeClient): { follow(sessionId:
 /** Show Host-originated notices (for example capability-sync warnings) as terminal notices. */
 export function followNotices(runtime: RuntimeClient, notify: (text: string, tone?: 'info' | 'warning' | 'error') => void): () => void {
   const controller = new AbortController()
-  void resilient(signal => runtime.stream<{ text: string; tone?: 'info' | 'warning' | 'error' }>('notices/watch', {}, signal), controller.signal, notice => notify(notice.text, notice.tone)).catch(() => {})
+  void resilient(signal => runtime.stream('notices/watch', {}, signal), controller.signal, notice => notify(notice.text, notice.tone)).catch(() => {})
   return () => controller.abort()
 }
 
@@ -237,11 +239,11 @@ export function attachmentClient(runtime: RuntimeClient, cwdOf: () => string): A
 /** Git inspection and the status-line branch, run on the Host in the session's folder. */
 export function workspaceClient(runtime: RuntimeClient) {
   return {
-    gitDiff: (cwd: string, argument: string, signal?: AbortSignal) => runtime.call<GitDiffView>('workspace/gitDiff', { cwd, argument }, signal),
-    commitDiff: (cwd: string, sha: string, signal?: AbortSignal) => runtime.call<GitDiffView>('workspace/commitDiff', { cwd, sha }, signal),
-    mergeBase: async (cwd: string, branch: string, signal?: AbortSignal) => (await runtime.call<string | null>('workspace/mergeBase', { cwd, branch }, signal)) ?? undefined,
-    reviewBranches: (cwd: string, signal?: AbortSignal) => runtime.call<readonly ReviewBranch[]>('workspace/reviewBranches', { cwd }, signal),
-    reviewCommits: (cwd: string, signal?: AbortSignal) => runtime.call<readonly ReviewCommit[]>('workspace/reviewCommits', { cwd }, signal),
-    gitBranch: (cwd: string) => runtime.call<string>('workspace/gitBranch', { cwd }),
+    gitDiff: (cwd: string, argument: string, signal?: AbortSignal) => runtime.call('workspace/gitDiff', { cwd, argument }, signal),
+    commitDiff: (cwd: string, sha: string, signal?: AbortSignal) => runtime.call('workspace/commitDiff', { cwd, sha }, signal),
+    mergeBase: async (cwd: string, branch: string, signal?: AbortSignal) => (await runtime.call('workspace/mergeBase', { cwd, branch }, signal)) ?? undefined,
+    reviewBranches: (cwd: string, signal?: AbortSignal) => runtime.call('workspace/reviewBranches', { cwd }, signal),
+    reviewCommits: (cwd: string, signal?: AbortSignal) => runtime.call('workspace/reviewCommits', { cwd }, signal),
+    gitBranch: (cwd: string) => runtime.call('workspace/gitBranch', { cwd }),
   }
 }

@@ -16,6 +16,7 @@ import type { AgentStatus, AssistantStreamFrame, ModelSelection } from '@deepsee
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import type { AskUserQuestionAnswer, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
+import type { CallArgs, CallResult, WatchArgs, WatchItem } from '../host/protocol.ts'
 
 /** Route recorded on an assembled request header. */
 export interface RequestConfig {
@@ -150,9 +151,10 @@ export interface RuntimeClient {
   onQuestionRequest(answerer: QuestionAnswerer): () => void
   /**
    * Invoke one DSCODE Host operation (packages/tui/src/host). Arguments and the
-   * result are JSON; a failure throws an error carrying its `code`.
+   * result are JSON, typed by the wire contract (host/protocol.ts) for the
+   * names it lists; a failure throws an error carrying its `code`.
    */
-  call<T = unknown>(name: string, args?: Record<string, unknown>, signal?: AbortSignal): Promise<T>
+  call<N extends string>(name: N, args?: CallArgs<N>, signal?: AbortSignal): Promise<CallResult<N>>
   /** Open one DSCODE Host stream; `uplink` items reach the Host in order. */
-  stream<T = unknown>(name: string, args?: Record<string, unknown>, signal?: AbortSignal, uplink?: AsyncIterable<unknown>): AsyncIterable<T>
+  stream<N extends string>(name: N, args?: WatchArgs<N>, signal?: AbortSignal, uplink?: AsyncIterable<unknown>): AsyncIterable<WatchItem<N>>
 }

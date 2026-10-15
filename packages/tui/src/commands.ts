@@ -31,7 +31,7 @@ export interface CommandsView {
  * @returns the live view.
  */
 export function watchCommands(runtime: RuntimeClient): CommandsView {
-  const state = remoteWatch<CommandsState>(runtime, 'commands/watch', { descriptors: [] }, {})
+  const state = remoteWatch(runtime, 'commands/watch', { descriptors: [] }, {})
   return {
     get descriptors() { return state.value.descriptors },
     get error() { return state.value.error },

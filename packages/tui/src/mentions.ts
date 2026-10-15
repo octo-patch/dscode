@@ -40,8 +40,21 @@ import {
   type SessionReferenceInput,
 } from '@deepseek-ai/dsh-session-reference'
 
-/** Parsed submission text: readable text plus structured references. */
-export type ParsedSessionReferenceText = ReturnType<typeof parseSessionReferenceText>
+/**
+ * Parsed submission text: readable text plus structured references. Declared
+ * here because the upstream package exports `parseSessionReferenceText` but
+ * not its result type, and the protocol schema needs a named interface.
+ */
+export interface ParsedSessionReferenceText {
+  /** Text with opaque tokens replaced by readable `@label` spans. */
+  text: string
+  /** Structured references in first-appearance order. */
+  references: SessionReferenceInput[]
+}
+// Fails to compile if upstream's result type and this interface drift apart.
+type SameShape<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+const upstreamShape: SameShape<ReturnType<typeof parseSessionReferenceText>, ParsedSessionReferenceText> = true
+void upstreamShape
 
 /** One merged menu candidate (files and sessions, already ranked). */
 export interface MentionCandidate {

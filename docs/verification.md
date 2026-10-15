@@ -2,6 +2,20 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## Protocol schema — 2026-10-15
+
+Unreleased, on the desktop-client branch. Every DSCODE operation is now listed in the wire contract `packages/tui/src/host/protocol.ts`, and `protocol/dscode-runtime.schema.json` is generated from it (docs/runtime-protocol.md#dscode-operation-catalog). Typechecking now fails when either side drifts from the contract: the Host's registrations and the terminal's `call`/`stream` callers. Five Host methods that resolved with no value now answer `null`: `providers/saveCredential`, `providers/saveConfiguration`, `providers/unsetCredential`, `providers/remove` and `authorization/logout`.
+
+New verifier `verify-protocol.mjs` (part of the integration group) validates live Host output against the schema with Ajv. Writing it found three gaps, all fixed in the generator:
+
+- 44 event kinds that upstream packages merge into `SessionEventMap` were missing.
+- Plugin-defined message sources failed to decode.
+- typify merged all inline event `data` objects into one Rust type.
+
+On macOS arm64 the following passed: lint; both TypeScript configurations; `npm run test:unit` (1,272 tests); and `verify-protocol`, `verify-local-carrier`, `verify-host`, `verify-remote` and `verify-tui-runner` run directly. In the Rust client, `cargo test` passed and the `conformance` example decoded 37 committed events and 26 operation results from a fixture Host. The full `npm run check` was not run.
+
+Not covered: write operations on providers, custom providers and attachments content (`…Data`), `authorization/begin`, and event kinds the fixture session does not produce. Those are checked only by type.
+
 ## Remote runtime — 2026-10-15
 
 Version 0.7.48 adds `dscode server` (TCP with a bearer token, unencrypted), `dscode config --runtime` and `dscode runtime` (docs/remote-runtime.md). New verifier `verify-remote.mjs`: a real server and a terminal with separate state directories over loopback, covering token refusal on every route, config, the full terminal scenario through the default runtime, `/export` and git in the server folder, a server restart with the terminal reconnecting, content attachments, and refused launches. `/reload` adds a scenario to `verify-host.mjs`: an MCP server, an ancestor skill folder and an ancestor `AGENTS.md` created after a live session started become active, visible and part of the model request, and the server is removed again. `npm run check` passed on macOS arm64: 1,267 unit cases (80.27% first-party `.mjs` line coverage), every integration verifier, package checks and 63 evaluations. Its earlier runs failed and found three defects in the change itself: the optional `tcp` config with required fields broke every local Host, reconnect timers kept a quitting terminal alive, and `/reload` reconciled through a second copy of `dsh-app-boot` that did not know the root Include entry. Separate machines, real NAT, approvals across a reconnect, live models and Intel or Linux runs of the new verifier have no automated case; `npm run doctor`, `verify-standalone.mjs` and `test:e2e` were not rerun.

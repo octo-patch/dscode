@@ -361,13 +361,13 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
     isLive: sessionId => live.has(sessionId),
     onSessionEvent: listener => sessionEvents.add(listener),
     onAssistantStream: listener => assistantStream.add(listener),
-    call(name, args = {}, signal) {
-      return callDscode(target, name, args, signal)
+    call(name, args, signal) {
+      return callDscode(target, name, args ?? {}, signal) as Promise<never>
     },
-    stream(name, args = {}, signal, uplink) {
+    stream(name, args, signal, uplink) {
       return (async function* () {
         try {
-          yield* openDscodeStream(target, name, args, signal, uplink)
+          yield* openDscodeStream(target, name, args ?? {}, signal, uplink) as AsyncIterable<never>
         } catch (error) {
           const remote = (error as { remote?: { code?: string; message?: string } }).remote
           throw remote === undefined ? error : Object.assign(new Error(remote.message ?? String(error)), { code: remote.code })

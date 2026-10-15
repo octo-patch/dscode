@@ -8,6 +8,8 @@
  * @module dsh-code/host/registry
  */
 
+import type { MethodArgs, MethodName, MethodResult, StreamArgs, StreamItem, StreamName } from './protocol.ts'
+
 /** Per-invocation facts. */
 export interface RemoteCall {
   readonly signal: AbortSignal
@@ -20,6 +22,15 @@ export interface RemoteStreamCall extends RemoteCall {
 
 export type RemoteMethod = (args: any, call: RemoteCall) => unknown
 export type RemoteStream = (args: any, call: RemoteStreamCall) => AsyncIterable<unknown>
+
+/** A method listed in the wire contract ({@link DscodeMethods}) must match it; any other name is untyped. */
+export type MethodFor<N extends string> = N extends MethodName
+  ? (args: MethodArgs<N>, call: RemoteCall) => MethodResult<N> | Promise<MethodResult<N>>
+  : RemoteMethod
+/** A stream listed in the wire contract ({@link DscodeStreams}) must match it; any other name is untyped. */
+export type StreamFor<N extends string> = N extends StreamName
+  ? (args: StreamArgs<N>, call: RemoteStreamCall) => AsyncIterable<StreamItem<N>>
+  : RemoteStream
 
 /** A failure that crosses the carrier with a stable code. */
 export class RemoteFailure extends Error {
@@ -44,14 +55,16 @@ export class DscodeRemoteRegistry {
   private readonly methods = new Map<string, RemoteMethod>()
   private readonly streams = new Map<string, RemoteStream>()
 
-  method(name: string, fn: RemoteMethod): () => void {
-    this.methods.set(name, fn)
-    return () => { if (this.methods.get(name) === fn) this.methods.delete(name) }
+  method<N extends string>(name: N, fn: MethodFor<N>): () => void {
+    const method = fn as RemoteMethod
+    this.methods.set(name, method)
+    return () => { if (this.methods.get(name) === method) this.methods.delete(name) }
   }
 
-  stream(name: string, fn: RemoteStream): () => void {
-    this.streams.set(name, fn)
-    return () => { if (this.streams.get(name) === fn) this.streams.delete(name) }
+  stream<N extends string>(name: N, fn: StreamFor<N>): () => void {
+    const stream = fn as RemoteStream
+    this.streams.set(name, stream)
+    return () => { if (this.streams.get(name) === stream) this.streams.delete(name) }
   }
 
   has(name: string): boolean {

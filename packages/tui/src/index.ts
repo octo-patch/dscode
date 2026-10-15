@@ -126,6 +126,9 @@ interface TuiIo {
 }
 
 /** Report an unexpected direct-driver failure and request a failing exit. */
+/** A Host method that answers `null` (nothing to report), for props that expect `void`. */
+const done = (pending: Promise<unknown>): Promise<void> => pending.then(() => {})
+
 function fail(io: TuiIo, error: unknown): void {
   internals.stderr.write(`dsh: ${error instanceof Error ? error.message : String(error)}\n`)
   io.exit(1)
@@ -510,13 +513,13 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
   }
   // Live deployment default (web selectModel parity), pushed by the Host on
   // every change, so a /model pick saved anywhere applies to later sessions.
-  const defaultsWatch = remoteWatch<ModelSelection | undefined>(runtime, 'models/defaults', undefined, {})
+  const defaultsWatch = remoteWatch(runtime, 'models/defaults', undefined, {})
   await defaultsWatch.ready
   const currentDefaults = (): ModelSelection => defaultsWatch.value!
   // The preset table is static for the process; the effective preset of a live
   // session is its committed permission fold (the transcript view).
-  const permissionNames: readonly string[] = await runtime.call<string[]>('permissions/names')
-  const defaultPermission = permissionNames.length === 0 ? undefined : await runtime.call<string>('permissions/effective', {})
+  const permissionNames: readonly string[] = await runtime.call('permissions/names')
+  const defaultPermission = permissionNames.length === 0 ? undefined : await runtime.call('permissions/effective', {})
   const effectivePermissionNow = (): string | undefined => session === undefined
     ? pendingPermission ?? defaultPermission
     : store.getView().permission ?? sessionPermission ?? defaultPermission
@@ -717,7 +720,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
   let preSessionPlanKnown = false
   const refreshPreSessionPlan = (): void => {
     preSessionPlanKnown = false
-    void runtime.call<boolean>('presets/planAvailable').then(available => {
+    void runtime.call('presets/planAvailable').then(available => {
       preSessionPlanAvailable = available
       preSessionPlanKnown = true
     }, () => {
@@ -1017,7 +1020,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
   const updateQueued = (messageId: string, action: QueueMutation): void => {
     const current = session
     if (current === undefined) return
-    void runtime.call<QueueMutationOutcome>('session/updateQueued', { sessionId: current.id, messageId, action }).then(outcome => {
+    void runtime.call('session/updateQueued', { sessionId: current.id, messageId, action }).then(outcome => {
       switch (outcome) {
         case 'removed': bridge.notify(t('notice.queueCancelled')); return
         case 'edited': bridge.notify(t('notice.queueEdited')); return
@@ -1100,7 +1103,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
     }
     // The Host runs the line through the native registry; a line no command
     // owns comes back unhandled and falls through below.
-    void runtime.call<{ handled: boolean }>('commands/execute', { sessionId: currentSession.id, line }, controller.signal).then((execution) => {
+    void runtime.call('commands/execute', { sessionId: currentSession.id, line }, controller.signal).then((execution) => {
       finish()
       // A switch/quit landed while the command ran: its fall-through must not
       // reach an agent that is no longer on screen.
@@ -1360,7 +1363,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
    */
   const interrupt = (): boolean => {
     if (session === undefined || session.status !== 'running') return false
-    void runtime.call<{ cancelled: boolean; preserved: number }>('session/interrupt', { sessionId: session.id }).then(result => {
+    void runtime.call('session/interrupt', { sessionId: session.id }).then(result => {
       if (result.cancelled) bridge.notify(t(result.preserved > 0 ? 'notice.turnCancelledKeepQueue' : 'notice.turnCancelled'))
     }, (error: unknown) => {
       bridge.notify(`cancel failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
@@ -1482,7 +1485,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
     // Every pick is persisted as the deployment default (web selectModel
     // parity), and the Host runs the request pipeline's local resolution so a
     // withdrawn effort surfaces now. Neither rolls the in-session switch back.
-    void runtime.call<{ saveError?: string; rejected?: string }>('models/save', { selection }).then(result => {
+    void runtime.call('models/save', { selection }).then(result => {
       if (result.saveError !== undefined) bridge.notify(`model switch applies to this session but was not saved as the default: ${result.saveError}`, 'warning')
       if (result.rejected !== undefined) bridge.notify(`model selection rejected: ${result.rejected} — reopen /model to pick again`, 'error')
     }, (error: unknown) => {
@@ -1495,7 +1498,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
   // before a switch that would compact the conversation.
   const dscodeCompactionPreviewFor = async (row: ModelRow): Promise<DscodeCompactionPreview | undefined> => {
     if (active === undefined) return undefined
-    return (await runtime.call<DscodeCompactionPreview | null>('models/compactionPreview', { sessionId: active.runtime.id, row })) ?? undefined
+    return (await runtime.call('models/compactionPreview', { sessionId: active.runtime.id, row })) ?? undefined
   }
 
   /** The /subagent override label, '' when delegated agents follow the current model. */
@@ -1563,25 +1566,25 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
     const title = argument.trim()
     if (title === '') return 'usage: /title <text>'
     if (session === undefined) return 'no session yet — submit a message to start'
-    void runtime.call<string>('sessions/rename', { sessionId: session.id, title }).then(outcome => {
+    void runtime.call('sessions/rename', { sessionId: session.id, title }).then(outcome => {
       if (outcome !== `title → ${title}`) bridge.notify(outcome, 'warning')
     }, (error: unknown) => bridge.notify(`rename failed: ${error instanceof Error ? error.message : String(error)}`, 'error'))
     return `title → ${title}`
   }
 
   const loadSessions = (options: SessionDirectoryOptions, signal?: AbortSignal): Promise<readonly SessionRow[]> =>
-    runtime.call<readonly SessionRow[]>('sessions/list', { options }, signal)
+    runtime.call('sessions/list', { options }, signal)
 
   /** Delete one session subtree (/delete); the Host plans and refuses live members. */
   const deleteSession = (id: string): Promise<string> =>
-    runtime.call<string>('sessions/delete', { id, ...(session === undefined ? {} : { currentId: session.id }) })
+    runtime.call('sessions/delete', { id, ...(session === undefined ? {} : { currentId: session.id }) })
 
   const loadSessionTranscript = (id: string, signal?: AbortSignal): Promise<string> =>
-    runtime.call<string>('sessions/transcript', { id }, signal)
+    runtime.call('sessions/transcript', { id }, signal)
 
   /** The /usage panel: the Host's token projection plus per-turn costs. */
   const loadUsage = (current: RuntimeSession | undefined): Promise<UsageView> =>
-    runtime.call<UsageView>('sessions/usage', current === undefined ? {} : { sessionId: current.id })
+    runtime.call('sessions/usage', current === undefined ? {} : { sessionId: current.id })
 
   interface PendingSwitch { readonly target: Target; readonly label: string }
 
@@ -1714,7 +1717,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
     }
   }
 
-  const resolveResumeId = (wanted: string): Promise<string> => runtime.call<string>('sessions/resolveResume', {
+  const resolveResumeId = (wanted: string): Promise<string> => runtime.call('sessions/resolveResume', {
     wanted,
     ...(session === undefined ? {} : { currentId: session.id }),
     // A protocol client attaches to a live Host session instead of composing a second owner.
@@ -1848,14 +1851,14 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
   // tools use (the bundle's skip-tolerant subclass). The row may be disabled
   // by a deployment; /search then degrades to a notice instead of a panel.
   const searchSessions = (query: string, signal?: AbortSignal): Promise<readonly SearchRow[]> =>
-    runtime.call<readonly SearchRow[]>('sessions/search', { query }, signal)
+    runtime.call('sessions/search', { query }, signal)
 
   const cancelSessionSwitch = (): boolean => {
     return switchQueue.cancel()
   }
 
   // Custom providers are a Host plugin; the panel only appears when it is mounted.
-  const customAvailable = await runtime.call<boolean>('custom/available').catch(() => false)
+  const customAvailable = await runtime.call('custom/available').catch(() => false)
   const dscodeCustom = customClient(runtime)
 
   const appElement = (): ReturnType<typeof createElement> => {
@@ -1902,25 +1905,25 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
       steer,
       interrupt,
       quit,
-      loadModels: () => runtime.call<ModelDirectory>('models/directory'),
-      dscodeEnsureProviderRoute: (provider: string) => runtime.call<boolean>('models/ensureRoute', { provider }),
+      loadModels: () => runtime.call('models/directory'),
+      dscodeEnsureProviderRoute: (provider: string) => runtime.call('models/ensureRoute', { provider }),
       dscodeGrokStatus: () => grokStatusSnapshot(),
-      dscodeManagementKeyStatus: () => runtime.call<{ state: string }>('openrouter/managementKeyStatus'),
-      dscodeSaveManagementKey: (key: string) => runtime.call<void>('openrouter/saveManagementKey', { key }),
+      dscodeManagementKeyStatus: () => runtime.call('openrouter/managementKeyStatus'),
+      dscodeSaveManagementKey: (key: string) => done(runtime.call('openrouter/saveManagementKey', { key })),
       dscodeLoadOpenRouterAccount: () => runtime.call('openrouter/account'),
       ...(customAvailable ? { dscodeCustom } : {}),
-      loadModelProviders: () => runtime.call<ProviderSettingsDirectory>('providers/directory'),
+      loadModelProviders: () => runtime.call('providers/directory'),
       subscribeModelProviders: listener => subscribeRevisions(runtime, 'providers/watch', listener),
-      saveModelProviderCredential: (target, key) => runtime.call<void>('providers/saveCredential', { target, key }),
-      saveModelProviderConfiguration: (target, configuration) => runtime.call<void>('providers/saveConfiguration', { target, configuration }),
-      discoverModelProvider: (target, request, signal) => runtime.call<Awaited<ReturnType<typeof discoverProviderModels>>>('providers/discover', { target, request }, signal),
-      unsetModelProviderCredential: target => runtime.call<void>('providers/unsetCredential', { target }),
-      removeModelProvider: target => runtime.call<void>('providers/remove', { target }),
-      loadProviderAuthorizations: () => runtime.call<ProviderAuthorizationDirectory>('authorization/directory'),
+      saveModelProviderCredential: (target, key) => done(runtime.call('providers/saveCredential', { target, key })),
+      saveModelProviderConfiguration: (target, configuration) => done(runtime.call('providers/saveConfiguration', { target, configuration })),
+      discoverModelProvider: (target, request, signal) => runtime.call('providers/discover', { target, request }, signal),
+      unsetModelProviderCredential: target => done(runtime.call('providers/unsetCredential', { target })),
+      removeModelProvider: target => done(runtime.call('providers/remove', { target })),
+      loadProviderAuthorizations: () => runtime.call('authorization/directory'),
       subscribeProviderAuthorizations: listener => subscribeRevisions(runtime, 'authorization/watch', listener),
       beginProviderAuthorization: (row, method, interaction, signal) => beginAuthorization(runtime, row.key, method, interaction, signal),
       cancelProviderAuthorization: row => { void runtime.call('authorization/cancel', { key: row.key }).catch(() => {}) },
-      logoutProviderAuthorization: row => runtime.call<void>('authorization/logout', { row }),
+      logoutProviderAuthorization: row => done(runtime.call('authorization/logout', { row })),
       openAuthorizationUrl,
       copyTextValue: copyText,
       loadMentions: (query: string, signal?: AbortSignal) => mentions.candidates(query, signal),
@@ -1943,7 +1946,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
       listReviewBranches: (signal?: AbortSignal) => workspace.reviewBranches(session?.header.cwd ?? cwd, signal),
       listReviewCommits: (signal?: AbortSignal) => workspace.reviewCommits(session?.header.cwd ?? cwd, signal),
       reviewChanges,
-      loadPermissions: () => runtime.call<readonly PermissionRow[]>('permissions/rows'),
+      loadPermissions: () => runtime.call('permissions/rows'),
       createSession,
       forkSession,
       loadSessions,
@@ -1952,18 +1955,18 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
       loadSubagents: () => {
         const current = session
         if (current === undefined) return Promise.resolve([])
-        return runtime.call<readonly SessionRow[]>('sessions/subagents', { sessionId: current.id, cwd: current.header.cwd ?? cwd })
+        return runtime.call('sessions/subagents', { sessionId: current.id, cwd: current.header.cwd ?? cwd })
       },
       switchSession,
       searchSessions,
       cancelSessionSwitch,
-      loadPlugins: () => runtime.call<readonly PluginRow[]>('plugins/list'),
+      loadPlugins: () => runtime.call('plugins/list'),
       // The launcher owns every update decision; the TUI only drives its
       // read-only probe and streamed apply as child processes.
       probeUpdate: () => probeLauncherUpdate(),
       applyUpdate: (onLine, plan) => applyLauncherUpdate(onLine, undefined, plan),
-      loadJobs: () => runtime.call<readonly JobRow[]>('jobs/list', session === undefined ? {} : { sessionId: session.id }),
-      loadSchedules: async () => session === undefined ? [] : runtime.call<readonly ScheduleRow[]>('schedules/list', { sessionId: session.id }),
+      loadJobs: () => runtime.call('jobs/list', session === undefined ? {} : { sessionId: session.id }),
+      loadSchedules: async () => session === undefined ? [] : runtime.call('schedules/list', { sessionId: session.id }),
       statusline: statuslineItems,
       saveStatusline,
       applyEditorKeys,

@@ -111,10 +111,10 @@ export function registerCatalog(ctx: Context, registry: DscodeRemoteRegistry): (
     registry.method('mentions/prepare', ({ sessionId, cwd, parsed }: { sessionId?: string; cwd: string; parsed: ParsedSessionReferenceText }, { signal }) =>
       mentions(sessionId, cwd).prepare(parsed, signal)),
 
-    registry.method('attachments/inspectImages', ({ paths, cwd }: { paths: string[]; cwd: string }) => inspectImagePaths(paths, ctx.get('attachments'), cwd)),
-    registry.method('attachments/saveImages', ({ paths }: { paths: string[] }, { signal }) => saveImagePaths(paths, ctx.get('attachments'), signal)),
-    registry.method('attachments/inspectFiles', ({ paths, cwd }: { paths: string[]; cwd: string }) => inspectFilePaths(paths, ctx.get('attachments'), cwd)),
-    registry.method('attachments/saveFiles', ({ paths }: { paths: string[] }, { signal }) => saveFilePaths(paths, ctx.get('attachments'), signal)),
+    registry.method('attachments/inspectImages', ({ paths, cwd }: { paths: readonly string[]; cwd: string }) => inspectImagePaths(paths, ctx.get('attachments'), cwd)),
+    registry.method('attachments/saveImages', ({ paths }: { paths: readonly string[] }, { signal }) => saveImagePaths(paths, ctx.get('attachments'), signal)),
+    registry.method('attachments/inspectFiles', ({ paths, cwd }: { paths: readonly string[]; cwd: string }) => inspectFilePaths(paths, ctx.get('attachments'), cwd)),
+    registry.method('attachments/saveFiles', ({ paths }: { paths: readonly string[] }, { signal }) => saveFilePaths(paths, ctx.get('attachments'), signal)),
     // A remote terminal's local files: it sends what it read (bytes as base64),
     // the Host applies the same limits and stores them.
     registry.method('attachments/inspectImageData', ({ items }: { items: { path: string; name: string; bytes: number; signature: string }[] }) =>

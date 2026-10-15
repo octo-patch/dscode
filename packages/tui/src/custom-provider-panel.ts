@@ -12,15 +12,17 @@ export interface CustomProfile {
   id: string; name: string; baseURL: string; api: string; auth: string
   backend: string; timeoutMs: number; models: CustomModel[]; credentialStatus?: string
 }
-interface Snapshot { providers: CustomProfile[]; revision: string }
-interface ProbeStage { name: string; status: string; message?: string }
+/** The saved custom providers and the revision a save or removal must name. */
+export interface CustomSnapshot { providers: CustomProfile[]; revision: string }
+/** One stage of a connection test. */
+export interface CustomProbeStage { name: string; status: string; message?: string }
 export interface CustomClient {
-  list(): Promise<Snapshot>
+  list(): Promise<CustomSnapshot>
   newProfile(): CustomProfile
-  save(profile: CustomProfile, key: string, revision: string): Promise<Snapshot>
-  remove(id: string, revision: string): Promise<Snapshot>
+  save(profile: CustomProfile, key: string, revision: string): Promise<CustomSnapshot>
+  remove(id: string, revision: string): Promise<CustomSnapshot>
   discover(profile: CustomProfile, key: string, signal?: AbortSignal): Promise<{ backend: string; models: CustomModel[] }>
-  test(profile: CustomProfile, model: string, key: string, signal?: AbortSignal): Promise<ProbeStage[]>
+  test(profile: CustomProfile, model: string, key: string, signal?: AbortSignal): Promise<readonly CustomProbeStage[]>
 }
 interface Row { label: string; value?: string; edit?: (value: string) => void; choices?: string[]; action?: () => void; secret?: boolean }
 const protocols = ['chat-completions', 'responses', 'anthropic']
@@ -42,7 +44,7 @@ export function CustomProviderPanel({ client, initialId, select, back }: {
   client: CustomClient; initialId?: string
   select: (provider: string, model: string) => void; back: () => void
 }) {
-  const [snapshot, setSnapshot] = useState<Snapshot>({ providers: [], revision: '' })
+  const [snapshot, setSnapshot] = useState<CustomSnapshot>({ providers: [], revision: '' })
   const [page, setPage] = useState<'list' | 'provider' | 'model' | 'discover' | 'remove'>('list')
   const [profile, setProfile] = useState<CustomProfile>(() => client.newProfile())
   const [modelIndex, setModelIndex] = useState(0)
@@ -54,7 +56,7 @@ export function CustomProviderPanel({ client, initialId, select, back }: {
   const [adopted, setAdopted] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [report, setReport] = useState<{ model: string; stages: ProbeStage[] } | null>(null)
+  const [report, setReport] = useState<{ model: string; stages: readonly CustomProbeStage[] } | null>(null)
   const pending = useRef<AbortController | undefined>(undefined)
   const alive = useRef(true)
   const saving = useRef(false)

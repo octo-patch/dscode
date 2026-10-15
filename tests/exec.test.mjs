@@ -26,6 +26,7 @@ test('exec overlay disables the TUI rows and session cards, then inserts the exe
   const overlay = execOverlay('/x/plugins/exec/index.mjs');
   assert.match(overlay, /- id: tui-startup\n {2}disabled: true/);
   assert.match(overlay, /- id: tui-runner\n {2}disabled: true/);
+  assert.match(overlay, /- id: tui-host\n {2}disabled: true/);
   assert.match(overlay, /- id: dscode-session-cards\n {2}config:\n {4}enabled: false/);
   assert.match(overlay, /- insert:\n {4}- id: dscode-exec\n {6}name: "\/x\/plugins\/exec\/index.mjs"/);
 });

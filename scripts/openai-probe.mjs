@@ -13,7 +13,11 @@ import { selectedSpeed, speedLabel } from '../plugins/openai/speed.mjs';
 export async function probeOpenAI(ctx) {
   const service = ctx.get('dscodeOpenAI');
   assert(service, 'Packaged Host must load OpenAI');
-  const commands = watchCommands(ctx);
+  // The terminal watches commands through the Host registry's commands/watch stream.
+  const registry = ctx.get('dscodeRemote');
+  assert(registry, 'Packaged Host must load the terminal Host operations');
+  const commands = watchCommands({ stream: (name, args, signal = new AbortController().signal) => registry.open(name, args, (async function* () {})(), signal) });
+  for (let i = 0; i < 200 && commands.descriptors.length === 0; i++) await new Promise(resolve => setImmediate(resolve));
   assert(completionCandidates('/ope', commands.descriptors, []).some(row => row.label === '/openai' && row.description.includes('login')), 'OpenAI must complete before creating an Agent');
   assert(commands.descriptors.some(row => row.name === 'speed'));
   assert(commands.descriptors.some(row => row.name === 'antigravity'));

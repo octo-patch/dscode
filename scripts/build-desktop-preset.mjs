@@ -27,6 +27,16 @@ const modulesToStage = [
   ['dsh-command-goal', 'command-goal', patchGoalCommand],
 ];
 
+/** The preset rows a per-session workspace mount replaces; they carry one shared switch. */
+export const SESSION_WORKSPACE_SWITCH = `  disabled: !!js 'process.env.DSCODE_SESSION_WORKSPACES === "1"'`;
+
+/** Turn the per-session workspace switch on unconditionally (Desktop always mounts per session). */
+export function disableSessionWorkspaceRows(preset) {
+  const rows = preset.split(SESSION_WORKSPACE_SWITCH).length - 1;
+  if (rows !== 2) throw Error(`expected the agent-instructions and skill-filesystem rows to carry the session-workspace switch, found ${rows}`);
+  return preset.replaceAll(SESSION_WORKSPACE_SWITCH, '  disabled: true');
+}
+
 export function buildDesktopPreset(destination, runtimeDirectory, options = {}) {
   const modules = join(resolve(runtimeDirectory), 'node_modules');
   const runtime = JSON.parse(readFileSync(join(modules, '@deepseek-ai/dsh/package.json'), 'utf8')).version;
@@ -104,10 +114,9 @@ export function buildDesktopPreset(destination, runtimeDirectory, options = {}) 
   ]) preset = preset.replaceAll(from, to);
   preset = replaceOnce(preset, `      name: '${name}/policy'`, `      name: '${name}/policy'\n      config: { desktop: true }`);
   // Desktop can hold unrelated workspaces at once. Agent creation mounts these
-  // providers with session-owned paths instead of process-global launcher data.
-  for (const id of ['agent-instructions', 'skill-filesystem']) {
-    preset = replaceOnce(preset, `\n- id: ${id}\n`, `\n- id: ${id}\n  disabled: true\n`);
-  }
+  // providers with session-owned paths instead of process-global launcher data,
+  // the same switch the shared terminal Host turns on through its environment.
+  preset = disableSessionWorkspaceRows(preset);
   // Native tools, skills, commands and prompt sections inherit this preset's
   // scope. Standard sessions must not receive DSCODE browser entry points.
   preset += `\n- id: dscode-browser\n  name: '${name}/browser'\n`;

@@ -12,9 +12,8 @@
  * @module @deepseek-ai/dsh-code/approval
  */
 
-import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
+import type { ApprovalAnswerer, ApprovalAsk } from './runtime/types.ts'
 
 /** The answer values a client answerer may resolve with. */
 export type ApprovalAnswer = 'allowed-once' | 'rejected'
@@ -55,7 +54,7 @@ export interface ApprovalStore {
  * other request back into the waterfall (`next()`), so sibling answerers stay
  * usable. An aborted ask never reaches the human. Plugin teardown removes the
  * listener; the service then fails its own question closed.
- * @param ctx - plugin context whose event bus carries `approval/request`.
+ * @param listen - registers the answerer with the runtime's approval requests.
  * @param owns - agents this terminal answers for.
  * @param preview - resolves a tool-call preview for a pending request (the
  * request contract carries no arguments; the UI self-serves from the
@@ -63,9 +62,9 @@ export interface ApprovalStore {
  * @returns the store the renderer subscribes to.
  */
 export function mountApprovalAnswerer(
-  ctx: Context,
-  owns: (agent: Agent) => boolean,
-  preview: (request: ApprovalRequest) => string,
+  listen: (answerer: ApprovalAnswerer) => () => void,
+  owns: (agentId: string) => boolean,
+  preview: (request: ApprovalAsk) => string,
 ): ApprovalStore {
   /** One live ask: its pending view plus the one-shot settle plumbing. */
   interface Slot {
@@ -89,8 +88,8 @@ export function mountApprovalAnswerer(
     if (at !== -1) queue.splice(at, 1)
   }
 
-  ctx.on('approval/request', (request: ApprovalRequest, next: () => Promise<ApprovalOutcome>) => {
-    if (!owns(request.agent)) return next()
+  listen((request: ApprovalAsk): Promise<ApprovalOutcome> | undefined => {
+    if (!owns(request.agentId)) return undefined
     // An already-aborted ask never reaches the human (mirrors the host bridge).
     if (request.signal?.aborted === true) return Promise.resolve<ApprovalOutcome>('cancelled')
 

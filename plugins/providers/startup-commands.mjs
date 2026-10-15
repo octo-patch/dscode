@@ -1,6 +1,8 @@
 // Discovery for Host commands before the terminal has a receiving Agent.
 // Execution remains in the native registry; only immutable descriptors live here.
-const catalogs = new WeakMap();
+// Process-wide, so a second copy of this module (a bundle or a copied checkout)
+// still shares one catalog per Host root.
+const catalogs = globalThis[Symbol.for('dscode.startupCommandCatalogs')] ??= new WeakMap();
 function catalog(ctx) {
   let value = catalogs.get(ctx.root);
   if (!value) { value = { entries: new Set(), listeners: new Set() }; catalogs.set(ctx.root, value); }

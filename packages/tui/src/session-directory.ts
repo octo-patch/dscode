@@ -4,6 +4,7 @@ import { basename, dirname, resolve } from 'node:path'
 import { realpathSync } from 'node:fs'
 import { SESSION_FORMAT_VERSION, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import { t } from './i18n.ts'
+import type { SearchRow } from './kernel-panels.ts'
 
 export interface SessionRecord {
   readonly header: SessionHeader
@@ -423,3 +424,31 @@ export function formatRelativeTime(timestamp: number, now: number): string {
   const day = `${date.getDate()}`.padStart(2, '0')
   return `${date.getFullYear()}-${month}-${day}`
 }
+
+/**
+ * Map one cross-session full-text hit onto the /search panel's row (pure).
+ * Labels fall back to the short id form — the engine's hit carries the
+ * strongest matching event, not the title observation.
+ */
+export function searchHitToRow(hit: {
+  header: SessionHeader
+  bestMatch: { snippet: string; time: number }
+}): SearchRow {
+  const subagent = hit.header.origin === 'subagent'
+  const cwd = hit.header.cwd ?? ''
+  // Session cwds may arrive in either separator style regardless of the
+  // observing host (a workspace synced from Windows), so split on both.
+  const workspace = cwd.split(/[\\/]/u).filter(part => part !== '').at(-1) ?? ''
+  const preset = hit.header.agentPreset ?? ''
+  const flat = hit.bestMatch.snippet.replace(/\s+/gu, ' ').trim()
+  return {
+    id: hit.header.id,
+    label: hit.header.id.slice(-12),
+    detail: [workspace, preset].filter(part => part !== '').join(' · '),
+    snippet: flat.length > 158 ? `${flat.slice(0, 157)}…` : flat,
+    updatedAt: hit.bestMatch.time,
+    subagent,
+    resumable: !subagent,
+  }
+}
+

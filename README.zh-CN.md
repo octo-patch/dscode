@@ -42,6 +42,7 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | 能力 | 说明 |
 |---|---|
 | **[编码循环](docs/dscode-ultra.md)** | 带行号的文件读取、精确编辑与原子写入，提供旧版本保护和 diff 元数据；持久 Shell 负责搜索、补丁和测试。项目指令、skills、plan、goal 与 hooks 已接入。 |
+| **[后台 Host](docs/host.md)** | 终端与 agent 运行时分成两个进程：第一个 `dscode` 会启动本地后台 Host 来持有会话，每个终端作为客户端接入。关闭终端不会中断工作，多个终端可接入同一会话，崩溃的终端可以重新接入。用 `dscode host status/stop` 管理；`--in-process` 保留单进程模式。 |
 | **[会话接入](docs/session-bridge.md)** | 在 TUI 开始任务后，可从另一个终端补充要求、读取输出或订阅进展（`dscode sessions`、`send`、`read`、`watch`）。所有来源进入同一个运行时和上下文，读取和订阅不需要取得 session 写锁。 |
 | **[Agent 间任务](docs/session-communication.md)** | Agent 通过 `list_sessions`、`read_session`、`send_session` 与 `reply_session` 查找、读取并联系其他会话，投递方式可选 `queue`、`steer` 或 `defer`。持久化邮箱、重试去重和有限预算约束消息丢失、重复处理和互相唤醒。 |
 | **[会话名片](docs/session-cards.md)** | 每个 session 展示项目、工作区与最近 5 条用户请求 topic，选协作对象时不必先读它的记录。名片描述用户让它做过什么，不放任务结论。 |
@@ -54,6 +55,8 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | **[Agent 邮件](docs/email.md)** | 所有 session 共用的本地 `[ToAgent]` 收件箱：Enter 把邮件作为用户选择的上下文 steer 进当前会话；配置 Gmail 后 agent 可走同一审批流程发信。 |
 
 ## 🆕 最新变化
+
+**0.7.47** — 终端与 agent 运行时现在分为两个进程：`dscode` 会启动本地[后台 Host](docs/host.md) 来持有会话，终端通过仅限本人访问的 socket 接入。关闭或崩溃的终端不会中断 Host 上正在运行的工作，多个终端可以接入同一会话，每个会话沿用自己目录的指令。`--in-process` 可恢复单进程模式。详见[发布说明](docs/releases/0.7.47.md)。
 
 **0.7.46** — 新增 64 位 glibc Linux（x64 与 arm64）自包含安装包。同一条 `curl` 安装命令、`dscode update` 和直接下载现已支持 Linux；请安装 bubblewrap 以启用命令沙箱。详见[发布说明](docs/releases/0.7.46.md)。
 
@@ -115,7 +118,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```sh
 dscode update             # 升级到最新的自包含发布版
-dscode update 0.7.46      # 安装指定的自包含发布版
+dscode update 0.7.47      # 安装指定的自包含发布版
 ```
 
 先退出正在运行的 DSCODE 会话和调度器。升级器校验后整体替换程序，保留设置、凭据和会话；替换失败会恢复旧程序。在 TUI 中输入 `/update`，会安排在退出后执行同一个升级器。再次运行安装命令，也会升级由该安装器管理的安装。
@@ -126,7 +129,7 @@ dscode update 0.7.46      # 安装指定的自包含发布版
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.46-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.47-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -155,7 +158,7 @@ dscode --version                  # 输出 DSCODE 版本
 
 实验性 Desktop 组合包可向官方应用添加 DSCODE 预设、自定义模型与账户设置、浏览器预览、持久化会话通信、跨会话记忆及按需启用的任务调度。**Settings → DSCODE → Schedules** 可管理任务，并在 Desktop 保持运行时投递。构建及本地安装步骤见[浏览器操作](docs/browser-use.md#install-the-experimental-combined-desktop-package)。启用调度后的原生安装、升级、移除和重新安装，以及账户和调度界面的实际交互，已在 macOS Desktop 0.2.0-rc.2 上验证；验证边界见[触发器](docs/triggers.md#experimental-desktop-scheduling)。该包还包含实验性的[原生 Computer Use 接入](docs/computer-use.md)；窗口观察和输入操作仍待获得 macOS 辅助功能权限后验证。持久化的[时间上下文](docs/session-communication.md#time-context-for-delayed-work)会向 DSCODE agent 提供消息到达时间、转发等待时长和上一轮结束时间，普通聊天正文保持简洁。带独立命令前缀的 [Desktop 诊断](docs/tui-commands.md#experimental-desktop-diagnostics)可检查所选会话、技能与 Host MCP 条目，匹配版本的使用指南随包提供。[Desktop 邮件收件箱](docs/email.md#experimental-desktop-inbox)可预览共享本地邮件、连接 IMAP 或 Gmail OAuth，并将所选邮件加入 DSCODE 会话。背景同步需手动启用；发信沿用现有审批与回执规则。[Session usage 侧栏](docs/session-metrics.md#experimental-desktop-usage)展示 DSCODE 的费用、上下文、缓存、请求速度及逐回合估算。[Delegation board 侧栏](docs/tui-commands.md#experimental-desktop-delegation-board)展示所选主会话的任务、依赖、worktree 和验证依据。Desktop 插件与终端包分别分发；终端弹窗及终端专属命令继续使用现有界面。
 
-Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑的 [Plugin Hub](docs/plugin-hub.md) 界面、发现工具和运行依赖，DSCODE 仍在 Hub 目录中展示。适用于 Harness runtime 0.2.0-rc.2。在官方 **Plugins → Add plugin** 中输入 `@toddzheng024/dscode-desktop@0.7.46`，安装后选择 **Enable now**。更新后需完全退出并重新打开 Desktop。`preview` 和默认 `latest` 分发入口均更新到这个经过验证的预览版。
+Desktop 插件使用 `@toddzheng024/dscode-desktop` 包名。0.7.35 移除捆绑的 [Plugin Hub](docs/plugin-hub.md) 界面、发现工具和运行依赖，DSCODE 仍在 Hub 目录中展示。适用于 Harness runtime 0.2.0-rc.2。在官方 **Plugins → Add plugin** 中输入 `@toddzheng024/dscode-desktop@0.7.47`，安装后选择 **Enable now**。更新后需完全退出并重新打开 Desktop。`preview` 和默认 `latest` 分发入口均更新到这个经过验证的预览版。
 
 **Settings → DSCODE** 中的使用说明、Models、Accounts、Schedules 保持同级；**Plugins → DSCODE · Community** 打开相同页面。DSCODE 浏览器工具仅用于 DSCODE 会话。已有桌面模型和账户可直接在正常模型选择器中使用，额外提供方配置使用原生凭据存储。启用 **Show coding view** 和 **Agent presets**，完全重启后在新会话选择 DSCODE。
 
@@ -243,6 +246,7 @@ DSH 固定为 `0.2.0-rc.2`，内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-c
 | [非交互执行](docs/exec.md) | `dscode exec`、JSON 输出、resume 与 effort/model/permission 参数 |
 | [ACP 客户端](docs/acp.md) | `dscode acp`、按服务配置过滤模型、自定义模型服务、客户端审批和协议限制 |
 | [触发器](docs/triggers.md) | 由事件触发运行，可新建或复用会话：cron、延迟任务、托管脚本循环、`/trigger` TUI 管理、agent 工具、运行日志 |
+| [后台 Host](docs/host.md) | 独立的运行时进程、`dscode host` 命令、空闲退出、单进程模式与升级 |
 | [会话接入](docs/session-bridge.md) | 用 `dscode sessions`、`send`、`read`、`watch` 接入运行中的会话 |
 | [Session 通信](docs/session-communication.md) | Agent 侧消息、投递方式、预算与去重 |
 | [会话名片](docs/session-cards.md) | 项目、工作区与 topic 字段及其来源 |
@@ -272,6 +276,8 @@ DSH 固定为 `0.2.0-rc.2`，内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-c
 |---|---|
 | [Session 通信设计](docs/session-messaging-design.md) | Agent 间任务的取舍、边界与固定限制的依据 |
 | [云端 Web App Host](docs/cloud-webapp-host.md) | 浏览器接入的架构基线与信任模型；尚未实现 |
+| [Runtime 与客户端分离](docs/runtime-client-design.md) | 通过上游协议让独立客户端驱动 runtime 的决策、P0 验证结果与计划 |
+| [客户端与 Runtime 协议](docs/runtime-protocol.md) | 客户端如何与 Host 交互：socket、消息封装、流、会话生命周期、审批与 DSCODE 操作目录 |
 | [触发器](docs/triggers-design.md) | 触发器机制为何如此设计：投递入口、持久化任务与调度器、运行日志作为契约 |
 | [验证说明](docs/verification.md) | 维护中的检查覆盖范围，以及哪些检查不能在 session 内运行 |
 | [可维护性](docs/maintainability.md) | 对 vendored 终端的检查范围，以及仍未验证的部分 |

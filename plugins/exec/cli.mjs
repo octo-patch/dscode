@@ -53,7 +53,7 @@ export function parseExecArgs(argv) {
 
 /** The overlay that turns the TUI profile into a headless one-shot Host. */
 export function execOverlay(pluginPath) {
-  return `- id: tui-startup\n  disabled: true\n- id: tui-runner\n  disabled: true\n- id: dscode-session-cards\n  config:\n    enabled: false\n- insert:\n    - id: dscode-exec\n      name: ${JSON.stringify(pluginPath)}\n`;
+  return `- id: tui-startup\n  disabled: true\n- id: tui-runner\n  disabled: true\n- id: tui-host\n  disabled: true\n- id: dscode-session-cards\n  config:\n    enabled: false\n- insert:\n    - id: dscode-exec\n      name: ${JSON.stringify(pluginPath)}\n`;
 }
 
 export async function readStream(stream) {

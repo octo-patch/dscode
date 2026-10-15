@@ -21,7 +21,7 @@ test('ACP accepts transport options, rejects prompts and malformed model routes'
 
 test('ACP composition removes terminal owners and auxiliary generation before mounting the bridge', () => {
   const overlay = acpOverlay('/tmp/a b/index.mjs', { model: 'custom-local/llama' });
-  for (const id of ['tui-startup', 'tui-runner', 'session-title-llm']) assert(overlay.includes(`- id: ${id}\n  disabled: true`));
+  for (const id of ['tui-startup', 'tui-runner', 'tui-host', 'session-title-llm']) assert(overlay.includes(`- id: ${id}\n  disabled: true`));
   assert.match(overlay, /dscode-session-cards\n {2}config:\n {4}enabled: false/);
   assert.match(overlay, /dsh-acp-app/);
   assert.match(overlay, /"custom-local\/llama"/);

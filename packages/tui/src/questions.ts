@@ -13,18 +13,13 @@
  * @module @deepseek-ai/dsh-code/questions
  */
 
-import type { Context } from '@deepseek-ai/cordis'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import {
-  UserQuestionError,
-  type AskUserQuestionAnswer,
-  type AskUserQuestionRequest,
-} from '@deepseek-ai/dsh-user-questions'
+import { UserQuestionError, type AskUserQuestionAnswer } from '@deepseek-ai/dsh-user-questions'
+import type { QuestionAnswerer, QuestionAsk } from './runtime/types.ts'
 
 /** One question request waiting on the human, with its settle channels. */
 export interface PendingQuestion {
   /** The request the renderer walks through question by question. */
-  request: AskUserQuestionRequest
+  request: QuestionAsk
   /** Resolve the provider promise with the collected answers. */
   resolve(answers: AskUserQuestionAnswer): void
   /** Reject the provider promise as aborted (also used for Esc cancel). */
@@ -58,14 +53,14 @@ const ABORT_ERROR = new UserQuestionError(
 
 /**
  * Mount the `user-questions/request` answerer over a FIFO queue.
- * @param ctx - plugin context whose event bus carries the waterfall.
+ * @param listen - registers the answerer with the runtime's question requests.
  * @param owns - agents this terminal answers for; every other request is
  * deferred back into the waterfall (`next()`), so sibling answerers stay
  * usable. Agent-less asks are claimed: this TUI is the only human surface
  * in the process.
  * @returns the store the renderer subscribes to.
  */
-export function mountQuestionProvider(ctx: Context, owns: (agent: Agent) => boolean): QuestionStore {
+export function mountQuestionProvider(listen: (answerer: QuestionAnswerer) => () => void, owns: (agentId: string) => boolean): QuestionStore {
   let snapshot: QuestionSnapshot = { pending: undefined }
   let active: PendingQuestion | undefined
   const queue: PendingQuestion[] = []
@@ -82,11 +77,8 @@ export function mountQuestionProvider(ctx: Context, owns: (agent: Agent) => bool
     set({ pending: next })
   }
 
-  ctx.on('user-questions/request', (
-    request: AskUserQuestionRequest,
-    next: () => Promise<AskUserQuestionAnswer>,
-  ): Promise<AskUserQuestionAnswer> => {
-    if (request.agent !== undefined && !owns(request.agent)) return next()
+  listen((request: QuestionAsk): Promise<AskUserQuestionAnswer> | undefined => {
+    if (request.agentId !== undefined && !owns(request.agentId)) return undefined
     return new Promise((resolve, reject) => {
       // Abort settles through the same channel as an Esc cancel: the
       // owning tool/step died, so the answer must not linger.

@@ -45,6 +45,12 @@ try {
   const saved = '# retained user settings\n- id: session-title-llm\n  config:\n    targetWords: 17\n';
   writeFileSync(settings, saved);
   assert.match(run(cli, ['--dump-config']), /targetWords: 17/);
+  // The shared Host through the packaged launcher: compiled host modules, the
+  // Host lock and the run lease the launcher holds for it.
+  assert.match(run(cli, ['host', 'start'], { timeout: 120000 }), /DSCODE Host ready/);
+  const host = JSON.parse(run(cli, ['host', 'status']));
+  assert(host.pid > 0 && host.clients === 0, JSON.stringify(host));
+  assert.match(run(cli, ['host', 'stop'], { timeout: 60000 }), /DSCODE Host stopped/);
   const doctor = run(cli, ['doctor', '--local']);
   assert(!/failed to activate|row\(s\) did not activate/i.test(doctor), doctor);
   // Instantiate a real native PTY using the private Node, even with no usable system Node.
@@ -101,9 +107,12 @@ try {
   assert.equal(readFileSync(join(user, '.dscode/credentials.yaml'), 'utf8'), 'DO_NOT_IMPORT: sentinel\n');
   assert(!readdirSync(app).includes('.runtime'));
   const report = { version, platform: `${process.platform}-${process.arch}`, archive, sha256: digest,
-    checks: ['private runtime', 'native imports', 'native PTY', 'cold profile composition', 'native Host diagnostics', 'foreign DSH and Node isolation', 'home-directory skill isolation', 'external provider and email state', 'local shell installer', 'full candidate archive replacement from synthetic 0.0.0', 'native settings effective after restart, relocation and upgrade'],
+    checks: ['private runtime', 'native imports', 'shared Host start/status/stop', 'native PTY', 'cold profile composition', 'native Host diagnostics', 'foreign DSH and Node isolation', 'home-directory skill isolation', 'external provider and email state', 'local shell installer', 'full candidate archive replacement from synthetic 0.0.0', 'native settings effective after restart, relocation and upgrade'],
     limits: ['No remote model calls', 'No macOS Computer Use permission interaction', 'No public publication performed'] };
   mkdirSync(join(root, 'artifacts/local'), { recursive: true });
   writeFileSync(join(root, 'artifacts/local', `standalone-${process.platform}-${process.arch}.json`), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
-} finally { rmSync(work, { recursive: true, force: true }); }
+} finally {
+  // Report a late writer instead of letting a cleanup error hide the body's failure.
+  try { rmSync(work, { recursive: true, force: true }); } catch (error) { console.error(`cleanup of ${work} failed: ${error.message}`); process.exitCode = 1; }
+}

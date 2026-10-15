@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -14,7 +14,8 @@ try {
   provision(home);
   // The OpenRouter listing, cached as the adapter keeps it, so the fixture needs no network.
   writeFileSync(join(home, 'openrouter-models.json'), JSON.stringify({ version: 2, fetchedAt: Date.now(), models: parseOpenRouterModels(LISTING) }));
-  writeFileSync(uiEntry, readFileSync(join(root, 'node_modules/dsh-code/lib/index.mjs'), 'utf8') + '\nexport { loadProviderSettings, saveProviderCredential, loadModelDirectory };\n');
+  // The terminal's provider panels and model directory, from their compiled modules.
+  writeFileSync(uiEntry, "export { loadProviderSettings, saveProviderCredential } from './provider-settings.mjs';\nexport { loadModelDirectory } from './models.mjs';\n");
   const probe = join(home, 'probe.mjs');
   writeFileSync(probe, `
 import assert from 'node:assert/strict';

@@ -10,6 +10,8 @@ import { sessionAverageTps } from './rate.mjs';
 import { attributeCostByTurn, evaluateBudget, parseBudget } from './turns.mjs';
 let source;
 export function setMetricSource(next) { source = next; return () => { if (source === next) source = undefined; }; }
+/** The mounted source's raw metrics for one session (what a separate terminal mirrors). */
+export function metricData(id) { return id ? source?.(id) : undefined; }
 export function summarize(rows, events = [], corrupt = false) {
   const requests = new Map();
   let first = Infinity;

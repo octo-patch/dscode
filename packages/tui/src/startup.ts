@@ -119,6 +119,27 @@ Examples:
  * usage errors rejected from the action before anything is provided.
  * @param ctx - plugin context carrying the command line and exit request.
  */
+/**
+ * Parse terminal arguments without a Harness (the separate terminal client).
+ * Help and usage errors print and exit exactly as under the Harness launcher.
+ * @param argv - the arguments after the command name.
+ * @returns the resolved startup.
+ */
+export function startupFromArgv(argv: readonly string[]): TuiStartup {
+  const program = tuiCommand().name('dscode')
+  let startup: TuiStartup | undefined
+  program.action((prompt: string[]) => {
+    try {
+      startup = resolveTuiStartup({ ...program.opts<TuiStartupOptions>(), prompt: prompt.join(' ') })
+    } catch (error: unknown) {
+      program.error(`error: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  })
+  program.parse([...argv], { from: 'user' })
+  if (startup === undefined) throw new Error('no terminal startup was resolved')
+  return startup
+}
+
 export function apply(ctx: Context): void {
   const program = tuiCommand()
   program.action((prompt: string[]) => {

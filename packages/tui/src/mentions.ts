@@ -41,7 +41,7 @@ import {
 } from '@deepseek-ai/dsh-session-reference'
 
 /** Parsed submission text: readable text plus structured references. */
-type ParsedSessionReferenceText = ReturnType<typeof parseSessionReferenceText>
+export type ParsedSessionReferenceText = ReturnType<typeof parseSessionReferenceText>
 
 /** One merged menu candidate (files and sessions, already ranked). */
 export interface MentionCandidate {

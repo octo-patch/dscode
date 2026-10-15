@@ -66,7 +66,7 @@ test('the run spec and the run result survive the process boundary', () => {
 
 test('the trigger overlay replaces the terminal with the host', () => {
   const overlay = triggerOverlay('/plugins/triggers/host.mjs');
-  for (const id of ['tui-startup', 'tui-runner']) assert.match(overlay, new RegExp(`- id: ${id}\\n  disabled: true`));
+  for (const id of ['tui-startup', 'tui-runner', 'tui-host']) assert.match(overlay, new RegExp(`- id: ${id}\\n  disabled: true`));
   assert.match(overlay, /id: dscode-session-cards\n {2}config:\n {4}enabled: false/);
   assert.match(overlay, /- id: dscode-trigger-host\n {6}name: "\/plugins\/triggers\/host\.mjs"/);
 });

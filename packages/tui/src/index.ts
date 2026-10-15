@@ -1,5 +1,3 @@
-import { getCustomProviders } from '../../../plugins/custom/index.mjs'
-import { registerStatusSelection } from '../../../plugins/status/selection.mjs'
 /**
  * @deepseek-ai/dsh-code — the interactive terminal driver. The bundle patch
  * rides over dsh-base without Host, HTTP, or browser plugins; this runner
@@ -15,21 +13,17 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { terminalStateDirectory } from '../../../plugins/i18n/messages.mjs'
-import { appendFile as appendFileAsync, mkdir, readdir, rm, stat, writeFile as writeFileAsync } from 'node:fs/promises'
+import { appendFile as appendFileAsync, mkdir, writeFile as writeFileAsync } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { createElement } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { installModelSelection } from '@deepseek-ai/dsh-agent'
-import type { Agent, AgentHandle, AgentStatus, Inbox, ModelSelection, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
+import type { ModelSelection } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import type {} from '@deepseek-ai/dsh-schedule'
-import { scheduleRows } from './schedules.ts'
 import type {} from '@deepseek-ai/dsh-attachment'
-import { createUserMessage, MessageId, type ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { JobView } from '@deepseek-ai/dsh-jobs'
-import { SessionId, SessionLogOffset, type Session, type SessionEvent, type SessionHeader, type UserMessage } from '@deepseek-ai/dsh-session'
-import { deriveTurnTokenUsage } from '@deepseek-ai/dsh-token-meter/client'
+import type { ContentBlock, FileBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
+import { SessionId, type SessionEvent, type SessionHeader, type UserMessage } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 // Type-only: carries the ctx.sessionTitle service merge for /title.
 import type {} from '@deepseek-ai/dsh-session-title'
@@ -39,27 +33,15 @@ import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import { App, type BudgetDecision, type NoticeTone, type QueueMutation } from './app.ts'
 import { evaluateBudget, parseBudget } from '../../../plugins/session-metrics/turns.mjs'
-import { sessionSpend, turnCostsFor } from '../../../plugins/session-metrics/view.mjs'
+import { sessionSpend } from '../../../plugins/session-metrics/view.mjs'
 import { mountApprovalAnswerer, type ApprovalStore } from './approval.ts'
 import { isSlashLine, submissionPayload, watchCommands, type CommandsView } from './commands.ts'
 import { internals, type TuiMount } from './internals.ts'
-import { syncModelCapabilities } from './model-capabilities.ts'
-import { ensureProviderRoute as dscodeEnsureProviderRoute, migrateOpenRouterProfile as dscodeMigrateOpenRouter } from '../../../plugins/providers/catalog.mjs'
 import { grokStatusSnapshot } from '../../../plugins/grok/status.mjs'
-import { compactionPreview as dscodeCompactionPreview, effectiveContextWindow as dscodeEffectiveContextWindow, pricedThresholdRatio as dscodePricedThresholdRatio } from '../../../plugins/compaction/threshold.mjs'
-import { dscodeLoadOpenRouterAccountFor, dscodeManagementKeyStatus, dscodeSaveManagementKey, type DscodeCompactionPreview } from './app.ts'
-import { buildModelSelection, applyModelSelectionToConfig, loadModelDirectory, modelSelectionLabel, pendingModelSelection, resolveEffectiveSelection, type ModelRow } from './models.ts'
-import { effortFor as dscodeEffortFor } from '../../../plugins/providers/effort.mjs'
-import {
-  discoverProviderModels,
-  loadProviderSettings,
-  removeProviderSettings,
-  saveProviderCredential,
-  saveProviderConfiguration,
-  subscribeProviderSettings,
-  unsetProviderCredential,
-} from './provider-settings.ts'
-import { createMentions, type MentionsApi } from './mentions.ts'
+import type { DscodeCompactionPreview } from './app.ts'
+import { buildModelSelection, modelSelectionLabel, pendingModelSelection, resolveEffectiveSelection, type ModelDirectory, type ModelRow } from './models.ts'
+import type { discoverProviderModels, ProviderSettingsDirectory } from './provider-settings.ts'
+import type { MentionsApi } from './mentions.ts'
 import { mountQuestionProvider, type QuestionStore } from './questions.ts'
 // Type-only import merges the settings Events declarations ('settings/updated',
 // 'settings/document-updated') into this program's Cordis bus typing.
@@ -67,23 +49,15 @@ import type {} from '@deepseek-ai/dsh-settings'
 import { createTranscriptStore, type TranscriptStore } from './store.ts'
 import { createSubagentFeed, type SubagentFeedView } from './subagents.ts'
 import { createCommunicationFeed, foldCommunication, type CommunicationView } from './communication.ts'
-import { btwBrief, btwSeed, createBtwFeed, type BtwFeed } from './btw.ts'
+import { createBtwFeed, type BtwFeed } from './btw.ts'
 import { parseStatuslineItems } from './render/status.ts'
 import { historyLine, HISTORY_MAX_ENTRIES, needsCompaction, parseHistoryFile, serializeHistoryList } from './history.ts'
-import { watchSkills, type SkillsView } from './skills.ts'
 import { toolArgumentsPreview } from './render/tool-preview.ts'
 import { buildExportMarkdown } from './render/export.ts'
-import { inspectFilePaths, inspectImagePaths, saveFilePaths, saveImagePaths } from './attachments.ts'
+import type { FilePathInspection, ImagePathInspection } from './attachments.ts'
 import { copyText, latestAssistantText } from './editor.ts'
 import { applyCtrlRPassthrough, resolveEditorKeysStartupHint, type EditorKeysEnv } from './editor-keys.ts'
-import {
-  beginProviderAuthorization,
-  cancelProviderAuthorization,
-  loadProviderAuthorizations,
-  logoutProviderAuthorization,
-  openAuthorizationUrl,
-  subscribeProviderAuthorizations,
-} from './authorization.ts'
+import { openAuthorizationUrl, type ProviderAuthorizationDirectory } from './authorization.ts'
 import { selectForkSeed } from './fork.ts'
 import {
   buildReviewPrompt,
@@ -97,15 +71,16 @@ import {
 import type { TuiStartup } from './startup.ts'
 import { SessionSwitchQueue } from './session-switch.ts'
 import { agentPresetsFrom } from './presets.ts'
-import { DSCODE_PRESET, requireDscodePreset, mountDscodePreset } from './dscode/preset.ts'
+import { DSCODE_PRESET, requireDscodePreset } from './dscode/preset.ts'
+import { createInProcessRuntime } from './runtime/in-process.ts'
+import { createTypertRuntime } from './runtime/typert.ts'
+import type { RuntimeClient, RuntimeSession, SelectionCell } from './runtime/types.ts'
+import { remoteWatch } from './runtime/watch.ts'
 import {
-  applyPendingPermission,
-  effectivePermission,
-  listPermissionRows,
-  permissionPresetsFrom,
-  selectPermission,
-} from './permissions.ts'
-import { listPluginRows } from './plugin-inventory.ts'
+  beginAuthorization, customClient, followNotices, mirrorStatusSources, remoteMentions, subscribeRevisions, watchRemoteSkills, type RemoteSkillsView,
+} from './runtime/views.ts'
+import { permissionPresetsFrom, type PermissionRow } from './permissions.ts'
+import type { PluginRow } from './plugin-inventory.ts'
 import { applyLauncherUpdate, probeLauncherUpdate } from './update.ts'
 import { parseAnimationsPref } from './render/animations.ts'
 import { parseThemeName, setTheme, type ThemeName } from './theme.ts'
@@ -113,20 +88,13 @@ import { parseLanguageName, setLanguage, t, type LanguageName } from './i18n.ts'
 import {
   isSubagentSession,
   matchSessionId,
-  mergeSessionTitles,
   newestRootForCwd,
   sessionFolderMatches,
-  isSessionArtifactName,
-  jsonlSessionRoot,
-  planSessionDeletion,
-  projectSessionRows,
-  sessionArtifactDirectory,
-  sessionDirectoryFor,
   type SessionDirectoryOptions,
-  type SessionQueryService,
   type SessionRow,
 } from './session-directory.ts'
 import type { JobRow, SearchRow } from './kernel-panels.ts'
+import type { ScheduleRow } from './render/projection.ts'
 import { createUserSettingsPersistence, writeFileAtomically } from './settings-file.ts'
 import { turnUsages, type UsageView } from './render/usage.ts'
 // Type-only import: merges the projection registry into the Context type so
@@ -170,35 +138,6 @@ function fail(io: TuiIo, error: unknown): void {
 }
 
 /**
- * Snapshot caller-visible background jobs for the /jobs panel. Jobs the agent
- * started through run_in_background are fenced by their owner, so the CURRENT
- * agent is the caller. A missing registry is a harmless absence (the base
- * composition may not mount one) and collapses to the empty panel state —
- * the documented degradation for harmless probes, not an error.
- * @param ctx - context carrying the optional `jobs` registry.
- * @param caller - the active agent (undefined sees only unowned jobs).
- * @returns job rows in registration order; never throws.
- */
-function listJobs(ctx: Context, caller: Agent | undefined): readonly JobRow[] {
-  const jobs = ctx.get('jobs')
-  if (jobs === undefined) return []
-  try {
-    // DSH 0.1.7 fences jobs by the owning session id rather than the calling Agent.
-    return jobs.list(caller?.session.id).map((job: JobView) => ({
-      id: job.id,
-      kind: job.kind,
-      label: job.label,
-      status: job.status,
-      detail: job.detail,
-      startedAt: job.startedAt,
-      finishedAt: job.finishedAt,
-    }))
-  } catch {
-    return []
-  }
-}
-
-/**
  * Read one user-level settings file as a plain object. The callers all treat a
  * missing file as "unset" and a corrupt one as "warn and fall back", so this
  * helper owns the one distinction they share: readable JSON that is not an
@@ -237,11 +176,11 @@ interface Target {
   resume: boolean
   mode?: string
   cwd?: string
-  seed?: readonly SessionEvent[]
+  /** Fork this session (after `atSeq`, or its whole log) instead of opening `sessionId` fresh. */
+  forkOf?: { readonly sessionId: string; readonly atSeq?: number }
   parentSession?: SessionId
   /** Marks the session as a subagent conversation in the durable header. */
   origin?: 'subagent'
-  seedLength?: number
 }
 
 /**
@@ -310,94 +249,8 @@ export interface QueuedSubmission {
   readonly images: readonly ContentBlock[]
 }
 
-/** What one requested queue mutation did; the runner maps it to one notice. */
-export type QueueMutationOutcome =
-  | 'removed'
-  | 'edited'
-  | 'steered'
-  | 'unavailable'
-  | 'empty'
-  | 'steerUnavailable'
-
-/**
- * Replace one queued message's text while keeping its attachments. A queue
- * edit rewrites what the user typed, not what they attached: image and file
- * blocks ride through in delivery order (text first, then attachments, the
- * shape {@link deliverLine} submits). Dropping them here would silently strip
- * an attachment the user already confirmed, so this is the edit's single
- * definition and the panel's read-only marker only mirrors it.
- */
-export function queueEditContent(content: readonly ContentBlock[], text: string): ContentBlock[] {
-  const attachments = content.filter(block => block.type !== 'text')
-  return [{ type: 'text', text }, ...attachments]
-}
-
-/**
- * Apply one terminal queue mutation to the live inbox. The decision and the
- * inbox change are pure over the supplied handles so every branch is testable
- * without an agent; steering itself is injected because it wakes the driver
- * rather than mutating the inbox. The durable inbox splices remain the UI's
- * single source of truth — this helper never reports a state the inbox did not
- * actually reach.
- * @param inbox - the live agent inbox (pending lists plus its mutators).
- * @param status - the agent's lifecycle status; steering needs `running`.
- * @param messageId - identity of the queued message to mutate.
- * @param action - the requested mutation.
- * @param steer - submits the removed message as next-step steering.
- * @returns the outcome the caller reports.
- */
-export function applyQueueMutation(
-  inbox: Pick<Inbox, 'nextTurn' | 'append' | 'remove' | 'replace'>,
-  status: AgentStatus,
-  messageId: string,
-  action: QueueMutation,
-  steer: (message: UserMessage) => void,
-): QueueMutationOutcome {
-  const id = MessageId(messageId)
-  const message = inbox.nextTurn.find(candidate => candidate.id === id)
-  if (message === undefined) return 'unavailable'
-  switch (action.kind) {
-    case 'remove':
-      return inbox.remove(id) ? 'removed' : 'unavailable'
-    case 'edit':
-      if (action.text.trim() === '') return 'empty'
-      inbox.replace(id, createUserMessage({
-        content: queueEditContent(message.content, action.text),
-        source: message.source,
-      }))
-      return 'edited'
-    case 'steer':
-      if (status !== 'running') return 'steerUnavailable'
-      // Steer promotes the message out of next-turn, so a failing submit must
-      // put it back: the row the user was looking at never just disappears.
-      if (!inbox.remove(id)) return 'unavailable'
-      try {
-        steer(message)
-      } catch (error: unknown) {
-        inbox.append('next-turn', message)
-        throw error
-      }
-      return 'steered'
-  }
-}
-
-/**
- * Cancel the active turn while keeping the next-turn queue, then wake the
- * driver again so the preserved messages actually run. `cancel` clears
- * pending work by default and never wakes the driver on its own, so the queue
- * is captured first and re-submitted afterwards: a waking submission latches
- * the wake while the aborted activity converges to idle, which is what turns
- * "preserved" into "sent next" instead of "parked forever". Next-step
- * steering is deliberately dropped — it belonged to the cancelled turn.
- * @param agent - the live agent handle.
- * @returns how many queued messages were preserved across the abort.
- */
-export function cancelPreservingQueue(agent: Pick<Agent, 'inbox' | 'cancel' | 'followup'>): number {
-  const queued = [...agent.inbox.nextTurn]
-  agent.cancel({ kind: 'user' })
-  for (const message of queued) agent.followup(message)
-  return queued.length
-}
+export { applyQueueMutation, cancelPreservingQueue, queueEditContent, type QueueMutationOutcome } from './queue.ts'
+import type { QueueMutationOutcome } from './queue.ts'
 
 /**
  * Whether a tagged submission still belongs to the active session. Attachment
@@ -422,32 +275,7 @@ export function subagentCatalogSeed(events: readonly SessionEvent[]): readonly S
     event.type === 'subagent/catalog' && event.data.childId !== '')
 }
 
-/**
- * Map one cross-session full-text hit onto the /search panel's row (pure).
- * Labels fall back to the short id form — the engine's hit carries the
- * strongest matching event, not the title observation.
- */
-export function searchHitToRow(hit: {
-  header: SessionHeader
-  bestMatch: { snippet: string; time: number }
-}): SearchRow {
-  const subagent = hit.header.origin === 'subagent'
-  const cwd = hit.header.cwd ?? ''
-  // Session cwds may arrive in either separator style regardless of the
-  // observing host (a workspace synced from Windows), so split on both.
-  const workspace = cwd.split(/[\\/]/u).filter(part => part !== '').at(-1) ?? ''
-  const preset = hit.header.agentPreset ?? ''
-  const flat = hit.bestMatch.snippet.replace(/\s+/gu, ' ').trim()
-  return {
-    id: hit.header.id,
-    label: hit.header.id.slice(-12),
-    detail: [workspace, preset].filter(part => part !== '').join(' · '),
-    snippet: flat.length > 158 ? `${flat.slice(0, 157)}…` : flat,
-    updatedAt: hit.bestMatch.time,
-    subagent,
-    resumable: !subagent,
-  }
-}
+export { searchHitToRow } from './session-directory.ts'
 
 /** One Shift+Tab station decision for the mode cycle. */
 export type ModeCycleDecision =
@@ -621,27 +449,59 @@ interface AppBridge {
  * @param startup - the parsed invocation flags.
  * @param io - process-facing effects.
  */
-async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> {
-  // Loader siblings mount concurrently. Await the complete application before
-  // creating an Agent so its scoped tools and adapters are not half-composed.
-  await ctx.get('loader')?.await()
-  const agents = ctx.get('agents')
-  const defaultModel = ctx.get('agentDefaultModel')
-  const sessions = ctx.get('sessions')
-  const persistence = ctx.get('sessionPersistence')
-  const sessionQuery = (ctx as unknown as { get(name: string): unknown }).get('sessionQuery') as SessionQueryService | undefined
-  // Early process shutdown can dispose the tree while settlement is pending.
-  if (agents === undefined || defaultModel === undefined || sessions === undefined) return
+/** Routes asynchronous runtime failures to the terminal once it can show notices. */
+export interface RuntimeErrorSink {
+  report(error: unknown): void
+  attach(notify: (text: string) => void): void
+}
 
+export function runtimeErrorSink(): RuntimeErrorSink {
+  let notify: ((text: string) => void) | undefined
+  const pending: string[] = []
+  return {
+    report(error) {
+      const text = `runtime request failed: ${error instanceof Error ? error.message : String(error)}`
+      if (notify === undefined) pending.push(text)
+      else notify(text)
+    },
+    attach(next) {
+      notify = next
+      for (const text of pending.splice(0)) next(text)
+    },
+  }
+}
+
+/** What the runner needs from its surroundings. */
+export interface RunnerEnvironment {
+  /** The runtime every session operation goes through. */
+  readonly runtime: RuntimeClient
+  /** No Host runs in this process, so the footer mirrors the Host's sources. */
+  readonly detached: boolean
+  /** Receives the protocol runtime's asynchronous failures. */
+  readonly errors?: RuntimeErrorSink
+}
+
+async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Promise<void> {
+  const { runtime } = env
   if (startup.kind === 'fresh' || startup.kind === 'named') requireDscodePreset(startup.mode)
   const cwd = process.cwd()
-  // Live deployment default (web selectModel parity): read on every use, not
-  // snapshotted at launch, so a /model pick this process saves becomes the
-  // default for sessions composed afterwards without a restart.
-  const currentDefaults = (): ModelSelection => defaultModel.currentSelection()
-  const presets = agentPresetsFrom(ctx)
-  if (presets === undefined) throw new Error('agent preset service is unavailable; check the dsh-code bundle patch')
-  const permissionPresets = permissionPresetsFrom(ctx)
+  // Live deployment default (web selectModel parity), pushed by the Host on
+  // every change, so a /model pick saved anywhere applies to later sessions.
+  const defaultsWatch = remoteWatch<ModelSelection | undefined>(runtime, 'models/defaults', undefined, {})
+  await defaultsWatch.ready
+  const currentDefaults = (): ModelSelection => defaultsWatch.value!
+  // The preset table is static for the process; the effective preset of a live
+  // session is its committed permission fold (the transcript view).
+  const permissionNames: readonly string[] = await runtime.call<string[]>('permissions/names')
+  const defaultPermission = permissionNames.length === 0 ? undefined : await runtime.call<string>('permissions/effective', {})
+  const effectivePermissionNow = (): string | undefined => session === undefined
+    ? pendingPermission ?? defaultPermission
+    : store.getView().permission ?? sessionPermission ?? defaultPermission
+  /** Last preset this terminal selected for the live session, until its event lands. */
+  let sessionPermission: string | undefined
+  const persistence = {
+    list: async () => ((await runtime.persistedSessions()) ?? []).map(header => ({ header })),
+  } as unknown as SessionPersistence
 
   // A bare fresh launch stays transient: no Agent or session is composed, and
   // nothing is persisted, until the user's first real input. Explicit flags
@@ -649,13 +509,11 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   const lazy = startup.kind === 'fresh' && startup.mode === undefined
 
   interface ActiveSession {
-    handle: AgentHandle
-    agent: Agent
-    session: Session
+    runtime: RuntimeSession
     store: ReturnType<typeof createTranscriptStore>
     mentions: MentionsApi
     mode: string
-    selection: { picked?: ModelSelection }
+    selection: SelectionCell
     resumed: boolean
     /**
      * Set when this session is bound to a folder other than the launch
@@ -678,30 +536,10 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     // A bare launch can pick a model before any session exists: the process
     // keeps that explicit choice and every prepared session starts from it
     // (the documented precedence: explicit pick > session header > default).
-    const selectionState: { picked?: ModelSelection } = pendingSelection === undefined
+    const selectionState: SelectionCell = pendingSelection === undefined
       ? {}
       : { picked: pendingSelection }
     const mode = requireDscodePreset(next.mode)
-    // 0.1.5 AgentSetup passes the composed agent as its second argument (the
-    // former `ctx.agent` accessor is gone); the preset mount still needs the
-    // agent-scoped context.
-    const setup = async (agentCtx: Context, agent: Agent): Promise<void> => {
-      await mountDscodePreset(presets, agentCtx, agent.session)
-      const selection: ModelSelectionRef = {
-        get current(): ModelSelection | undefined {
-          return resolveEffectiveSelection(selectionState.picked, agent.session.requestHeader()?.config, currentDefaults())
-        },
-        set current(value: ModelSelection | undefined) { selectionState.picked = value },
-        assembled: undefined,
-      }
-      installModelSelection(agentCtx, selection)
-      registerStatusSelection(agent, () => selection.current)
-    }
-    // AgentOptions seed the loop's fallback route; effort rides the selection
-    // ref (installModelSelection), so only the provider/model pair is seeded.
-    const seedOptions = pendingSelection === undefined
-      ? { provider: currentDefaults().provider, model: currentDefaults().model }
-      : { provider: pendingSelection.provider, model: pendingSelection.model }
     let folderWarning: string | undefined
     if (next.resume) {
       // The header is the only durable folder binding; the resumed session
@@ -709,41 +547,28 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       // --resume flag, the /resume picker, /search or a queued switch. Only
       // the notice differs, so it is prepared here and displayed once the
       // session is actually on screen.
-      const pinned = (await persistence?.list())?.find(record => record.header.id === next.sessionId)?.header.cwd
+      const pinned = (await runtime.persistedSessions())?.find(header => header.id === next.sessionId)?.cwd
       folderWarning = resumeFolderWarning(pinned, cwd)
     }
-    const handle = next.resume
-      ? await agents.resume({
-        resumeSessionId: SessionId(next.sessionId),
-        agentOptions: seedOptions,
-        // Quit aborts an in-flight composition so the exit wait never hangs
-        // on a prepare that cannot settle; upstream rolls the creation back.
-        signal: quitAbort.signal,
-        setup,
-      })
-      : await agents.create({
-        sessionId: SessionId(next.sessionId),
-        meta: {
-          cwd: nextCwd,
-          agentPreset: mode,
-          ...(next.parentSession === undefined ? {} : { parentSession: next.parentSession }),
-          ...(next.origin === undefined ? {} : { origin: next.origin }),
-          // 0.1.5 fork lineage: the seed marker lives on the metadata and the
-          // inherited prefix length on the top-level option (the v0 header's
-          // numeric `seedLength` field is gone from the create contract).
-          ...(next.seedLength === undefined ? {} : { isSeeded: true }),
-        },
-        ...(next.seedLength === undefined ? {} : { inheritedEventCount: SessionLogOffset(next.seedLength) }),
-        ...(next.seed === undefined ? {} : { seed: next.seed }),
-        agentOptions: seedOptions,
-        signal: quitAbort.signal,
-        setup,
-      })
-    const session = handle.agent.session
-    if (!next.resume && permissionPresets !== undefined) {
-      applyPendingPermission(permissionPresets, session, pendingPermission)
+    const common = {
+      sessionId: next.sessionId,
+      cwd: nextCwd,
+      preset: mode,
+      selection: selectionState,
+      ...(pendingPermission === undefined ? {} : { permission: pendingPermission }),
+      // Quit aborts an in-flight composition so the exit wait never hangs on a
+      // prepare that cannot settle; upstream rolls the creation back.
+      signal: quitAbort.signal,
     }
-    const seedEvents = session.snapshotEvents()
+    const opened = next.forkOf !== undefined
+      ? await runtime.fork({ ...common, sourceSessionId: next.forkOf.sessionId, ...(next.forkOf.atSeq === undefined ? {} : { atSeq: next.forkOf.atSeq }) })
+      : await runtime.open({
+        ...common,
+        resume: next.resume,
+        ...(next.parentSession === undefined ? {} : { parentSession: next.parentSession }),
+        ...(next.origin === undefined ? {} : { origin: next.origin }),
+      })
+    const seedEvents = opened.snapshotEvents()
     // Resume precedence, middle layer: the log's unconsumed `model/selection`
     // (a pick the web host recorded that no request ever assembled) outranks
     // the older request header; an in-process pick still outranks both.
@@ -752,11 +577,9 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       if (pending !== undefined) selectionState.picked = pending
     }
     return {
-      handle,
-      agent: handle.agent,
-      session,
+      runtime: opened,
       store: createTranscriptStore(seedEvents),
-      mentions: createMentions(ctx, handle.agent, session.header.cwd ?? nextCwd),
+      mentions: remoteMentions(runtime, opened.id, opened.header.cwd ?? nextCwd),
       mode,
       selection: selectionState,
       resumed: next.resume,
@@ -766,8 +589,8 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   }
 
   let active: ActiveSession | undefined
-  let agent: Agent | undefined
-  let session: Session | undefined
+  /** The active session, reached only through the runtime. */
+  let session: RuntimeSession | undefined
   let store: TranscriptStore = createTranscriptStore()
   // Live subagent activity (child sessions of the current root): one bounded
   // row per child, folded from the same event bus the transcript feeds on.
@@ -832,19 +655,17 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // its own panel and never in this transcript or its model context.
   const btw: BtwFeed = createBtwFeed()
   /** Live side-question children, disposed with the session that spawned them. */
-  const btwHandles = new Map<string, AgentHandle>()
+  const btwIds = new Set<string>()
   /** Stop every live side question; the panel keeps the answers it already has. */
   const disposeBtw = (): void => {
-    for (const [id, handle] of btwHandles) {
-      btw.drop(id)
-      void handle.dispose().catch(() => {})
-    }
-    btwHandles.clear()
+    for (const id of btwIds) btw.drop(id)
+    if (btwIds.size > 0) void runtime.call('btw/dispose', { ids: [...btwIds] }).catch(() => {})
+    btwIds.clear()
   }
   // Pre-session @file completion runs the official search over the launch
   // cwd (model- and session-independent); the prepare/activate paths replace
   // this with the agent-scoped instance once a session exists.
-  let mentions: MentionsApi = createMentions(ctx, undefined, cwd)
+  let mentions: MentionsApi = remoteMentions(runtime, undefined, cwd)
   /** Explicit model pick made before any session exists (a bare launch). */
   let pendingSelection: ModelSelection | undefined
   /** Permission preset selected before the first session exists. */
@@ -872,16 +693,9 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   let preSessionPlanAvailable = false
   let preSessionPlanKnown = false
   const refreshPreSessionPlan = (): void => {
-    if (presets === undefined) {
-      preSessionPlanAvailable = false
-      preSessionPlanKnown = true
-      return
-    }
     preSessionPlanKnown = false
-    void presets.compositionInventory().then(inventory => {
-      const id = DSCODE_PRESET
-      preSessionPlanAvailable = inventory.some(composition => composition.id === id
-        && composition.rows.some(row => row.moduleName === '@deepseek-ai/dsh-plan-mode' && row.enabled !== false))
+    void runtime.call<boolean>('presets/planAvailable').then(available => {
+      preSessionPlanAvailable = available
       preSessionPlanKnown = true
     }, () => {
       preSessionPlanAvailable = false
@@ -929,8 +743,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     const prepared = await prepare(target)
     startupFolderWarning = prepared.folderWarning
     active = prepared
-    agent = prepared.agent
-    session = prepared.session
+    session = prepared.runtime
     store = prepared.store
     mentions = prepared.mentions
     // Replayed catalog facts rebuild the resumed session's child rows before
@@ -949,7 +762,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // fire on `session/event`, so a resumed session paints its history once
   // before the first render. The handler reads the current session/store, so
   // the deferred first session of a bare launch is covered by the same feed.
-  const off = ctx.on('session/event', (subject: Session, event: SessionEvent) => {
+  const off = runtime.onSessionEvent((subject, event) => {
     if (session === undefined) return
     if (subject.id === session.id) {
       store.apply(event)
@@ -983,95 +796,48 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // frames of the current root agent. Settlement events clear the tails when
   // they land (always before a committed end frame); an abandoned attempt's
   // partial tail is dropped by the store on its end frame.
-  ctx.on('agent/assistant-stream', ({ agent: source, frame }) => {
-    if (agent !== undefined && source.id === agent.id) {
+  runtime.onAssistantStream((agentId, frame) => {
+    if (session !== undefined && agentId === session.agentId) {
       store.applyStreamFrame(frame)
       return
     }
     // A side question streams into its own panel transcript, never the main one.
-    btw.applyStreamFrame(source.id, frame)
+    btw.applyStreamFrame(agentId, frame)
   })
 
-  const commands: CommandsView = watchCommands(ctx)
-  if (agent !== undefined) commands.setAgent(agent)
+  const commands: CommandsView = watchCommands(runtime)
+  if (session !== undefined) commands.setSession(session.id)
 
-  const skills: SkillsView = watchSkills(ctx, cwd)
-  if (agent !== undefined) skills.setAgent(agent)
+  const skills: RemoteSkillsView = watchRemoteSkills(runtime, cwd)
+  if (session !== undefined) skills.setSession(session.id, session.header.cwd ?? cwd)
 
   // Approval answerer: renders the ask as a y/n bar; only this TUI's agent is
   // claimed, every other ask falls through to the fail-closed waterfall. The
   // owner predicate is empty until the first session exists.
   const approval: ApprovalStore = mountApprovalAnswerer(
-    ctx,
-    candidate => agent !== undefined && candidate.id === agent.id,
+    answerer => runtime.onApprovalRequest(answerer),
+    agentId => session !== undefined && agentId === session.agentId,
     request => approvalCommandPreview(store.getView().entries, request.callId, request.toolName),
   )
 
-  // Subagent model routing. The kernel seeds child agents from the parent's
-  // CREATE-TIME AgentOptions (resolveChildAgentOptions), which a mid-session
-  // /model switch never touches — delegated work would keep running on the
-  // launch-time route. This plugin-level listener mirrors installModelSelection
-  // for subagent-origin requests (scope filtering delivers the agent subject
-  // inside the payload): the explicit /subagent override wins, else the root's
-  // effective selection (explicit pick > session header > deployment default).
-  // Effort rides the selection exactly like the kernel listener applies it.
+  // Subagent model routing lives on the Host (host/models.ts); /subagent sets
+  // its override there and this label mirrors it.
   let subagentOverride: ModelSelection | undefined
-  ctx.on('agent/request', (payload, next) => {
-    const subject = payload.agent
-    const header = subject.session.header
-    if (header.parentSession === undefined && header.origin !== 'subagent') return next()
-    // Only the ACTIVE session's explicit pick may steer a subagent request.
-    // During a switch window the old agent can still be mid-flight; routing
-    // it by the NEW session's pick sent one of its requests to the wrong
-    // model. A subject outside the active tree falls back to its own request
-    // header (plus any explicit /subagent override, which is user intent).
-    const activeAgent = active
-    const belongsToActive = activeAgent !== undefined
-      && (header.parentSession ?? subject.session.id) === activeAgent.session.id
-    const picked = subagentOverride
-      ?? resolveEffectiveSelection(
-        belongsToActive && activeAgent !== undefined ? (activeAgent.selection.picked ?? pendingSelection) : undefined,
-        subject.session.requestHeader()?.config,
-        currentDefaults(),
-      )
-    return next().then(resolved => applyModelSelectionToConfig(resolved, picked))
-  })
 
   // ask_user_question answerer: one waterfall listener, one request on
   // screen at a time. Plan reviews (exit_plan_mode) arrive through this same
   // pipe; sibling answerers stay usable through the claim/defer split.
   const questions: QuestionStore = mountQuestionProvider(
-    ctx,
-    candidate => agent !== undefined && candidate.id === agent.id,
+    answerer => runtime.onQuestionRequest(answerer),
+    agentId => session !== undefined && agentId === session.agentId,
   )
 
-  // Same-id capability inheritance. Catalog capabilities flow by route key,
-  // not model id, so a hand-declared relay model without an explicit
-  // reasoningEfforts declaration serves no reasoning levels and offers no
-  // effort picker. This background pass materializes declarations from
-  // same-id donors (sibling settings entries first, then other routes'
-  // advertised levels) over the panel's settings.mutate path, where the
-  // upstream serviceability gate still rejects invalid writes atomically.
-  // The debounce coalesces the settings/adapters event pair; the applier
-  // skips only a same-source same-revision echo of its own write, so the
-  // loop converges without ever ignoring a real external edit.
-  const capabilitySyncDebounceMs = 400
-  const runCapabilitySync = (): void => {
-    void syncModelCapabilities(ctx, bridge.notify)
-  }
-  let capabilitySyncTimer: ReturnType<typeof setTimeout> | undefined
-  const scheduleCapabilitySync = (): void => {
-    if (capabilitySyncTimer !== undefined) clearTimeout(capabilitySyncTimer)
-    capabilitySyncTimer = setTimeout(() => {
-      capabilitySyncTimer = undefined
-      runCapabilitySync()
-    }, capabilitySyncDebounceMs)
-  }
-  const offCapabilitySync = [
-    ctx.on('settings/document-updated', scheduleCapabilitySync),
-    ctx.on('llm/adapters-updated', scheduleCapabilitySync),
-  ]
-  scheduleCapabilitySync()
+  env.errors?.attach(text => bridge.notify(text, 'error'))
+  // Host notices (for example the background capability sync's warnings).
+  const offNotices = followNotices(runtime, (text, tone) => bridge.notify(text, tone))
+  // A separate terminal mirrors the Host's footer sources for the active session.
+  const statusMirror = env.detached ? mirrorStatusSources(runtime) : undefined
+  statusMirror?.follow(session?.id)
 
   // /statusline persistence: one user-level JSON file under the DSH home.
   // Missing file means defaults; a corrupt file degrades to defaults with a
@@ -1224,18 +990,11 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       })
   }
 
-  /** Mutate one next-turn inbox item; durable inbox splices remain the UI truth. */
+  /** Mutate one next-turn inbox item on the Host; durable inbox splices remain the UI truth. */
   const updateQueued = (messageId: string, action: QueueMutation): void => {
-    const current = agent
+    const current = session
     if (current === undefined) return
-    try {
-      const outcome = applyQueueMutation(
-        current.inbox,
-        current.status,
-        messageId,
-        action,
-        message => current.steer(message),
-      )
+    void runtime.call<QueueMutationOutcome>('session/updateQueued', { sessionId: current.id, messageId, action }).then(outcome => {
       switch (outcome) {
         case 'removed': bridge.notify(t('notice.queueCancelled')); return
         case 'edited': bridge.notify(t('notice.queueEdited')); return
@@ -1244,9 +1003,9 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
         case 'steerUnavailable': bridge.notify(t('notice.queueSteerUnavailable'), 'warning'); return
         case 'unavailable': bridge.notify(t('notice.queueUnavailable'), 'warning'); return
       }
-    } catch (error: unknown) {
+    }, (error: unknown) => {
       bridge.notify(t('notice.queueActionFailed', { message: error instanceof Error ? error.message : String(error) }), 'error')
-    }
+    })
   }
 
   // The mount handle lives in a box: quit closes over it, while the mount
@@ -1265,8 +1024,8 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     disposeBtw()
     epoch += 1
     off()
-    for (const dispose of offCapabilitySync) dispose()
-    if (capabilitySyncTimer !== undefined) clearTimeout(capabilitySyncTimer)
+    offNotices()
+    statusMirror?.dispose()
     const currentSession = session
     const currentActive = active
     const report = (name: string, error: unknown): void => {
@@ -1291,8 +1050,8 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       ...(currentSession === undefined || currentActive === undefined
         ? []
         : [
-          { name: 'flush', run: async () => { await sessions.flush(currentSession); internals.stderr.write('\nResume this session: dscode resume ' + currentSession.id + '\n') } },
-          { name: 'dispose', run: () => currentActive.handle.dispose() },
+          { name: 'flush', run: async () => { await currentSession.flush(); internals.stderr.write('\nResume this session: dscode resume ' + currentSession.id + '\n') } },
+          { name: 'dispose', run: () => currentActive.runtime.dispose() },
         ]),
       { name: 'composing', run: () => composing ?? Promise.resolve() },
       { name: 'history', run: () => historyWriteChain },
@@ -1304,15 +1063,10 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
 
   /** Run one slash line through the command registry (closed namespace). */
   const runSlash = (line: string): void => {
-    const currentAgent = agent
-    if (currentAgent === undefined) return
+    const currentSession = session
+    if (currentSession === undefined) return
     if (line.startsWith('/resume ')) {
       requestResume(line.slice(8).trim())
-      return
-    }
-    const registry = ctx.get('commands')
-    if (registry === undefined) {
-      bridge.notify(t('notice.commandRegistryMissing'), 'error')
       return
     }
     const controller = new AbortController()
@@ -1321,31 +1075,24 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     const finish = (): void => {
       pendingControllers.delete(controller)
     }
-    // 0.1.5 registry.execute's third parameter admits submitted attachments
-    // (images and file receipts); the TUI composer never attaches images to a
-    // slash line, so every invocation is the empty batch (commands declaring
-    // input.attachments still run attachment-free).
-    void Promise.resolve().then(() => registry.execute(currentAgent, line, [], controller.signal)).then((execution) => {
+    // The Host runs the line through the native registry; a line no command
+    // owns comes back unhandled and falls through below.
+    void runtime.call<{ handled: boolean }>('commands/execute', { sessionId: currentSession.id, line }, controller.signal).then((execution) => {
       finish()
       // A switch/quit landed while the command ran: its fall-through must not
       // reach an agent that is no longer on screen.
-      if (epoch !== atEpoch || agent !== currentAgent) return
-      if (execution === undefined) {
+      if (epoch !== atEpoch || session !== currentSession) return
+      if (!execution.handled) {
         // No command owns this line: send it verbatim so a user-invocable
         // skill gesture (`/skill-name`) reaches the host's tool-skill
         // pre-step injection — the web composer's same fall-through.
-        try {
-          currentAgent.followup(createUserMessage({
-            content: [{ type: 'text', text: line }],
-            source: { kind: 'user' },
-          }))
-        } catch (error: unknown) {
+        void runtime.call('session/deliver', { sessionId: currentSession.id, content: [{ type: 'text', text: line }], mode: 'followup' }).catch((error: unknown) => {
           bridge.notify(t('notice.commandFallbackFailed', { message: error instanceof Error ? error.message : String(error) }), 'error')
-        }
+        })
       }
     }, (error: unknown) => {
       finish()
-      if (epoch !== atEpoch || agent !== currentAgent) return
+      if (epoch !== atEpoch || session !== currentSession) return
       // A failed plan switch never appends the plan/mode event the cycle's
       // intent retirement waits for, so the in-flight choice dies here too —
       // otherwise every later Shift+Tab reads a phantom plan state.
@@ -1359,7 +1106,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
 
   /** Deliver one trimmed line to the live session, expanding mentions first. */
   const deliverLine = (line: string, images: readonly ContentBlock[] = [], mode: 'followup' | 'steer' = 'followup'): void => {
-    const currentAgent = agent!
+    const currentSession = session!
     const currentMentions = mentions
     // The command registry is a closed namespace: slash lines run out of
     // band and never reach the model through this path.
@@ -1380,31 +1127,23 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     // previous line of the same session; an epoch change (switch/quit)
     // abandons the chain instead of gating the next session on the old one.
     if (deliveryChain.epoch !== epoch) deliveryChain = { epoch, tail: Promise.resolve() }
-    const enqueueDelivery = (run: () => void): void => {
+    const enqueueDelivery = (run: () => void | Promise<void>): void => {
       deliveryChain.tail = deliveryChain.tail.then(run)
     }
     const atEpoch = epoch
-    const deliver = (readable: string, context?: UserMessage): void => {
+    const deliver = async (readable: string, context?: UserMessage): Promise<void> => {
       // A switch/quit landed while the snapshot was being prepared: never
       // deliver to an agent that is no longer on screen.
-      if (epoch !== atEpoch || agent !== currentAgent) return
-      // Session snapshots ride the inbox as model-facing context ahead of
-      // the readable message (upstream README wiring: inject before the
-      // followup/steer that wakes the driver).
+      if (epoch !== atEpoch || session !== currentSession) return
+      // Session snapshots ride the inbox as model-facing context ahead of the
+      // readable message; steering is consumed at the next step boundary of
+      // the running turn, a followup becomes its own turn.
+      const content: ContentBlock[] = [
+        ...(readable === '' ? [] : [{ type: 'text' as const, text: readable }]),
+        ...images,
+      ]
       try {
-        if (context !== undefined) currentAgent.inject(context)
-        const content: ContentBlock[] = [
-          ...(readable === '' ? [] : [{ type: 'text' as const, text: readable }]),
-          ...images,
-        ]
-        const message = createUserMessage({
-          content,
-          source: { kind: 'user' },
-        })
-        // Steering is consumed at the next step boundary of the turn already
-        // running; a followup becomes its own turn instead.
-        if (mode === 'steer') currentAgent.steer(message)
-        else currentAgent.followup(message)
+        await runtime.call('session/deliver', { sessionId: currentSession.id, content, mode, ...(context === undefined ? {} : { context }) })
       } catch (error: unknown) {
         bridge.notify(`${mode === 'steer' ? 'steering' : 'message'} failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
       }
@@ -1418,9 +1157,9 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     // `enqueueDelivery` returns nothing; the delivery chain only orders the
     // work, so the promise is consumed here with an explicit void.
     enqueueDelivery(() => {
-      void currentMentions.prepare(parsed, controller.signal).then((prepared) => {
+      return currentMentions.prepare(parsed, controller.signal).then((prepared) => {
         pendingControllers.delete(controller)
-        deliver(prepared.text, prepared.additionalContext)
+        return deliver(prepared.text, prepared.additionalContext)
       }, (error: unknown) => {
         pendingControllers.delete(controller)
         if (controller.signal.aborted || epoch !== atEpoch) return
@@ -1458,21 +1197,22 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
           ...(mode === undefined ? {} : { mode }),
         })
         if (quitting) {
-          void next.handle.dispose().catch(() => {})
+          void next.runtime.dispose().catch(() => {})
           return
         }
-        const previous = { active, agent, session, store, mentions }
+        const previous = { active, session, store, mentions }
         try {
           active = next
-          agent = next.agent
-          session = next.session
+          session = next.runtime
           store = next.store
           mentions = next.mentions
           subagents.reset()
           for (const event of next.catalogSeed) subagents.apply(event.data.childId, event)
           pendingPermission = undefined
-          commands.setAgent(agent)
-          skills.setAgent(agent)
+          commands.setSession(session.id)
+          skills.setSession(session.id, session.header.cwd ?? cwd)
+          statusMirror?.follow(session.id)
+          sessionPermission = undefined
           // The App mounts with a placeholder key until the first input; the
           // key-change remount below must start from a clean screen or the ghost
           // static header stays visible above the new one (same source-backed
@@ -1488,13 +1228,13 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
           // the queued inputs, and every later line lands in the ghost. The
           // queued inputs are KEPT for the next attempt.
           active = previous.active
-          agent = previous.agent
           session = previous.session
           store = previous.store === undefined ? createTranscriptStore() : previous.store
-          mentions = previous.mentions === undefined ? createMentions(ctx, undefined, cwd) : previous.mentions
-          commands.setAgent(agent)
-          if (agent !== undefined) skills.setAgent(agent)
-          await next.handle.dispose().catch(() => {})
+          mentions = previous.mentions === undefined ? remoteMentions(runtime, undefined, cwd) : previous.mentions
+          // First-session creation only runs with no session, so the rollback target has none.
+          commands.setSession(undefined)
+          skills.setSession(undefined, cwd)
+          await next.runtime.dispose().catch(() => {})
           if (!quitting) renderCurrent()
           bridge.notify(`session activation failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
           return
@@ -1596,28 +1336,39 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
    * parking; next-step steering dies with the turn.
    */
   const interrupt = (): boolean => {
-    if (agent === undefined || agent.status !== 'running') return false
-    try {
-      const preserved = cancelPreservingQueue(agent)
-      bridge.notify(t(preserved > 0 ? 'notice.turnCancelledKeepQueue' : 'notice.turnCancelled'))
-      return true
-    } catch (error: unknown) {
+    if (session === undefined || session.status !== 'running') return false
+    void runtime.call<{ cancelled: boolean; preserved: number }>('session/interrupt', { sessionId: session.id }).then(result => {
+      if (result.cancelled) bridge.notify(t(result.preserved > 0 ? 'notice.turnCancelledKeepQueue' : 'notice.turnCancelled'))
+    }, (error: unknown) => {
       bridge.notify(`cancel failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
-      return false
-    }
+    })
+    return true
   }
 
-  /** Select one permission preset before the first session or on the active one. */
-  const setPermissionAction = (id: string): string => {
-    if (permissionPresets === undefined || permissionPresets.names.length === 0) {
-      throw new Error('permission presets are not mounted in this composition')
-    }
-    if (id === '') throw new Error('usage: /permission <preset>')
-    const selected = selectPermission(permissionPresets, session, id)
-    if (session === undefined) {
-      pendingPermission = selected
+  /**
+   * Select one permission preset before the first session or on the active
+   * one. Validated against the Host's preset table so the reply is immediate;
+   * the Host applies it and a failure arrives as a notice.
+   */
+  const choosePermission = (id: string): string => {
+    if (!permissionNames.includes(id)) throw new Error(`unknown permission preset "${id}" (known: ${permissionNames.join(', ')})`)
+    if (session === undefined) return id
+    const target = session
+    sessionPermission = id
+    void runtime.call('permissions/select', { sessionId: target.id, id }).catch((error: unknown) => {
+      if (session === target) sessionPermission = undefined
+      bridge.notify(`permission change failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
       renderCurrent()
-    }
+    })
+    return id
+  }
+
+  const setPermissionAction = (id: string): string => {
+    if (permissionNames.length === 0) throw new Error('permission presets are not mounted in this composition')
+    if (id === '') throw new Error('usage: /permission <preset>')
+    const selected = choosePermission(id)
+    if (session === undefined) pendingPermission = selected
+    renderCurrent()
     return selected
   }
 
@@ -1634,7 +1385,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
    * notice label, or '' when nothing changed.
    */
   const cycleMode = (): string => {
-    if (permissionPresets === undefined || permissionPresets.names.length === 0) {
+    if (permissionNames.length === 0) {
       bridge.notify('permission presets are not mounted in this composition', 'warning')
       return ''
     }
@@ -1645,19 +1396,17 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       const preSession = session === undefined
       if (preSession && !preSessionPlanKnown) refreshPreSessionPlan()
       const decision = planCycleDecision({
-        names: permissionPresets.names,
-        current: effectivePermission(permissionPresets, session, pendingPermission),
+        names: permissionNames,
+        current: effectivePermissionNow() ?? permissionNames[0],
         inPlan: preSession ? pendingPlan : store.getView().plan === true,
         ...(preSession ? {} : { planIntent }),
         planAvailable: preSession ? preSessionPlanAvailable : commands.descriptors.some(descriptor => descriptor.name === 'plan'),
       })
       if (decision === undefined) return ''
       if (decision.kind === 'permission') {
-        const next = selectPermission(permissionPresets, session, decision.preset)
-        if (preSession) {
-          pendingPermission = next
-          renderCurrent()
-        }
+        const next = choosePermission(decision.preset)
+        if (preSession) pendingPermission = next
+        renderCurrent()
         return `permission → ${next}`
       }
       if (decision.kind === 'plan-on') {
@@ -1683,7 +1432,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       }
       planIntent = false
       send('/plan off')
-      selectPermission(permissionPresets, session, decision.preset)
+      choosePermission(decision.preset)
       return `plan → off · permission → ${decision.preset}`
     } catch (error: unknown) {
       bridge.notify(`mode change failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
@@ -1705,63 +1454,40 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       pendingSelection = selection
     } else {
       active.selection.picked = selection
+      active.runtime.selectModel(selection)
     }
-    // Global default (web selectModel parity): every pick is persisted as the
-    // deployment default through the same agentDefaultModel service the web
-    // host writes, so the choice survives restarts and other surfaces read
-    // it. Save failures degrade to a notice — the in-session switch already
-    // took effect and must not roll back (the web contract).
-    void defaultModel.saveSelection(selection).catch((error: unknown) => {
+    // Every pick is persisted as the deployment default (web selectModel
+    // parity), and the Host runs the request pipeline's local resolution so a
+    // withdrawn effort surfaces now. Neither rolls the in-session switch back.
+    void runtime.call<{ saveError?: string; rejected?: string }>('models/save', { selection }).then(result => {
+      if (result.saveError !== undefined) bridge.notify(`model switch applies to this session but was not saved as the default: ${result.saveError}`, 'warning')
+      if (result.rejected !== undefined) bridge.notify(`model selection rejected: ${result.rejected} — reopen /model to pick again`, 'error')
+    }, (error: unknown) => {
       bridge.notify(`model switch applies to this session but was not saved as the default: ${error instanceof Error ? error.message : String(error)}`, 'warning')
     })
-    // Advisory immediate validation (web selectModel parity): run the same
-    // local resolveCallConfig check the request pipeline would, so a stale
-    // directory — an effort the adapter withdrew since /model loaded —
-    // surfaces as a pick-time notice instead of failing the next assembled
-    // step. Best-effort: an llm service without the resolver keeps the
-    // existing request-boundary rejection. Called as a method (`this`-bound)
-    // like resolveModelInfo in models.ts.
-    const llm = ctx.get('llm')
-    const resolveCallConfig = (llm as {
-      resolveCallConfig?: (this: unknown, config: { provider: string; model: string; reasoningEffort?: string }) => Promise<unknown>
-    } | undefined)?.resolveCallConfig
-    if (llm !== undefined && typeof resolveCallConfig === 'function') {
-      void Promise.resolve(resolveCallConfig.call(llm, {
-        provider: selection.provider,
-        model: selection.model,
-        ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort },
-      })).catch((error: unknown) => {
-        bridge.notify(`model selection rejected: ${error instanceof Error ? error.message : String(error)} — reopen /model to pick again`, 'error')
-      })
-    }
     return `${row.provider}/${row.model}`
   }
 
   // dscode: measure the picked route against the live context so /model can ask
   // before a switch that would compact the conversation.
   const dscodeCompactionPreviewFor = async (row: ModelRow): Promise<DscodeCompactionPreview | undefined> => {
-    const meter = ctx.get('tokenMeter') as { measure?: (session: unknown) => { totalTokens: number } } | undefined
-    const llm = ctx.get('llm') as { resolveModelInfo?: (provider: string, model: string) => Promise<{ context?: { contextWindow?: number }; defaultMaxTokens?: number } | undefined> } | undefined
-    const session = active?.session
-    if (session === undefined || typeof meter?.measure !== 'function' || typeof llm?.resolveModelInfo !== 'function') return undefined
-    const used = meter.measure(session).totalTokens
-    const info = await llm.resolveModelInfo(row.provider, row.model)
-    return dscodeCompactionPreview({
-      provider: row.provider,
-      model: row.model,
-      used,
-      contextWindow: dscodeEffectiveContextWindow(info?.context, info),
-      thresholdRatio: await dscodePricedThresholdRatio(row.provider, row.model),
-      label: row.provider + '/' + row.model,
-    })
+    if (active === undefined) return undefined
+    return (await runtime.call<DscodeCompactionPreview | null>('models/compactionPreview', { sessionId: active.runtime.id, row })) ?? undefined
   }
 
   /** The /subagent override label, '' when delegated agents follow the current model. */
   const subagentModelLabel = (): string => subagentOverride === undefined ? '' : modelSelectionLabel(subagentOverride)
 
+  const sendSubagentOverride = (): void => {
+    void runtime.call('models/subagentOverride', { selection: subagentOverride ?? null }).catch((error: unknown) => {
+      bridge.notify(`subagent model change failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    })
+  }
+
   /** Apply one /subagent model pick; returns the override label. */
   const setSubagentModel = (row: ModelRow, effortId?: string): string => {
     subagentOverride = buildModelSelection(row, effortId)
+    sendSubagentOverride()
     renderCurrent()
     return modelSelectionLabel(subagentOverride)
   }
@@ -1769,6 +1495,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   /** Drop the /subagent override: delegated agents follow the current model again. */
   const clearSubagentModel = (): void => {
     subagentOverride = undefined
+    sendSubagentOverride()
     renderCurrent()
   }
 
@@ -1804,155 +1531,32 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
 
   /**
    * Rename the session (/title): a user title pins the session and stops
-   * automatic generation (the service's own contract). The appended
-   * `session/title` event flows back through the store into the status line.
+   * automatic generation. The appended `session/title` event flows back
+   * through the store into the status line; a refusal arrives as a notice.
    */
   const renameTitle = (argument: string): string => {
     const title = argument.trim()
     if (title === '') return 'usage: /title <text>'
     if (session === undefined) return 'no session yet — submit a message to start'
-    const service = ctx.get('sessionTitle')
-    if (service === undefined) return 'session titles are unavailable in this profile'
-    try {
-      service.rename(session, title)
-      return `title → ${title}`
-    } catch (error: unknown) {
-      return `rename failed: ${error instanceof Error ? error.message : String(error)}`
-    }
+    void runtime.call<string>('sessions/rename', { sessionId: session.id, title }).then(outcome => {
+      if (outcome !== `title → ${title}`) bridge.notify(outcome, 'warning')
+    }, (error: unknown) => bridge.notify(`rename failed: ${error instanceof Error ? error.message : String(error)}`, 'error'))
+    return `title → ${title}`
   }
 
-  const loadSessions = async (options: SessionDirectoryOptions, signal?: AbortSignal): Promise<readonly SessionRow[]> => {
-    if (sessionQuery === undefined) throw new Error('session query is unavailable in this profile')
-    const records = await sessionQuery.listSessions(signal)
-    // Last-activity timestamps for sorting (codex UpdatedAt default): the
-    // newest generation artifact's mtime under the JSONL layout. 0.1.5 dropped
-    // the persistence `locate()` query, so paths are derived from the
-    // backend's public config root. Backends without a JSONL config (or
-    // vanished directories) fall back to createdAt inside the projection.
-    const root = jsonlSessionRoot(persistence)
-    const updated = new Map<string, number>()
-    if (root !== undefined) {
-      await Promise.all(records.map(async record => {
-        try {
-          const dir = sessionDirectoryFor(root, record.header.cwd, record.header.id)
-          const entries = await readdir(dir, { withFileTypes: true })
-          const stats = await Promise.all(
-            entries.filter(entry => entry.isFile() && isSessionArtifactName(entry.name))
-              .map(entry => stat(join(dir, entry.name))),
-          )
-          const newest = Math.max(...stats.map(info => info.mtimeMs))
-          if (Number.isFinite(newest)) updated.set(record.header.id, newest)
-        } catch {
-          // Artifact gone or unreadable: the projection falls back to createdAt.
-        }
-      }))
-    }
-    const projected = projectSessionRows(records, options, updated)
-    // Titles are the expensive fold. Fetch only the first bounded picker page;
-    // navigation/filter changes trigger a fresh, cancellable observation.
-    const page = projected.slice(0, 32)
-    if (page.length === 0) return projected
-    const observations = await sessionQuery.readTitleSnapshots(page.map(row => row.id), signal)
-    return mergeSessionTitles(projected, observations)
-  }
+  const loadSessions = (options: SessionDirectoryOptions, signal?: AbortSignal): Promise<readonly SessionRow[]> =>
+    runtime.call<readonly SessionRow[]>('sessions/list', { options }, signal)
 
-  /**
-   * Delete one session subtree (/delete, codex semantics: subagent threads go
-   * with their root). The kernel persistence seam has NO deletion API by
-   * design — logs accumulate "until removed externally" — so this is the
-   * controlled external removal, in three phases with a hard boundary
-   * between planning and touching the filesystem:
-   *
-   * 1. `planSessionDeletion` collects the subtree and refuses when the root
-   *    or ANY member is live (a live child would outlive its deleted
-   *    parent), ordering the plan children-first.
-   * 2. Every plan node must derive to a guarded artifact directory
-   *    (`encodeSegment(id)` layout beneath the backend's config root).
-   *    Backends without a derivable artifact (non-JSONL) refuse the WHOLE
-   *    deletion here — no file has been touched yet, so a backend or layout
-   *    surprise can never strand a half-deleted subtree.
-   * 3. Artifacts are removed children-first: only an I/O error mid-delete
-   *    can stop it short (reported with removed/total counts), leaving the
-   *    shallowest lineage intact.
-   *
-   * @param id - the root session id to delete.
-   * @returns the outcome line for the panel/notice.
-   */
-  const deleteSession = async (id: string): Promise<string> => {
-    if (sessionQuery === undefined) return 'session query is unavailable in this profile'
-    if (session !== undefined && session.id === id) return 'cannot delete the session you are using — switch or /new first'
-    const records = await sessionQuery.listSessions()
-    const plan = planSessionDeletion(records, id)
-    if (!plan.ok) return plan.reason
-    // Phase 2 completes the plan before the first rm: derive and
-    // layout-check every node up front, so a refusal never leaves a
-    // partially removed subtree behind.
-    const root = jsonlSessionRoot(persistence)
-    if (root === undefined) {
-      return 'session backend exposes no deletable artifact (deletion is unsupported on this backend)'
-    }
-    const byId = new Map<string, (typeof records)[number]>(records.map(record => [record.header.id, record]))
-    const dirs = new Map<string, string>()
-    for (const node of plan.nodes) {
-      const record = byId.get(node.id)
-      if (record === undefined) return `no persisted session matches "${node.id}"`
-      const dir = sessionArtifactDirectory(sessionDirectoryFor(root, record.header.cwd, node.id), node.id)
-      if (dir === undefined) {
-        return `refusing to delete: unexpected artifact layout for ${node.id.slice(-12)}`
-      }
-      dirs.set(node.id, dir)
-    }
-    let removed = 0
-    for (const node of plan.nodes) {
-      const dir = dirs.get(node.id)!
-      try {
-        // Remove every canonical generation artifact this build knows; other
-        // sibling files are never ours to delete, and the directory itself is
-        // only removed once empty. An unreadable directory counts as a
-        // failure (not a silent success) so the outcome line stays honest.
-        const entries = await readdir(dir, { withFileTypes: true })
-        for (const entry of entries) {
-          if (entry.isFile() && isSessionArtifactName(entry.name)) {
-            await rm(join(dir, entry.name), { force: true })
-          }
-        }
-        await rm(dir, { force: true, recursive: false }).catch(() => {})
-        removed += 1
-      } catch (error: unknown) {
-        return `delete failed for ${node.id.slice(-12)} after ${removed} of ${plan.nodes.length}: ${error instanceof Error ? error.message : String(error)}`
-      }
-    }
-    return `deleted ${removed} session${removed === 1 ? '' : 's'}`
-  }
+  /** Delete one session subtree (/delete); the Host plans and refuses live members. */
+  const deleteSession = (id: string): Promise<string> =>
+    runtime.call<string>('sessions/delete', { id, ...(session === undefined ? {} : { currentId: session.id }) })
 
-  const loadSessionTranscript = async (id: string, signal?: AbortSignal): Promise<string> => {
-    if (sessionQuery === undefined) throw new Error('session query is unavailable in this profile')
-    const snapshot = await sessionQuery.readSession(id, signal)
-    return buildExportMarkdown(createTranscriptStore(snapshot.events).getView(), snapshot.session.id)
-  }
+  const loadSessionTranscript = (id: string, signal?: AbortSignal): Promise<string> =>
+    runtime.call<string>('sessions/transcript', { id }, signal)
 
-  /**
-   * Read one session's usage blocks for the /usage panel: the mounted
-   * projection's session totals plus the meter's own per-turn fold over the
-   * durable log (which the panel merges by model). A deployment without the
-   * projection registry renders the totals as explicitly unavailable rather
-   * than as zeros. The read is synchronous — the registry materializes a cell
-   * on first touch — so it is handed to the panel behind a resolved promise,
-   * which keeps the fold out of the keystroke that opens the panel.
-   * @param current - the session to read, or undefined before the first one.
-   * @returns the resolved panel data.
-   */
-  const loadUsage = (current: Session | undefined): Promise<UsageView> => {
-    if (current === undefined) return Promise.resolve({ turns: [] })
-    const values = ctx.get('sessionProjections')?.snapshot(current, ['tokenUsage']).values
-    const events = current.snapshotEvents()
-    // The token meter says what each turn billed; the cost ledger says what it
-    // cost. Both read the same durable log, so the panel's rows line up.
-    return Promise.resolve({
-      totals: values?.tokenUsage,
-      turns: turnUsages(events, deriveTurnTokenUsage, turnCostsFor(current.id, events)),
-    })
-  }
+  /** The /usage panel: the Host's token projection plus per-turn costs. */
+  const loadUsage = (current: RuntimeSession | undefined): Promise<UsageView> =>
+    runtime.call<UsageView>('sessions/usage', current === undefined ? {} : { sessionId: current.id })
 
   interface PendingSwitch { readonly target: Target; readonly label: string }
 
@@ -1966,23 +1570,24 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       // Quit landed while the next session was being composed: dispose the
       // half-ready agent and leave the current session untouched.
       if (quitting) {
-        await next.handle.dispose().catch(() => {})
+        await next.runtime.dispose().catch(() => {})
         return
       }
       active = next
-      agent = next.agent
-      session = next.session
+      session = next.runtime
       store = next.store
       mentions = next.mentions
       // Cross-session rows belong to the previous root. The incoming session's
       // own history is re-derived from its log and marked seen, so the activity
       // line keeps an unanswered request visible while only NEW traffic is
       // announced.
-      communication = next.session.snapshotEvents().reduce((view, event) => foldCommunication(view, event), createCommunicationFeed())
+      communication = next.runtime.snapshotEvents().reduce((view, event) => foldCommunication(view, event), createCommunicationFeed())
       communicationNoticed.clear()
       for (const row of communication.rows) communicationNoticed.add(row.id)
-      commands.setAgent(agent)
-      skills.setAgent(agent)
+      commands.setSession(session.id)
+      skills.setSession(session.id, session.header.cwd ?? cwd)
+      statusMirror?.follow(session.id)
+      sessionPermission = undefined
       try {
         // Reseed the feed BEFORE the first frame of the new session so no
         // stale row from the previous one flashes; a rolled-back handoff
@@ -2004,12 +1609,12 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
         planIntent = undefined
       } catch (error: unknown) {
         active = previous
-        agent = previous?.agent
-        session = previous?.session
+        session = previous?.runtime
         store = previous === undefined ? createTranscriptStore() : previous.store
-        mentions = previous === undefined ? createMentions(ctx, undefined, cwd) : previous.mentions
-        if (agent !== undefined) commands.setAgent(agent)
-        if (agent !== undefined) skills.setAgent(agent)
+        mentions = previous === undefined ? remoteMentions(runtime, undefined, cwd) : previous.mentions
+        commands.setSession(session?.id)
+        skills.setSession(session?.id, session?.header.cwd ?? cwd)
+        statusMirror?.follow(session?.id)
         subagents.reset()
         if (previous !== undefined) {
           for (const event of previous.catalogSeed) subagents.apply(event.data.childId, event)
@@ -2018,7 +1623,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
         // store's committed plan fold is the truth, so any cycle intent
         // collected against the switch churn retires too.
         planIntent = undefined
-        await next.handle.dispose()
+        await next.runtime.dispose()
         if (!quitting) renderCurrent()
         throw error
       }
@@ -2034,26 +1639,26 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
         // effect AFTER it, so an immediate notice reaches the UNMOUNTED
         // instance and React drops it silently. Defer past the commit.
         setTimeout(() => {
-          bridge.notify(`${next.resumed ? 'resumed' : 'created'} ${next.session.id.slice(-12)} · mode ${next.mode}`)
+          bridge.notify(`${next.resumed ? 'resumed' : 'created'} ${next.runtime.id.slice(-12)} · mode ${next.mode}`)
           if (next.folderWarning !== undefined) bridge.notify(next.folderWarning, 'warning')
         }, 0)
         return
       }
       let cleanupWarning: string | undefined
       try {
-        await sessions.flush(previous.session)
+        await previous.runtime.flush()
       } catch (error: unknown) {
         cleanupWarning = `previous session flush failed: ${error instanceof Error ? error.message : String(error)}`
       }
       disposeBtw()
       try {
-        await previous.handle.dispose()
+        await previous.runtime.dispose()
       } catch (error: unknown) {
         cleanupWarning = `${cleanupWarning === undefined ? '' : `${cleanupWarning}; `}previous agent release failed: ${error instanceof Error ? error.message : String(error)}`
       }
       bridge.notify(cleanupWarning === undefined
-        ? `${next.resumed ? 'resumed' : 'created'} ${next.session.id.slice(-12)} · mode ${next.mode}`
-        : `switched to ${next.session.id.slice(-12)}, but ${cleanupWarning}`,
+        ? `${next.resumed ? 'resumed' : 'created'} ${next.runtime.id.slice(-12)} · mode ${next.mode}`
+        : `switched to ${next.runtime.id.slice(-12)}, but ${cleanupWarning}`,
       cleanupWarning === undefined ? 'info' : 'warning')
       if (next.folderWarning !== undefined) bridge.notify(next.folderWarning, 'warning')
     })
@@ -2078,30 +1683,18 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       bridge.notify('that session is already active', 'warning')
       return
     }
-    const outcome = switchQueue.request(agent!, request)
+    const outcome = switchQueue.request(session, request)
     if (outcome === 'queued') {
       bridge.notify(`will switch to ${request.label} when the current turn finishes · /resume cancel to abort`)
     }
   }
 
-  const resolveResumeId = async (wanted: string): Promise<string> => {
-    if (wanted === '') throw new Error('usage: /resume <id|prefix>')
-    if (sessionQuery === undefined) throw new Error('session query is unavailable in this profile')
-    const records = await sessionQuery.listSessions()
-    const exact = records.filter(record => record.header.id === wanted)
-    const matches = exact.length > 0 ? exact : records.filter(record => record.header.id.startsWith(wanted))
-    if (matches.length === 0) throw new Error(`no session matches "${wanted}"`)
-    if (matches.length > 1) throw new Error(`session prefix "${wanted}" is ambiguous (${matches.length} matches)`)
-    const matched = matches[0]
-    // Same lineage gate as the CLI --resume path and the picker.
-    if (isSubagentSession(matched.header)) {
-      throw new Error('subagent conversations are read-only; resume a root session')
-    }
-    if (session !== undefined && agents.get(SessionId(matched.header.id)) !== undefined && matched.header.id !== session.id) {
-      throw new Error('that session is already live in another owner')
-    }
-    return matched.header.id
-  }
+  const resolveResumeId = (wanted: string): Promise<string> => runtime.call<string>('sessions/resolveResume', {
+    wanted,
+    ...(session === undefined ? {} : { currentId: session.id }),
+    // A protocol client attaches to a live Host session instead of composing a second owner.
+    allowLive: runtime.kind === 'protocol',
+  })
 
   const requestResume = (wanted: string): void => {
     void resolveResumeId(wanted).then(id => {
@@ -2129,7 +1722,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     // creation exactly like a typed first submission. The identity guard
     // below still aborts a load that outlives a mid-flight switch —
     // including one landing on an undefined agent.
-    const currentAgent = agent
+    const currentSession = session
     // The diff loads from the CALLING session's cwd; capture that
     // workspace and this turn's identity so a switch mid-load can neither
     // flip the new session read-only nor send the old workspace's review
@@ -2154,7 +1747,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     const note = selection.kind === 'custom' ? selection.instructions : undefined
     void load.then(({ title, files }) => {
       finish()
-      if (controller.signal.aborted || epoch !== atEpoch || agent !== currentAgent) return
+      if (controller.signal.aborted || epoch !== atEpoch || session !== currentSession) return
       try {
         setPermissionAction('read-only')
       } catch (error: unknown) {
@@ -2179,54 +1772,14 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
    */
   const startBtw = (question: string): void => {
     const text = question.trim()
-    if (text === '' || active === undefined || agent === undefined || session === undefined) return
-    const parent = session
-    const parentAgent = agent
-    const mode = active.mode
-    const selection = resolveEffectiveSelection(active.selection.picked, parent.requestHeader()?.config, currentDefaults())
-    const seed = btwSeed(parent.snapshotEvents())
-    const brief = seed.inherited ? '' : btwBrief(parent.snapshotEvents())
-    const id = SessionId(`session-${randomUUID()}`)
-    btw.begin({ id, question: text, at: Date.now() })
-    void (async () => {
-      try {
-        const effort = await dscodeEffortFor(ctx.get('llm'), { provider: selection.provider, model: selection.model }, 'low', quitAbort.signal)
-        const handle = await agents.create({
-          sessionId: id,
-          parentAgent,
-          meta: {
-            cwd: parent.header.cwd ?? cwd,
-            agentPreset: mode,
-            parentSession: parent.id,
-            origin: 'subagent',
-            delegationDepth: (parent.header.delegationDepth ?? 0) + 1,
-          },
-          ...(seed.inherited ? { seed: seed.events, inheritedEventCount: SessionLogOffset(seed.events.length) } : {}),
-          agentOptions: {
-            provider: selection.provider,
-            model: selection.model,
-            ...(effort === undefined ? {} : { reasoningEffort: effort }),
-          },
-          signal: quitAbort.signal,
-          setup: async (childCtx) => {
-            await presets.mount(childCtx, mode)
-          },
-        })
-        // Applied after creation, the same order the main session uses: setup
-        // composes the child's world, it never drives it.
-        if (permissionPresets !== undefined && permissionPresets.names.includes('read-only')) {
-          selectPermission(permissionPresets, handle.agent.session, 'read-only')
-        }
-        btwHandles.set(id, handle)
-        handle.agent.followup(createUserMessage({
-          content: [{ type: 'text', text: brief === '' ? text : `${brief}\n\nQuestion: ${text}` }],
-          source: { kind: 'user' },
-        }))
-      } catch (error: unknown) {
-        btwHandles.delete(id)
-        btw.settle(id, quitAbort.signal.aborted ? 'cancelled' : 'failed', error instanceof Error ? error.message : String(error))
-      }
-    })()
+    if (text === '' || active === undefined || session === undefined) return
+    const id = `session-${randomUUID()}`
+    btw.begin({ id: SessionId(id), question: text, at: Date.now() })
+    btwIds.add(id)
+    void runtime.call('btw/start', { sessionId: session.id, childId: id, question: text, mode: active.mode }).catch((error: unknown) => {
+      btwIds.delete(id)
+      btw.settle(SessionId(id), quitAbort.signal.aborted ? 'cancelled' : 'failed', error instanceof Error ? error.message : String(error))
+    })
   }
 
   const forkSession = (argument: string): void => {
@@ -2240,7 +1793,8 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       if (text !== '' && (!Number.isSafeInteger(atSeq) || (atSeq ?? -1) < 0)) {
         throw new Error('usage: /fork [event-seq]')
       }
-      const seed = selectForkSeed(session.snapshotEvents(), atSeq)
+      // Validate the fork point here so a bad sequence is reported before any switch.
+      selectForkSeed(session.snapshotEvents(), atSeq)
       const id = `session-${randomUUID()}`
       requestSwitch({
         target: {
@@ -2248,9 +1802,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
           resume: false,
           mode: active.mode,
           cwd: session.header.cwd ?? cwd,
-          seed: seed.events,
-          parentSession: session.id,
-          seedLength: seed.events.length,
+          forkOf: { sessionId: session.id, ...(atSeq === undefined ? {} : { atSeq }) },
         },
         label: id.slice(-12),
       })
@@ -2270,30 +1822,16 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   // /search reads the SAME in-process engine the model's session_search
   // tools use (the bundle's skip-tolerant subclass). The row may be disabled
   // by a deployment; /search then degrades to a notice instead of a panel.
-  const searchSessions = sessionQuery === undefined
-    ? undefined
-    : async (query: string, signal?: AbortSignal): Promise<readonly SearchRow[]> => {
-      const page = await sessionQuery.searchSessions({ query, limit: 30 }, signal === undefined ? undefined : { signal })
-      const rows = page.items.map(hit => searchHitToRow(hit))
-      // Best-effort title enrichment (the same snapshots /resume merges):
-      // a failure keeps the short-id labels instead of failing the search.
-      try {
-        const observations = await sessionQuery.readTitleSnapshots(rows.map(row => row.id), signal)
-        const titles = new Map<string, string>()
-        for (const observation of observations) {
-          if (observation.status !== 'fulfilled') continue
-          const title = observation.value?.title?.title
-          if (title !== undefined && title.trim() !== '') titles.set(observation.sessionId, title)
-        }
-        return rows.map(row => titles.has(row.id) ? { ...row, label: titles.get(row.id)! } : row)
-      } catch {
-        return rows
-      }
-    }
+  const searchSessions = (query: string, signal?: AbortSignal): Promise<readonly SearchRow[]> =>
+    runtime.call<readonly SearchRow[]>('sessions/search', { query }, signal)
 
   const cancelSessionSwitch = (): boolean => {
     return switchQueue.cancel()
   }
+
+  // Custom providers are a Host plugin; the panel only appears when it is mounted.
+  const customAvailable = await runtime.call<boolean>('custom/available').catch(() => false)
+  const dscodeCustom = customClient(runtime)
 
   const appElement = (): ReturnType<typeof createElement> => {
     // A bare launch mounts with pending/default model, mode, and permission
@@ -2304,14 +1842,12 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
     const defaults = currentDefaults()
     const selection = resolveEffectiveSelection(
       active?.selection.picked ?? pendingSelection,
-      session?.requestHeader()?.config,
+      session?.requestConfig(),
       defaults,
     )
     const model = `${selection.provider}/${selection.model}`
     const effort = selection.reasoningEffort
-    const permission = permissionPresets === undefined
-      ? currentView.permission
-      : effectivePermission(permissionPresets, session, pendingPermission)
+    const permission = (permissionNames.length === 0 ? currentView.permission : effectivePermissionNow()) ?? ''
     return createElement(App, {
       key: session?.id ?? 'pending',
       sessionKey: session?.id ?? '',
@@ -2341,34 +1877,32 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       steer,
       interrupt,
       quit,
-      loadModels: () => dscodeMigrateOpenRouter(ctx.get('settings')).then(() => loadModelDirectory(ctx)),
-      dscodeEnsureProviderRoute: (provider: string) => dscodeEnsureProviderRoute(ctx.get('settings'), provider),
+      loadModels: () => runtime.call<ModelDirectory>('models/directory'),
+      dscodeEnsureProviderRoute: (provider: string) => runtime.call<boolean>('models/ensureRoute', { provider }),
       dscodeGrokStatus: () => grokStatusSnapshot(),
-      dscodeManagementKeyStatus: () => dscodeManagementKeyStatus(ctx),
-      dscodeSaveManagementKey: (key: string) => dscodeSaveManagementKey(ctx, key),
-      dscodeLoadOpenRouterAccount: () => dscodeLoadOpenRouterAccountFor(ctx),
-      dscodeCustom: getCustomProviders(ctx),
-      loadModelProviders: () => loadProviderSettings(ctx),
-      subscribeModelProviders: listener => subscribeProviderSettings(ctx, listener),
-      saveModelProviderCredential: (target, key) => saveProviderCredential(ctx, target, key),
-      saveModelProviderConfiguration: (target, configuration) => saveProviderConfiguration(ctx, target, configuration),
-      discoverModelProvider: (target, request, signal) => discoverProviderModels(ctx, target, request, signal),
-      unsetModelProviderCredential: target => unsetProviderCredential(ctx, target),
-      removeModelProvider: target => removeProviderSettings(ctx, target),
-      loadProviderAuthorizations: () => loadProviderAuthorizations(ctx),
-      subscribeProviderAuthorizations: listener => subscribeProviderAuthorizations(ctx, listener),
-      beginProviderAuthorization: (row, method, interaction, signal) => (
-        beginProviderAuthorization(ctx, row, method, interaction, signal)
-      ),
-      cancelProviderAuthorization: row => cancelProviderAuthorization(ctx, row.key),
-      logoutProviderAuthorization: row => logoutProviderAuthorization(ctx, row),
+      dscodeManagementKeyStatus: () => runtime.call<{ state: string }>('openrouter/managementKeyStatus'),
+      dscodeSaveManagementKey: (key: string) => runtime.call<void>('openrouter/saveManagementKey', { key }),
+      dscodeLoadOpenRouterAccount: () => runtime.call('openrouter/account'),
+      ...(customAvailable ? { dscodeCustom } : {}),
+      loadModelProviders: () => runtime.call<ProviderSettingsDirectory>('providers/directory'),
+      subscribeModelProviders: listener => subscribeRevisions(runtime, 'providers/watch', listener),
+      saveModelProviderCredential: (target, key) => runtime.call<void>('providers/saveCredential', { target, key }),
+      saveModelProviderConfiguration: (target, configuration) => runtime.call<void>('providers/saveConfiguration', { target, configuration }),
+      discoverModelProvider: (target, request, signal) => runtime.call<Awaited<ReturnType<typeof discoverProviderModels>>>('providers/discover', { target, request }, signal),
+      unsetModelProviderCredential: target => runtime.call<void>('providers/unsetCredential', { target }),
+      removeModelProvider: target => runtime.call<void>('providers/remove', { target }),
+      loadProviderAuthorizations: () => runtime.call<ProviderAuthorizationDirectory>('authorization/directory'),
+      subscribeProviderAuthorizations: listener => subscribeRevisions(runtime, 'authorization/watch', listener),
+      beginProviderAuthorization: (row, method, interaction, signal) => beginAuthorization(runtime, row.key, method, interaction, signal),
+      cancelProviderAuthorization: row => { void runtime.call('authorization/cancel', { key: row.key }).catch(() => {}) },
+      logoutProviderAuthorization: row => runtime.call<void>('authorization/logout', { row }),
       openAuthorizationUrl,
       copyTextValue: copyText,
       loadMentions: (query: string, signal?: AbortSignal) => mentions.candidates(query, signal),
-      inspectImages: paths => inspectImagePaths(paths, ctx.get('attachments'), session?.header.cwd ?? cwd),
-      prepareImages: (paths, signal) => saveImagePaths(paths, ctx.get('attachments'), signal),
-      inspectFiles: paths => inspectFilePaths(paths, ctx.get('attachments'), session?.header.cwd ?? cwd),
-      prepareFiles: (paths, signal) => saveFilePaths(paths, ctx.get('attachments'), signal),
+      inspectImages: paths => runtime.call<readonly ImagePathInspection[]>('attachments/inspectImages', { paths, cwd: session?.header.cwd ?? cwd }),
+      prepareImages: (paths, signal) => runtime.call<readonly ImageBlock[]>('attachments/saveImages', { paths }, signal),
+      inspectFiles: paths => runtime.call<readonly FilePathInspection[]>('attachments/inspectFiles', { paths, cwd: session?.header.cwd ?? cwd }),
+      prepareFiles: (paths, signal) => runtime.call<readonly FileBlock[]>('attachments/saveFiles', { paths }, signal),
       cycleMode,
       setPermission: setPermissionAction,
       selectModel,
@@ -2384,9 +1918,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       listReviewBranches: (signal?: AbortSignal) => listReviewBranches(session?.header.cwd ?? cwd, signal),
       listReviewCommits: (signal?: AbortSignal) => listReviewCommits(session?.header.cwd ?? cwd, signal),
       reviewChanges,
-      loadPermissions: () => permissionPresets === undefined
-        ? Promise.reject(new Error('permission presets are not mounted in this composition'))
-        : Promise.resolve(listPermissionRows(permissionPresets)),
+      loadPermissions: () => runtime.call<readonly PermissionRow[]>('permissions/rows'),
       createSession,
       forkSession,
       loadSessions,
@@ -2394,25 +1926,19 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       loadUsage: () => loadUsage(session),
       loadSubagents: () => {
         const current = session
-        if (current === undefined || sessionQuery === undefined) return Promise.resolve([])
-        return loadSessions({ sessions: 'all', cwd: 'all', sort: 'newest', currentCwd: current.header.cwd ?? cwd, query: '' })
-          .then(rows => rows.filter(row => row.parent === current.id && row.subagent))
+        if (current === undefined) return Promise.resolve([])
+        return runtime.call<readonly SessionRow[]>('sessions/subagents', { sessionId: current.id, cwd: current.header.cwd ?? cwd })
       },
       switchSession,
       searchSessions,
       cancelSessionSwitch,
-      loadPlugins: () => listPluginRows(ctx),
+      loadPlugins: () => runtime.call<readonly PluginRow[]>('plugins/list'),
       // The launcher owns every update decision; the TUI only drives its
       // read-only probe and streamed apply as child processes.
       probeUpdate: () => probeLauncherUpdate(),
       applyUpdate: (onLine, plan) => applyLauncherUpdate(onLine, undefined, plan),
-      loadJobs: () => listJobs(ctx, active?.agent),
-      loadSchedules: async () => {
-        if (session === undefined) return []
-        const schedule = ctx.get('schedule')
-        if (schedule === undefined) throw new Error('Reminders are not available in this composition')
-        return scheduleRows(await schedule.list({ sessionId: session.id }))
-      },
+      loadJobs: () => runtime.call<readonly JobRow[]>('jobs/list', session === undefined ? {} : { sessionId: session.id }),
+      loadSchedules: async () => session === undefined ? [] : runtime.call<readonly ScheduleRow[]>('schedules/list', { sessionId: session.id }),
       statusline: statuslineItems,
       saveStatusline,
       applyEditorKeys,
@@ -2450,7 +1976,7 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
       bridge.notify(`processing ${startup.images!.length} startup image${startup.images!.length === 1 ? '' : 's'}…`)
     }
     void inputGate.run(async deliver => {
-      const images = await saveImagePaths(startup.images ?? [], ctx.get('attachments'))
+      const images = await runtime.call<ContentBlock[]>('attachments/saveImages', { paths: startup.images ?? [] })
       if (images.length > 0) bridge.notify(`${images.length} startup image${images.length === 1 ? '' : 's'} attached`)
       deliver({ text: startup.prompt ?? '', mode: 'followup', images })
     }).catch((error: unknown) => {
@@ -2502,6 +2028,33 @@ async function run(ctx: Context, startup: TuiStartup, io: TuiIo): Promise<void> 
   }, () => {})
 }
 
+/** Options for a terminal running as a separate client of a Host. */
+export interface TerminalClientOptions {
+  /** The Host's local carrier socket. */
+  readonly socketPath: string
+  readonly startup: TuiStartup
+  /** Process exit request; defaults to `process.exit`. */
+  readonly exit?: (code: number) => void
+}
+
+/**
+ * Run the terminal as a separate client of a Host: no Harness runs in this
+ * process, every operation crosses the local carrier, and the footer mirrors
+ * the Host's sources.
+ * @param options - the Host socket and parsed startup.
+ */
+export async function runTerminalClient(options: TerminalClientOptions): Promise<void> {
+  if (options.startup.theme !== undefined) setTheme(options.startup.theme)
+  const io: TuiIo = { mount: element => internals.mount(element), exit: options.exit ?? (code => process.exit(code)) }
+  const errors = runtimeErrorSink()
+  const runtime = createTypertRuntime({ socketPath: options.socketPath, onError: errors.report })
+  try {
+    await run({ runtime, detached: true, errors }, options.startup, io)
+  } catch (error: unknown) {
+    fail(io, error)
+  }
+}
+
 /**
  * Mount the interactive terminal driver.
  * @param ctx - plugin context carrying core services and the launcher-provided exit request.
@@ -2530,6 +2083,28 @@ export function apply(ctx: Context, config: Config): void {
   if (exit === undefined) {
     throw new Error('tui-runner: the launcher must provide ctx.appExit before the tree mounts')
   }
-  const io: TuiIo = { mount: internals.mount, exit }
-  void run(ctx, startup, io).catch((error: unknown) => { fail(io, error) })
+  // Read at mount time, not here: a test harness may replace the seam after this plugin applies.
+  const io: TuiIo = { mount: element => internals.mount(element), exit }
+  void (async () => {
+    // Loader siblings mount concurrently. Await the complete application before
+    // creating an Agent so its scoped tools and adapters are not half-composed.
+    await ctx.get('loader')?.await()
+    // Early process shutdown can dispose the tree while settlement is pending.
+    const defaultModel = ctx.get('agentDefaultModel')
+    if (ctx.get('agents') === undefined || defaultModel === undefined || ctx.get('sessions') === undefined) return
+    const presets = agentPresetsFrom(ctx)
+    if (presets === undefined) throw new Error('agent preset service is unavailable; check the dsh-code bundle patch')
+    const permissionPresets = permissionPresetsFrom(ctx)
+    // DSCODE_RUNTIME_SOCKET selects the protocol client over a Host's local
+    // carrier; without it the terminal drives this process's Harness directly.
+    const socketPath = process.env.DSCODE_RUNTIME_SOCKET
+    const errors = runtimeErrorSink()
+    const runtime: RuntimeClient = socketPath !== undefined && socketPath !== ''
+      ? createTypertRuntime({ socketPath, onError: errors.report })
+      : createInProcessRuntime({
+        ctx, presets, defaults: () => defaultModel.currentSelection(),
+        ...(permissionPresets === undefined ? {} : { permissionPresets }),
+      })
+    await run({ runtime, detached: false, errors }, startup, io)
+  })().catch((error: unknown) => { fail(io, error) })
 }

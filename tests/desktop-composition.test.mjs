@@ -52,3 +52,13 @@ test('client composition rejects source registration drift', () => {
   assert.throws(() => composeDesktopClient('fixture', []), /at least one/);
   assert.throws(() => composeDesktopClient('fixture', ['unrelated source']), /patch drift/);
 });
+
+test('the Desktop preset disables both shared-folder discovery rows and stays valid YAML', async () => {
+  const { readFileSync } = await import('node:fs');
+  const yaml = (await import('js-yaml')).default;
+  const { disableSessionWorkspaceRows } = await import('../scripts/build-desktop-preset.mjs');
+  const preset = disableSessionWorkspaceRows(readFileSync(new URL('../presets/dscode/agent.cordis.yml', import.meta.url), 'utf8'));
+  const schema = yaml.DEFAULT_SCHEMA.extend([new yaml.Type('tag:yaml.org,2002:js', { kind: 'scalar', construct: text => text })]);
+  const rows = yaml.load(preset, { schema });
+  for (const id of ['agent-instructions', 'skill-filesystem']) assert.equal(rows.find(row => row.id === id)?.disabled, true, id);
+});

@@ -259,6 +259,11 @@
     # shapes, and rows over packages the host does not bundle need the package
     # added to the profile first.
 
+    # The Host half of the terminal: DSCODE operations the runner reaches
+    # through its runtime client, in process or over the local carrier.
+    - id: tui-host
+      name: 'dsh-code/host'
+
     - id: tui-startup
       name: 'dsh-code/startup'
 

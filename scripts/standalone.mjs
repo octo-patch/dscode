@@ -5,6 +5,18 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { readPackage, standaloneEnvironment, installationLockHome } from './standalone-layout.mjs';
 
+/** Stop a shared Host that has no attached terminal; refuse while one is attached. */
+async function stopIdleHost() {
+  let host;
+  // A package without the Host module (an older or reduced layout) has no Host to stop.
+  try { host = await import('./host.mjs'); } catch (error) { if (error.code === 'ERR_MODULE_NOT_FOUND') return; throw error; }
+  const { hostStatus, stop } = host;
+  const status = await hostStatus();
+  if (status === undefined) return;
+  if (status.clients > 0) throw Error('Exit the DSCODE terminals attached to the background Host before updating.');
+  await stop();
+}
+
 export async function standaloneMain(args = process.argv.slice(2)) {
   let root = resolve(import.meta.dirname, '..');
   let metadata = readPackage(root);
@@ -27,6 +39,8 @@ export async function standaloneMain(args = process.argv.slice(2)) {
   if (args[0] === '--installation') { console.log(JSON.stringify({ ...metadata, root, home: env.DSCODE_HOME, node: process.execPath })); return; }
   if (args[0] === '--check') {
     await import('dsh-code/startup');
+    await import('dsh-code/client');
+    await import('dsh-code/host');
     await import('node-pty');
     await import('@deepseek-ai/node-addon-system/flock');
     console.log(`DSCODE ${metadata.version}: bundled runtime and native modules OK`);
@@ -39,7 +53,12 @@ export async function standaloneMain(args = process.argv.slice(2)) {
     for (const home of homes) gates.push(await acquireLock(home));
     if (args[0] === 'update') {
       if (existsSync(join(root, '.dscode-brew'))) throw Error('Homebrew owns this package. Run "brew upgrade dscode" to replace the complete package.');
-      for (const home of homes) if ((await activeRuns(home)).length) throw Error('Exit running DSCODE sessions before updating.');
+      // The shared Host holds a run lease while it waits for terminals; with
+      // none attached it is stopped so the package can be replaced.
+      gates.splice(0).reverse().forEach(unlock => unlock());
+      await stopIdleHost();
+      for (const home of homes) gates.push(await acquireLock(home));
+      for (const home of homes) if ((await activeRuns(home)).length) throw Error('Exit running DSCODE sessions (and attached terminals of `dscode host`) before updating.');
       const { updateStandalone } = await import('./standalone-update.mjs');
       await updateStandalone(args.slice(1), { root, env });
       return;

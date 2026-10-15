@@ -66,6 +66,8 @@ export function stageTuiForPack(directory, { quiet = true } = {}) {
   manifest.main = 'lib/index.mjs';
   manifest.exports = {
     '.': { default: './lib/index.mjs' },
+    './host': { default: './lib/host/index.mjs' },
+    './client': { default: './lib/client.mjs' },
     './startup': { default: './lib/startup.mjs' },
     './session-query': { default: './lib/session-query.mjs' },
     './invariant': { default: './lib/invariant.mjs' },

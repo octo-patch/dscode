@@ -2,6 +2,30 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## Runtime and terminal separation — 2026-10-14
+
+Version 0.7.47 runs the terminal as a client of a background host
+(docs/runtime-client-design.md, docs/host.md). New verifiers:
+`verify-local-carrier.mjs` (Typert over the owner-only socket),
+`verify-tui-runner.mjs` (sixteen terminal behaviours plus resume in
+single-process, same-process protocol and separate-host modes, on an in-memory
+TTY with a fixture model and an isolated HOME) and `verify-host.mjs` (two clients,
+session route, crash and reattach with paged history, concurrent starts, idle
+exit, per-session ancestor instructions). `npm run check` passed on macOS arm64:
+1,248 unit cases (80.05% first-party `.mjs` line coverage), fifteen integration
+verifiers, package checks and 63 evaluations; `npm run doctor` and the local
+darwin-arm64 `verify-standalone.mjs` (now including host start/status/stop)
+passed; `npm run test:e2e` passed eight steps on linux/arm64. The verifiers
+caught a pre-existing `/btw` seeding failure, a subagent route that overrode a
+child's explicit effort once it ran host-wide, a macOS socket-path overflow in
+long state directories, and duplicate module instances in copied checkouts
+(probe seams and the startup-command catalog). An earlier probe revision wrote
+its typed inputs into the developer's real terminal history before HOME was
+isolated; those 68 lines were removed and a backup kept. Two-terminal approval
+races, per-session hooks and skill roots, host exit under an attached terminal,
+Intel and Linux x64 runs, live models and a real terminal emulator remain
+without an automated case.
+
 ## Self-contained Linux packages — 2026-10-14
 
 Version 0.7.46 cross-builds `linux-x64` and `linux-arm64` archives on macOS.

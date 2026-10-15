@@ -34,8 +34,6 @@ export interface SkillsView {
   readonly error?: string
   /** Subscribe to catalog changes; returns the unsubscribe function. */
   subscribe(listener: () => void): () => void
-  /** Retarget the agent whose workspace the catalog is read for. */
-  setAgent(agent: Agent): void
 }
 
 /** Internal shape shared by {@link watchSkills} and its test doubles. */

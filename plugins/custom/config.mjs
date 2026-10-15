@@ -6,6 +6,8 @@ import { parse, stringify } from 'yaml';
 
 export const PROTOCOLS = ['chat-completions', 'responses', 'anthropic'];
 export const customId = () => `custom-${randomUUID()}`;
+/** A blank custom-provider profile; pure, so a separate terminal can draft one locally. */
+export const newCustomProfile = () => ({ id: customId(), name: '', baseURL: '', api: 'chat-completions', auth: 'bearer', backend: 'generic', timeoutMs: 180000, models: [] });
 export const isCustomId = id => typeof id === 'string' && /^custom-[a-zA-Z0-9-]+$/.test(id);
 export const keyRef = id => `DSCODE_CUSTOM_${id.replaceAll('-', '_').toUpperCase()}_API_KEY`;
 export const isCustomKey = ref => /^DSCODE_CUSTOM_CUSTOM_[A-Z0-9_]+_API_KEY$/.test(ref);

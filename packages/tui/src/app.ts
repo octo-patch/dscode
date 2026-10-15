@@ -92,42 +92,9 @@ import {
 import type { Email as DscodeEmail } from '../../../plugins/email/inbox.mjs'
 import { createGmailConnector as dscodeCreateGmailConnector } from '../../../plugins/email/gmail.mjs'
 import { createImapConnector as dscodeCreateImapConnector } from '../../../plugins/email/imap.mjs'
-import {
-  MANAGEMENT_REF as DSCODE_OPENROUTER_MANAGEMENT_REF,
-  loadOpenRouterAccount as dscodeLoadOpenRouterAccount,
-  openRouterAccountLines as dscodeOpenRouterAccountLines,
-  verifyManagementKey as dscodeVerifyManagementKey,
-} from '../../../plugins/providers/openrouter-account.mjs'
-
-export async function dscodeOpenRouterSecret(ctx, ref) {
-  const hit = await ctx.get("credentials")?.resolve(ref);
-  return typeof hit?.value === "string" && hit.value.length > 0 ? hit.value : void 0;
-}
-
-export async function dscodeManagementKeyStatus(ctx) {
-  const credentials = ctx.get("credentials");
-  if (credentials === void 0) return { state: "unavailable" };
-  try {
-    const facts = await credentials.describe(DSCODE_OPENROUTER_MANAGEMENT_REF);
-    if (facts?.configured) return { state: facts.source === "env" ? "env" : "saved" };
-    return { state: facts?.writable === false ? "readonly" : "missing" };
-  } catch {
-    return { state: "error" };
-  }
-}
-
-export async function dscodeSaveManagementKey(ctx, key) {
-  const credentials = ctx.get("credentials");
-  if (typeof credentials?.set !== "function") throw new Error("Credential storage is unavailable.");
-  await dscodeVerifyManagementKey(key);
-  await credentials.set(DSCODE_OPENROUTER_MANAGEMENT_REF, key);
-}
-
-export async function dscodeLoadOpenRouterAccountFor(ctx) {
-  const [apiKey, managementKey] = await Promise.all(["OPENROUTER_API_KEY", DSCODE_OPENROUTER_MANAGEMENT_REF].map(ref => dscodeOpenRouterSecret(ctx, ref)));
-  return dscodeLoadOpenRouterAccount({ apiKey, managementKey });
-}
-
+// The OpenRouter account and management key are read on the Host
+// (host/providers.ts); the terminal only formats what it receives.
+import { openRouterAccountLines as dscodeOpenRouterAccountLines } from '../../../plugins/providers/openrouter-account.mjs'
 
 /**
  * dscode: DSCODE-owned UI strings in the interface language. The DSCODE tables key
@@ -589,9 +556,9 @@ export interface AppProps {
   loadSubagents: () => Promise<readonly SessionRow[]>
   switchSession: (row: SessionRow) => void
   cancelSessionSwitch: () => boolean
-  loadPlugins: () => readonly PluginRow[]
+  loadPlugins: () => readonly PluginRow[] | Promise<readonly PluginRow[]>
   /** Caller-visible background jobs (the host jobs registry, read-only). */
-  loadJobs: () => readonly JobRow[]
+  loadJobs: () => readonly JobRow[] | Promise<readonly JobRow[]>
   /** Read active reminders from the native durable scheduler. */
   loadSchedules: () => Promise<readonly import('./render/projection.ts').ScheduleRow[]>
   /** Probe the launcher's aligned update plan (read-only; never installs). */

@@ -46,6 +46,9 @@
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
+  # A shared Host serves many workspaces; it mounts instructions per session
+  # from the session's own folder (plugins/desktop-workspace) instead.
+  disabled: !!js 'process.env.DSCODE_SESSION_WORKSPACES === "1"'
   config:
     # The launcher folds AGENTS.md/CLAUDE.md from directories above the project
     # root, up to home, in front of the user-global file; without those files it
@@ -139,6 +142,8 @@
 # carries whatever the deployment registered globally (repository plugins).
 - id: skill-filesystem
   name: '@deepseek-ai/dsh-skill-filesystem'
+  # Per-session ancestor skill roots on a shared Host, as for instructions above.
+  disabled: !!js 'process.env.DSCODE_SESSION_WORKSPACES === "1"'
   config:
     # Ancestor skill discovery is on by default: the skill roots of directories
     # between the working directory and home register at rank 300, nearest first,

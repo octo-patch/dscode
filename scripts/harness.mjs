@@ -15,7 +15,9 @@ import { MARKER, canonical, inside, standaloneEnvironment } from './standalone-l
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 export const standalone = existsSync(join(root, MARKER));
-export const runtimeHome = standalone ? standaloneEnvironment(root).DSCODE_HOME : join(root, '.runtime');
+// DSCODE_SOURCE_HOME relocates a source checkout's state (verification uses it so
+// a background Host never lands in the developer's .runtime).
+export const runtimeHome = standalone ? standaloneEnvironment(root).DSCODE_HOME : process.env.DSCODE_SOURCE_HOME || join(root, '.runtime');
 export const configRoot = standalone ? runtimeHome : root;
 // Native model/settings edits live in this profile's cordis.patch.yml. Its name must
 // survive upgrades and relocations, while remaining separate from the legacy Hub profile.
@@ -169,6 +171,16 @@ export function runDsh(args, { home = runtimeHome, cwd = root, stdio = 'inherit'
   });
 }
 
+/** Installation-local composition overlays, applied to every Harness this launcher starts. */
+export function localOverlays() {
+  const overlays = [];
+  for (const file of ['mcp.local.yml', 'harness.local.yml']) {
+    const path = join(configRoot, 'config', file);
+    if (existsSync(path)) overlays.push('--patch', path);
+  }
+  return overlays;
+}
+
 export async function main(argv = process.argv.slice(2), defaultCwd = root) {
   loadLocalEnvironment();
   const [command = 'start', ...args] = argv;
@@ -189,10 +201,30 @@ export async function main(argv = process.argv.slice(2), defaultCwd = root) {
     console.log(`Ready: ${profile}\nStart with npm start. State stays in ${runtimeHome}`);
     return;
   }
-  const overlays = [];
-  for (const file of ['mcp.local.yml', 'harness.local.yml']) {
-    const path = join(configRoot, 'config', file);
-    if (existsSync(path)) overlays.push('--patch', path);
+  const overlays = localOverlays();
+  // The interactive terminal attaches to the shared Host by default;
+  // --in-process (or DSCODE_RUNTIME=in-process) keeps the single-process mode.
+  const inProcessFlag = args.indexOf('--in-process');
+  if (inProcessFlag !== -1) args.splice(inProcessFlag, 1);
+  // Launcher-level flags (--dump-config, --patch, --profile) belong to the DSH CLI, not the terminal.
+  const launcherFlag = args.some(arg => ['--dump-config', '--patch', '--profile'].includes(arg.split('=')[0]));
+  if (command === 'start' && inProcessFlag === -1 && !launcherFlag && process.env.DSCODE_RUNTIME !== 'in-process') {
+    const { ensureHost } = await import('./host.mjs');
+    let socket;
+    try { socket = await ensureHost(); } catch (error) {
+      console.error(`dscode: the shared Host is unavailable, continuing in a single process: ${error.message.split('\n')[0]}`);
+    }
+    if (socket !== undefined) {
+      // DSCODE_TERMINAL_CLIENT substitutes the client entry (verification installs its probe there).
+      const client = process.env.DSCODE_TERMINAL_CLIENT || join(root, 'scripts/terminal-client.mjs');
+      const child = spawn(process.execPath, [...quietNodeArgs, client, ...args], {
+        cwd, env: { ...environment(runtimeHome, cwd), DSCODE_RUNTIME_SOCKET: socket }, stdio: runtimeStdio('inherit'),
+      });
+      for (const signal of ['SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal));
+      child.on('error', error => { console.error(error.message); process.exitCode = 1; });
+      child.on('exit', (code, signal) => { process.exitCode = code ?? (signal ? 1 : 0); });
+      return;
+    }
   }
   const child = runDsh([...overlays, ...(command === 'config' ? ['--dump-config'] : args)], { cwd });
   for (const signal of ['SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal));

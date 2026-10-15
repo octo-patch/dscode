@@ -42,6 +42,7 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 | Feature | What you get |
 |---|---|
 | **[Agentic coding loop](docs/dscode-ultra.md)** | Numbered file reads, exact edits and atomic writes with stale-version protection and diff metadata, plus a persistent shell for search, patches and tests. Project instructions, skills, plan, goal and hooks are wired in. |
+| **[Background host](docs/host.md)** | The terminal and the agent runtime run as separate processes: the first `dscode` starts a local background host that owns sessions, and each terminal attaches to it. Work survives closing a terminal, several terminals can share a session, and a crashed terminal reattaches. `dscode host status/stop` manages it; `--in-process` keeps one process. |
 | **[Session bridge](docs/session-bridge.md)** | Start a task in the TUI, then add requirements, read output or subscribe to progress from another terminal (`dscode sessions`, `send`, `read`, `watch`). Every source enters the same runtime and context, and readers never take the session write lock. |
 | **[Agent-to-agent tasks](docs/session-communication.md)** | The agent finds, reads and messages other sessions with `list_sessions`, `read_session`, `send_session` and `reply_session`, choosing `queue`, `steer` or `defer`. A persisted mailbox, retry de-duplication and a finite budget bound message loss, double processing and wake-up loops. |
 | **[Session cards](docs/session-cards.md)** | Each session advertises its project, workspace and the topics of its last five user requests—enough to pick the right collaborator without reading its transcript. Cards describe what the user asked for, not conclusions. |
@@ -54,6 +55,8 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 | **[Agent email](docs/email.md)** | A local `[ToAgent]` inbox shared by all sessions: Enter steers a message into the live session as user-selected context, and with Gmail configured the agent can send mail through the same approval flow. |
 
 ## 🆕 What's new
+
+**0.7.47** — The terminal and the agent runtime now run as separate processes: `dscode` starts a local [background host](docs/host.md) that owns sessions, and terminals attach to it over an owner-only socket. Closing or crashing a terminal leaves running work on the host, several terminals can attach to one session, and each session keeps its own folder's instructions. `--in-process` restores the single-process mode. See the [release notes](docs/releases/0.7.47.md).
 
 **0.7.46** — Self-contained packages for 64-bit glibc Linux (x64 and arm64). The same `curl` installer, `dscode update` and direct downloads now work on Linux; install bubblewrap for command sandboxing. See the [release notes](docs/releases/0.7.46.md).
 
@@ -115,7 +118,7 @@ The package includes pinned Node, Harness, TUI, plugins and native dependencies.
 
 ```sh
 dscode update             # upgrade to the latest self-contained release
-dscode update 0.7.46      # install an exact self-contained release
+dscode update 0.7.47      # install an exact self-contained release
 ```
 
 Exit running DSCODE sessions and schedulers first. The updater verifies and replaces the whole application, preserving settings, credentials and sessions; a failed replacement restores the old program. In the TUI, `/update` schedules the same updater after you exit. Re-running the installer also updates an installation it owns.
@@ -126,7 +129,7 @@ Exit running DSCODE sessions and schedulers first. The updater verifies and repl
 
 ```sh
 mkdir dscode-app
-tar -xzf dscode-0.7.46-darwin-arm64-standalone.tar.gz -C dscode-app
+tar -xzf dscode-0.7.47-darwin-arm64-standalone.tar.gz -C dscode-app
 ./dscode-app/dscode
 ```
 
@@ -155,7 +158,7 @@ The self-contained package uses its own pinned runtime and does not reuse or mod
 
 An experimental combined Desktop package adds the DSCODE preset, custom-model and account settings, browser preview, durable session communication, cross-session memory and opt-in scheduling to the official application. **Settings → DSCODE → Schedules** manages tasks and enables delivery while Desktop stays open. Build and local installation instructions are in [Browser use](docs/browser-use.md#install-the-experimental-combined-desktop-package). Native installation, upgrade, removal and reinstallation with scheduling enabled, plus rendered account and scheduling controls, were checked on macOS Desktop 0.2.0-rc.2; qualification limits are covered in [Triggers](docs/triggers.md#experimental-desktop-scheduling). The package also includes an experimental [native Computer Use adapter](docs/computer-use.md); window observation and input still await qualification with macOS Accessibility permission. Durable [time context](docs/session-communication.md#time-context-for-delayed-work) gives DSCODE agents arrival times, relay waits and previous turn endings while keeping ordinary chat clear. Namespaced [Desktop diagnostics](docs/tui-commands.md#experimental-desktop-diagnostics) inspect the selected session, skills and Host MCP entries; matching user guides ship with the package. The [Desktop email inbox](docs/email.md#experimental-desktop-inbox) previews shared local mail, connects IMAP or Gmail OAuth, and adds a selected message to a DSCODE session. Background sync is opt-in; outgoing mail keeps the existing approval and receipt rules. The [Session usage sidebar](docs/session-metrics.md#experimental-desktop-usage) shows DSCODE cost, context, cache, request speed and per-turn estimates. The [Delegation board sidebar](docs/tui-commands.md#experimental-desktop-delegation-board) follows the selected main session’s tasks, dependencies, worktrees and verification evidence. The Desktop plugin is distributed separately from the terminal packages; terminal popups and terminal-only commands keep their existing UI.
 
-The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version 0.7.35 removes bundled [Plugin Hub](docs/plugin-hub.md) UI, discovery tools and runtime dependencies; DSCODE remains listed in the Hub catalog. It targets Harness runtime 0.2.0-rc.2. In official **Plugins → Add plugin**, enter `@toddzheng024/dscode-desktop@0.7.46`, install, then choose **Enable now**. Fully quit and reopen Desktop after updating. Both `preview` and the default `latest` channel receive this verified preview release.
+The Desktop plugin uses the package name `@toddzheng024/dscode-desktop`. Version 0.7.35 removes bundled [Plugin Hub](docs/plugin-hub.md) UI, discovery tools and runtime dependencies; DSCODE remains listed in the Hub catalog. It targets Harness runtime 0.2.0-rc.2. In official **Plugins → Add plugin**, enter `@toddzheng024/dscode-desktop@0.7.47`, install, then choose **Enable now**. Fully quit and reopen Desktop after updating. Both `preview` and the default `latest` channel receive this verified preview release.
 
 **Settings → DSCODE** groups setup, Models, Accounts and Schedules at the same level; **Plugins → DSCODE · Community** opens the same page. DSCODE browser tools are scoped to DSCODE sessions. Existing Desktop models/accounts work through the normal picker; optional provider settings use the native credential store. Enable **Show coding view** and **Agent presets**, then choose DSCODE for a new session after fully restarting.
 
@@ -244,6 +247,7 @@ DSH is pinned to `0.2.0-rc.2`, bundled Node to `24.21.0`, the TUI is based on `d
 | [Non-interactive runs](docs/exec.md) | `dscode exec`, JSON output, resume and effort/model/permission flags |
 | [ACP clients](docs/acp.md) | `dscode acp`, configured-provider model filtering, custom providers, client approval and protocol limits |
 | [Triggers](docs/triggers.md) | Event-driven runs with fresh or persistent sessions: cron, delay jobs, supervised script loops, `/trigger` TUI management, agent tools, the run log |
+| [Background host](docs/host.md) | The separate runtime process, `dscode host` commands, idle exit, single-process mode and updates |
 | [Session bridge](docs/session-bridge.md) | `dscode sessions`, `send`, `read`, `watch` against a live session |
 | [Session communication](docs/session-communication.md) | Agent-side messaging, delivery modes, budgets and de-duplication |
 | [Session cards](docs/session-cards.md) | Project, workspace and topic fields, and how they are derived |
@@ -273,6 +277,8 @@ Design records do not repeat the guides above:
 |---|---|
 | [Session messaging design](docs/session-messaging-design.md) | Rationale, boundaries and fixed limits behind agent-to-agent tasks |
 | [Cloud web app host](docs/cloud-webapp-host.md) | Design baseline and trust model for browser access; not implemented |
+| [Runtime and client separation](docs/runtime-client-design.md) | Decisions, P0 evidence and plan for driving the runtime from separate clients over the upstream protocol |
+| [Client and runtime protocol](docs/runtime-protocol.md) | How a client talks to the Host: socket, envelopes, streams, session lifecycle, approvals and the DSCODE operation catalog |
 | [Triggers](docs/triggers-design.md) | Why the trigger mechanism is shaped this way: the ingress, the supervised scheduler, the run log as a contract |
 | [Verification](docs/verification.md) | What the maintained checks cover, and what cannot run inside a session |
 | [Maintainability](docs/maintainability.md) | What checks the forked terminal, and what stays unverified |

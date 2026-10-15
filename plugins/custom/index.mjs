@@ -2,7 +2,7 @@ import z from '@deepseek-ai/schemastery';
 import { watchFile, unwatchFile } from 'node:fs';
 import { credentialRef } from '@deepseek-ai/dsh-credentials';
 import { createToolResultMessage, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm';
-import { CustomStore, validateProfile, customId, keyRef, isCustomId } from './config.mjs';
+import { CustomStore, validateProfile, keyRef, isCustomId, newCustomProfile } from './config.mjs';
 import { CustomAdapter, authHeaders } from './adapter.mjs';
 
 export const name = 'dscode-custom';
@@ -30,7 +30,7 @@ export class CustomProviders {
       return { ...p, credentialStatus: p.auth === 'none' ? 'No authentication' : facts.configured ? facts.source === 'env' ? 'Key from environment' : 'Key saved' : 'API key missing' };
     })) };
   }
-  newProfile() { return { id: customId(), name: '', baseURL: '', api: 'chat-completions', auth: 'bearer', backend: 'generic', timeoutMs: 180000, models: [] }; }
+  newProfile() { return newCustomProfile(); }
   async resolveKey(profile, draftKey) {
     if (profile.auth === 'none') return undefined;
     if (draftKey) return draftKey;

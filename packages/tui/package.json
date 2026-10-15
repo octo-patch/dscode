@@ -9,6 +9,12 @@
     ".": {
       "default": "./src/index.ts"
     },
+    "./host": {
+      "default": "./src/host/index.ts"
+    },
+    "./client": {
+      "default": "./src/client.ts"
+    },
     "./startup": {
       "default": "./src/startup.ts"
     },

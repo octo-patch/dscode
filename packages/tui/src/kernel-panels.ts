@@ -187,12 +187,19 @@ export function PermissionPanel({ current, load, select, close }: {
   })
 }
 
-export function PluginPanel({ load, close, initialQuery = '' }: { load: () => readonly PluginRow[]; close: () => void; initialQuery?: string }): ReactElement {
+export function PluginPanel({ load, close, initialQuery = '' }: { load: () => readonly PluginRow[] | Promise<readonly PluginRow[]>; close: () => void; initialQuery?: string }): ReactElement {
   const [epoch, setEpoch] = useState(0)
   const [query, setQuery] = useState(initialQuery)
   const [cursor, setCursor] = useState(0)
   const [expanded, setExpanded] = useState(false)
-  const rows = useMemo(() => load().filter(row => `${row.entryId} ${row.moduleName} ${row.phase ?? ''}`.toLowerCase().includes(query.toLowerCase())), [epoch, query])
+  // The inventory is read from the Host, possibly across the carrier; r re-reads it.
+  const [all, setAll] = useState<readonly PluginRow[] | undefined>(undefined)
+  useEffect(() => {
+    let live = true
+    Promise.resolve().then(() => load()).then(next => { if (live) setAll(next) }, () => { if (live) setAll([]) })
+    return () => { live = false }
+  }, [epoch])
+  const rows = useMemo(() => (all ?? []).filter(row => `${row.entryId} ${row.moduleName} ${row.phase ?? ''}`.toLowerCase().includes(query.toLowerCase())), [all, query])
   useEffect(() => setCursor(value => Math.min(value, Math.max(0, rows.length - 1))), [rows.length])
   useInput((input, key) => {
     if (key.escape) return close()
@@ -211,7 +218,7 @@ export function PluginPanel({ load, close, initialQuery = '' }: { load: () => re
       key: row.entryId,
       disabled: !row.enabled,
       text: `${row.enabled ? '●' : '○'} ${row.entryId} · ${row.phase ?? 'not mounted'}${expanded && index === cursor ? ` · ${row.moduleName}` : ''}`,
-    })), cursor, loading: false, query, footer: t('panel.footer.inspectDetails'),
+    })), cursor, loading: all === undefined, query, footer: t('panel.footer.inspectDetails'),
   })
 }
 
@@ -257,15 +264,21 @@ const JOB_MARK: Record<JobRow['status'], string> = {
  * interval dies with the panel). Cancel stays upstream-only; an absent
  * registry renders as the plain empty state (a harmless missing service).
  */
-export function JobsPanel({ load, close }: { load: () => readonly JobRow[]; close: () => void }): ReactElement {
-  const [, setRefresh] = useState(0)
+export function JobsPanel({ load, close }: { load: () => readonly JobRow[] | Promise<readonly JobRow[]>; close: () => void }): ReactElement {
+  const [refresh, setRefresh] = useState(0)
   const [cursor, setCursor] = useState(0)
-  const [, setTick] = useState(0)
+  const [tick, setTick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => setTick(value => value + 1), 1_000)
     return () => clearInterval(id)
   }, [])
-  const rows = load()
+  // Each second (and on r) the snapshot is re-read from the Host.
+  const [rows, setRows] = useState<readonly JobRow[]>([])
+  useEffect(() => {
+    let live = true
+    Promise.resolve().then(() => load()).then(next => { if (live) setRows(next) }, () => {})
+    return () => { live = false }
+  }, [tick, refresh])
   useInput((input, key) => {
     if (key.escape || input === 'q') return close()
     if (input === 'r') return setRefresh(value => value + 1)

@@ -10,6 +10,25 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.47] - 2026-10-14
+
+### Added
+
+- Run the terminal and the agent runtime as separate processes. The first `dscode` starts a local background host that owns sessions, models, tools, permissions and credentials, and each terminal attaches to it over an owner-only Unix socket. Closing or crashing a terminal leaves running work on the host, several terminals can attach to one session, and `dscode --resume` rejoins a running turn. `dscode host status|start|stop|serve` manages the host; it exits after ten idle minutes (`DSCODE_HOST_IDLE_MS`). `--in-process` or `DSCODE_RUNTIME=in-process` keeps one process, and the launcher falls back to it when the host cannot start. See [Background host](host.md).
+- One host serves every folder: each session mounts the instructions, ancestor skill roots and hooks of its own folder.
+- [Client and runtime protocol](runtime-protocol.md) specifies how a client talks to the host: the socket and its routes, the unary and stream envelopes, the session lifecycle, approvals with several clients, and the DSCODE operation catalog.
+
+### Changed
+
+- The terminal reaches the runtime only through a runtime client. Standard session operations use the upstream Typert protocol; DSCODE-specific operations run on the host through one registry shared by the single-process and separate modes. Secret-reading OpenRouter account helpers moved out of the terminal UI into the host.
+- `dscode update` stops a host with no attached terminal before replacing the package, and refuses while a terminal is attached.
+- The plugin and jobs panels load asynchronously.
+
+### Fixed
+
+- `/btw` side questions that inherit the conversation now start; the child session lacked the seeded marker and was rejected.
+- A subagent started with its own `reasoning_effort` or model keeps it; the route that makes delegated agents follow the current `/model` choice no longer overrides an explicit per-child choice. `/subagent` still overrides both.
+
 ## [0.7.46] - 2026-10-14
 
 ### Added

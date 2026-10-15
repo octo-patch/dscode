@@ -79,6 +79,19 @@ export function runProbe(fail) {
       // The joined turn is still running on the Host, so Esc interrupts it.
       for (let i = 0; i < 40 && !(await flat()).includes('turn cancelled'); i++) { stdin.write('\x1b'); await tick(250); }
       await waitFor('joined turn interrupted', text => text.includes('turn cancelled'));
+    } else if (scenario === 'remote') {
+      // A remote runtime: the session's folder and its files are on the server.
+      await enter('hello');
+      await waitFor('streamed reply', text => text.includes(`${REPLY} (fixture)`));
+      await enter('/export remote-export.md');
+      await waitFor('exported on the server', text => text.includes('exported to') && text.includes('remote-export.md'));
+      // The verifier restarts the server here; the terminal must ride it out.
+      console.log('TUI_PROBE_READY_FOR_RESTART');
+      await waitFor('connection loss announced', text => text.includes('lost the connection to runtime'), 60000);
+      await waitFor('reconnection announced', text => text.includes('reconnected to runtime'), 90000);
+      await tick(1500);
+      await enter('after restart');
+      await waitFor('reply after reconnecting', text => text.split(`${REPLY} (fixture)`).length - 1 >= 2, 60000);
     } else {
       await enter('hello');
       await waitFor('streamed reply', text => text.includes(`${REPLY} (fixture)`));

@@ -2,6 +2,10 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## Remote runtime — 2026-10-15
+
+Version 0.7.48 adds `dscode server` (TCP with a bearer token, unencrypted), `dscode config --runtime` and `dscode runtime` (docs/remote-runtime.md). New verifier `verify-remote.mjs`: a real server and a terminal with separate state directories over loopback, covering token refusal on every route, config, the full terminal scenario through the default runtime, `/export` and git in the server folder, a server restart with the terminal reconnecting, content attachments, and refused launches. `/reload` adds a scenario to `verify-host.mjs`: an MCP server, an ancestor skill folder and an ancestor `AGENTS.md` created after a live session started become active, visible and part of the model request, and the server is removed again. `npm run check` passed on macOS arm64: 1,267 unit cases (80.27% first-party `.mjs` line coverage), every integration verifier, package checks and 63 evaluations. Its earlier runs failed and found three defects in the change itself: the optional `tcp` config with required fields broke every local Host, reconnect timers kept a quitting terminal alive, and `/reload` reconciled through a second copy of `dsh-app-boot` that did not know the root Include entry. Separate machines, real NAT, approvals across a reconnect, live models and Intel or Linux runs of the new verifier have no automated case; `npm run doctor`, `verify-standalone.mjs` and `test:e2e` were not rerun.
+
 ## Runtime and terminal separation — 2026-10-14
 
 Version 0.7.47 runs the terminal as a client of a background host

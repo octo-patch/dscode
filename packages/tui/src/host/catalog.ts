@@ -12,7 +12,9 @@ import type { JobView } from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-schedule'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
-import { inspectFilePaths, inspectImagePaths, saveFilePaths, saveImagePaths } from '../attachments.ts'
+import {
+  inspectFileFacts, inspectFilePaths, inspectImageFacts, inspectImagePaths, saveFileData, saveFilePaths, saveImageData, saveImagePaths,
+} from '../attachments.ts'
 import { DSCODE_PRESET } from '../dscode/preset.ts'
 import type { JobRow } from '../kernel-panels.ts'
 import { createMentions, type MentionsApi, type ParsedSessionReferenceText } from '../mentions.ts'
@@ -113,5 +115,15 @@ export function registerCatalog(ctx: Context, registry: DscodeRemoteRegistry): (
     registry.method('attachments/saveImages', ({ paths }: { paths: string[] }, { signal }) => saveImagePaths(paths, ctx.get('attachments'), signal)),
     registry.method('attachments/inspectFiles', ({ paths, cwd }: { paths: string[]; cwd: string }) => inspectFilePaths(paths, ctx.get('attachments'), cwd)),
     registry.method('attachments/saveFiles', ({ paths }: { paths: string[] }, { signal }) => saveFilePaths(paths, ctx.get('attachments'), signal)),
+    // A remote terminal's local files: it sends what it read (bytes as base64),
+    // the Host applies the same limits and stores them.
+    registry.method('attachments/inspectImageData', ({ items }: { items: { path: string; name: string; bytes: number; signature: string }[] }) =>
+      inspectImageFacts(items.map(item => ({ ...item, signature: Buffer.from(item.signature, 'base64') })), ctx.get('attachments'))),
+    registry.method('attachments/saveImageData', ({ items }: { items: { name: string; data: string }[] }, { signal }) =>
+      saveImageData(items.map(item => ({ name: item.name, data: Buffer.from(item.data, 'base64') })), ctx.get('attachments'), signal)),
+    registry.method('attachments/inspectFileData', ({ items }: { items: { path: string; name: string; bytes: number }[] }) =>
+      inspectFileFacts(items, ctx.get('attachments'))),
+    registry.method('attachments/saveFileData', ({ items }: { items: { name: string; data: string }[] }, { signal }) =>
+      saveFileData(items.map(item => ({ name: item.name, data: Buffer.from(item.data, 'base64') })), ctx.get('attachments'), signal)),
   ]
 }

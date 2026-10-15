@@ -43,6 +43,7 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 |---|---|
 | **[编码循环](docs/dscode-ultra.md)** | 带行号的文件读取、精确编辑与原子写入，提供旧版本保护和 diff 元数据；持久 Shell 负责搜索、补丁和测试。项目指令、skills、plan、goal 与 hooks 已接入。 |
 | **[后台 Host](docs/host.md)** | 终端与 agent 运行时分成两个进程：第一个 `dscode` 会启动本地后台 Host 来持有会话，每个终端作为客户端接入。关闭终端不会中断工作，多个终端可接入同一会话，崩溃的终端可以重新接入。用 `dscode host status/stop` 管理；`--in-process` 保留单进程模式。 |
+| **[远程 Runtime](docs/remote-runtime.md)** | 运行时跑在服务器上（`dscode server --port 8080`），终端跑在本机：`dscode config --runtime host:8080 --token … --alias devbox --set-default`，之后用 `dscode` 或 `dscode runtime devbox` 连接。工具、文件和凭据都留在服务器上，连接断开后终端会自动重连。使用 token 认证但不加密，请在 VPN、内网或 SSH 隧道中使用。 |
 | **[会话接入](docs/session-bridge.md)** | 在 TUI 开始任务后，可从另一个终端补充要求、读取输出或订阅进展（`dscode sessions`、`send`、`read`、`watch`）。所有来源进入同一个运行时和上下文，读取和订阅不需要取得 session 写锁。 |
 | **[Agent 间任务](docs/session-communication.md)** | Agent 通过 `list_sessions`、`read_session`、`send_session` 与 `reply_session` 查找、读取并联系其他会话，投递方式可选 `queue`、`steer` 或 `defer`。持久化邮箱、重试去重和有限预算约束消息丢失、重复处理和互相唤醒。 |
 | **[会话名片](docs/session-cards.md)** | 每个 session 展示项目、工作区与最近 5 条用户请求 topic，选协作对象时不必先读它的记录。名片描述用户让它做过什么，不放任务结论。 |
@@ -55,6 +56,8 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | **[Agent 邮件](docs/email.md)** | 所有 session 共用的本地 `[ToAgent]` 收件箱：Enter 把邮件作为用户选择的上下文 steer 进当前会话；配置 Gmail 后 agent 可走同一审批流程发信。 |
 
 ## 🆕 最新变化
+
+**0.7.48** — [远程 Runtime](docs/remote-runtime.md)：`dscode server --port PORT` 通过 TCP 并以 token 认证对外提供本机运行时，另一台机器上用 `dscode config --runtime` / `dscode runtime <别名>` 连接终端。粘贴的文件会上传，`/diff`、`/review` 和 `/export` 在服务器上的目录中执行，连接断开后终端会自动重连。连接不加密。`/reload` 无需重启运行时即可应用 MCP 与配置修改、祖先 skill 和指令。详见[发布说明](docs/releases/0.7.48.md)。
 
 **0.7.47** — 终端与 agent 运行时现在分为两个进程：`dscode` 会启动本地[后台 Host](docs/host.md) 来持有会话，终端通过仅限本人访问的 socket 接入。关闭或崩溃的终端不会中断 Host 上正在运行的工作，多个终端可以接入同一会话，每个会话沿用自己目录的指令。`--in-process` 可恢复单进程模式。详见[发布说明](docs/releases/0.7.47.md)。
 
@@ -198,6 +201,7 @@ npm start
 | `/shell`、`/shell reset` | 检查或重置持久终端 |
 | `/browser` | 浏览器会话、profile、扩展配对、站点权限、Developer mode、WebMCP、人工交接和标签页保留 |
 | `/mcp`、`/skills`、`/hooks` | 管理 MCP、检查 skill 来源、查看或重载 hooks |
+| `/reload` | 不重启运行时即可应用 MCP 服务器与配置覆盖文件的修改，并为当前会话重新挂载项目以上的指令、祖先 skill 目录和 hooks |
 | `/plan`、`/goal` | 计划与持续任务 |
 | `/agents` | 查看子 agent 的任务、状态与当前活动 |
 | `/delegate <任务>` | 主 agent 先把任务拆到看板上并标明优先级和依赖，在子 agent 有空位时按优先级把依赖已满足的任务派给隔离 Git worktree 中的子 agent，解答它们的提问、逐个验证结果，最后把决定合并的改动暂存到主工作区 |
@@ -222,7 +226,7 @@ npm start
 | 源码 | 仓库 `.runtime/` | 仓库 `.env` 和 `config/` |
 | Legacy tar | 安装目录 `.runtime/` | 安装目录 `.env` 和 `config/` |
 
-支持 `config/hooks.local.json`、`config/mcp.local.yml` 和 `config/harness.local.yml`；这些本地配置、密钥与会话不会打入发布包。Skills 会发现目标项目的 `.agents/skills`、`.dsh/skills`，以及隔离的用户 skill 目录；用 `/skills conflicts` 排查同名覆盖。默认会把项目的 `.codex/hooks.json`、`.dsh/hooks.json`、`.claude/settings.json` 叠加到 `config/hooks.local.json` 之上；设置 `DSCODE_PROJECT_HOOKS=0` 可只加载安装级配置。Skills 来自项目的 `.dsh/skills`、`.agents/skills` 与用户根；默认还会发现当前目录到 home 之间每一层的 `.dsh/skills`、`.agents/skills`、`.claude/skills`，同名以更近的目录为准；设置 `DSCODE_SKILL_ANCESTORS=0` 可只保留项目与用户根。这些祖先目录里的 `AGENTS.md`/`CLAUDE.md` 会并入工作区指令。
+支持 `config/hooks.local.json`、`config/mcp.local.yml` 和 `config/harness.local.yml`；这些本地配置、密钥与会话不会打入发布包。Skills 会发现目标项目的 `.agents/skills`、`.dsh/skills`，以及隔离的用户 skill 目录；用 `/skills conflicts` 排查同名覆盖。默认会把项目的 `.codex/hooks.json`、`.dsh/hooks.json`、`.claude/settings.json` 叠加到 `config/hooks.local.json` 之上；设置 `DSCODE_PROJECT_HOOKS=0` 可只加载安装级配置。Skills 来自项目的 `.dsh/skills`、`.agents/skills` 与用户根；默认还会发现当前目录到 home 之间每一层的 `.dsh/skills`、`.agents/skills`、`.claude/skills`，同名以更近的目录为准；设置 `DSCODE_SKILL_ANCESTORS=0` 可只保留项目与用户根。这些祖先目录里的 `AGENTS.md`/`CLAUDE.md` 会并入工作区指令。项目与用户根里新增的 skill 在会话运行中即可生效；修改 `config/mcp.local.yml`、`config/harness.local.yml`，新增祖先 skill 目录或改动祖先 `AGENTS.md` 之后，运行 `/reload`。
 
 ## 🧩 开发与发布
 
@@ -247,6 +251,7 @@ DSH 固定为 `0.2.0-rc.2`，内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-c
 | [ACP 客户端](docs/acp.md) | `dscode acp`、按服务配置过滤模型、自定义模型服务、客户端审批和协议限制 |
 | [触发器](docs/triggers.md) | 由事件触发运行，可新建或复用会话：cron、延迟任务、托管脚本循环、`/trigger` TUI 管理、agent 工具、运行日志 |
 | [后台 Host](docs/host.md) | 独立的运行时进程、`dscode host` 命令、空闲退出、单进程模式与升级 |
+| [远程 Runtime](docs/remote-runtime.md) | `dscode server`、`dscode config --runtime` 与 `dscode runtime`：运行时在服务器上，终端在本机 |
 | [会话接入](docs/session-bridge.md) | 用 `dscode sessions`、`send`、`read`、`watch` 接入运行中的会话 |
 | [Session 通信](docs/session-communication.md) | Agent 侧消息、投递方式、预算与去重 |
 | [会话名片](docs/session-cards.md) | 项目、工作区与 topic 字段及其来源 |

@@ -2,9 +2,13 @@
 // to over the local carrier socket (docs/runtime-client-design.md). `serve`
 // runs it in the foreground; `start` launches it detached and waits until it
 // answers; `stop` and `status` talk to it through its socket. The launcher
-// calls ensureHost() before starting a separate terminal client.
+// calls ensureHost() before starting a separate terminal client. `dscode
+// server` runs the same Host in the foreground with a TCP listener for remote
+// clients (docs/remote-runtime.md).
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { hostname, networkInterfaces } from 'node:os';
+import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { localOverlays, root, provision, runDsh, runtimeHome } from './harness.mjs';
 import { callDscode } from '../plugins/local-carrier/client.mjs';
@@ -21,7 +25,11 @@ export const hostSocket = (home = runtimeHome) => join(ensureSocketDirectory(hom
 const hostLog = home => join(hostDirectory(home), 'host.log');
 
 /** The profile overlay that turns the terminal composition into a shared Host. */
-export function hostOverlay(home = runtimeHome, idleExitMs = idleMs()) {
+export function hostOverlay(home = runtimeHome, idleExitMs = idleMs(), { tcp, defaultCwd } = {}) {
+  const remote = [
+    ...(defaultCwd ? [`        defaultCwd: ${JSON.stringify(defaultCwd)}`] : []),
+    ...(tcp ? [`        tcp:\n          port: ${tcp.port}\n          bind: ${JSON.stringify(tcp.bind)}\n          tokenFile: ${JSON.stringify(tcp.tokenFile)}`] : []),
+  ];
   const path = join(hostDirectory(home), 'host.patch.yml');
   mkdirSync(hostDirectory(home), { recursive: true, mode: 0o700 });
   writeFileSync(path, [
@@ -31,7 +39,7 @@ export function hostOverlay(home = runtimeHome, idleExitMs = idleMs()) {
     '- id: tui-startup\n  disabled: true',
     '- id: tui-runner\n  disabled: true',
     '- id: dscode-hooks\n  disabled: true',
-    `- insert:\n    - id: api-remotes\n      name: '@deepseek-ai/dsh-api-remotes'\n    - id: dscode-session-workspaces\n      name: ${JSON.stringify(join(root, 'plugins/desktop-workspace/index.mjs'))}\n    - id: local-carrier\n      name: ${JSON.stringify(join(root, 'plugins/local-carrier/index.mjs'))}\n      config:\n        socketPath: ${JSON.stringify(hostSocket(home))}\n        host: true\n        idleExitMs: ${idleExitMs}`,
+    `- insert:\n    - id: api-remotes\n      name: '@deepseek-ai/dsh-api-remotes'\n    - id: dscode-session-workspaces\n      name: ${JSON.stringify(join(root, 'plugins/desktop-workspace/index.mjs'))}\n    - id: local-carrier\n      name: ${JSON.stringify(join(root, 'plugins/local-carrier/index.mjs'))}\n      config:\n        socketPath: ${JSON.stringify(hostSocket(home))}\n        host: true\n        idleExitMs: ${idleExitMs}${remote.map(line => '\n' + line).join('')}`,
   ].join('\n') + '\n', { mode: 0o600 });
   return path;
 }
@@ -50,9 +58,9 @@ export async function hostStatus(home = runtimeHome, timeoutMs = 2000) {
 }
 
 /** Run the Host in the foreground until it exits; resolves with its exit code. */
-export function serve({ home = runtimeHome, args = [] } = {}) {
+export function serve({ home = runtimeHome, args = [], idleExitMs = idleMs(), tcp, defaultCwd } = {}) {
   provision(home, { cwd: home });
-  const overlay = hostOverlay(home);
+  const overlay = hostOverlay(home, idleExitMs, { tcp, defaultCwd });
   // DSCODE_HOST_PATCH adds one trusted overlay after the Host's own (verification fixtures).
   const extra = process.env.DSCODE_HOST_PATCH ? ['--patch', process.env.DSCODE_HOST_PATCH] : [];
   const child = runDsh([...localOverlays(), '--patch', overlay, ...extra, ...args], { home, cwd: home, env: { DSCODE_SESSION_WORKSPACES: '1' } });
@@ -118,6 +126,83 @@ export async function stop({ home = runtimeHome, timeoutMs = 30_000 } = {}) {
     await new Promise(resolve => setTimeout(resolve, 200));
   }
   throw Error('the DSCODE Host did not stop in time');
+}
+
+/** Where `dscode server` keeps its bearer token (0600, inside the 0700 run directory). */
+export const serverTokenFile = (home = runtimeHome) => join(hostDirectory(home), 'server-token');
+
+/** The server token: `wanted` replaces it, `rotate` mints a new one, otherwise the stored one is reused. */
+export function serverToken(home = runtimeHome, { wanted, rotate = false } = {}) {
+  const file = serverTokenFile(home);
+  mkdirSync(hostDirectory(home), { recursive: true, mode: 0o700 });
+  if (wanted !== undefined) {
+    if (wanted.length < 16 || /\s/.test(wanted)) throw Error('--token needs at least 16 characters and no spaces');
+    writeFileSync(file, wanted + '\n', { mode: 0o600 });
+    return wanted;
+  }
+  if (!rotate && existsSync(file)) {
+    const stored = readFileSync(file, 'utf8').trim();
+    if (stored.length >= 16) return stored;
+  }
+  const minted = `dsk_${randomBytes(24).toString('base64url')}`;
+  writeFileSync(file, minted + '\n', { mode: 0o600 });
+  return minted;
+}
+
+/** Parse `dscode server` arguments. */
+export function parseServerArgs(argv) {
+  const options = { bind: '0.0.0.0', rotate: false };
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i], next = () => {
+      const value = argv[++i];
+      if (value === undefined || value.startsWith('--')) throw Error(`${flag} needs a value`);
+      return value;
+    };
+    if (flag === '--port') {
+      const port = Number(next());
+      if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error('--port must be a TCP port number (1-65535)');
+      options.port = port;
+    } else if (flag === '--bind') options.bind = next();
+    else if (flag === '--token') options.token = next();
+    else if (flag === '--new-token') options.rotate = true;
+    else if (flag === '--cwd') options.cwd = resolve(next());
+    else if (flag === '--help' || flag === '-h') return { help: true };
+    else throw Error(`unknown option ${flag}\n${SERVER_USAGE}`);
+  }
+  if (options.port === undefined) throw Error(`--port is required\n${SERVER_USAGE}`);
+  return options;
+}
+
+const SERVER_USAGE = 'Usage: dscode server --port PORT [--bind ADDRESS] [--cwd DIR] [--token TOKEN | --new-token]';
+
+/** Addresses a remote client could use to reach `bind`. */
+function reachableAddresses(bind) {
+  if (bind !== '0.0.0.0' && bind !== '::') return [bind];
+  const found = Object.values(networkInterfaces()).flat().filter(entry => entry && entry.family === 'IPv4' && !entry.internal).map(entry => entry.address);
+  return found.length > 0 ? found : ['<server-address>'];
+}
+
+/** `dscode server`: the Host in the foreground, serving remote clients over TCP until stopped. */
+export async function server(argv, { home = runtimeHome } = {}) {
+  const options = parseServerArgs(argv);
+  if (options.help) { console.log(SERVER_USAGE); return 0; }
+  const running = await hostStatus(home);
+  if (running !== undefined) {
+    // An idle background Host would hold the lock; one with work is the user's to stop.
+    if (running.clients > 0 || running.running > 0) throw Error(`a DSCODE Host (pid ${running.pid}) is serving terminals in this state directory; exit them or run \`dscode host stop\`, then start the server`);
+    await stop({ home });
+  }
+  const token = serverToken(home, { wanted: options.token, rotate: options.rotate });
+  const defaultCwd = options.cwd ?? process.cwd();
+  const alias = hostname().split('.')[0].toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'server';
+  console.log([
+    `DSCODE server on ${options.bind}:${options.port} (default folder ${defaultCwd})`,
+    'Traffic is NOT encrypted: use it on a trusted network (VPN, Tailscale, LAN) or through an SSH tunnel.',
+    'Connect a client with:',
+    ...reachableAddresses(options.bind).map(address => `  dscode config --runtime ${address}:${options.port} --token ${token} --alias ${alias} --set-default`),
+    `The token is stored in ${serverTokenFile(home)}; --new-token replaces it.`,
+  ].join('\n'));
+  return serve({ home, idleExitMs: 0, defaultCwd, tcp: { port: options.port, bind: options.bind, tokenFile: serverTokenFile(home) } });
 }
 
 export async function main(argv = process.argv.slice(2)) {

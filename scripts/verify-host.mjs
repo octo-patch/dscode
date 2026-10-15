@@ -8,9 +8,12 @@
 //  4. the Host exits once idle (no terminal, no running turn), not while a
 //     terminal is attached;
 //  5. one Host serving two folders gives each session the AGENTS.md above its
-//     own project root (per-session discovery, not the Host's launch folder).
+//     own project root (per-session discovery, not the Host's launch folder);
+//  6. /reload makes a live session pick up an MCP server added to a config
+//     overlay, an ancestor AGENTS.md and a skill in a new ancestor folder, all
+//     created after the session started, and drops the server again.
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -31,7 +34,7 @@ writeFileSync(patch, [
 Object.assign(process.env, { DSCODE_SOURCE_HOME: home, DSCODE_HOST_PATCH: patch, HOME: userHome, CI: 'false', DSCODE_LANGUAGE: 'en',
   DSCODE_UPDATE_CHECK: 'off', DSCODE_ACCOUNT_LOGIN: '0', DSCODE_MEMORY_HOME: join(home, 'memories') });
 const { ensureHost, hostStatus, stop } = await import('./host.mjs');
-const { call, callDscode, openStream } = await import('../plugins/local-carrier/client.mjs');
+const { call, callDscode, openDscodeStream, openStream } = await import('../plugins/local-carrier/client.mjs');
 
 const tick = ms => new Promise(r => setTimeout(r, ms));
 const until = async (label, predicate, ms = 30000) => {
@@ -137,6 +140,55 @@ try {
   assert.equal(await instructionsIn('MARKER_ALPHA'), 'instructions:[MARKER_ALPHA]');
   assert.equal(await instructionsIn('MARKER_BETA'), 'instructions:[MARKER_BETA]');
   report.perSessionInstructions = true;
+
+  // 6. /reload on a live session.
+  const area = join(userHome, 'area-reload'), folder = join(area, 'project');
+  mkdirSync(join(folder, '.git'), { recursive: true });
+  const { sessionId: live } = value(await call(sharedSocket, 'session/create', { request: { cwd: folder, agentPreset: 'dscode' } }));
+  const ask = async () => {
+    const done = new AbortController(); let answer;
+    const following = (async () => {
+      for await (const frame of openStream(sharedSocket, 'session/follow', { args: { request: { address: { kind: 'session', sessionId: live } } } }, done.signal)) {
+        const text = frame.type === 'event' ? JSON.stringify(frame).match(/instructions:\[[A-Z_,]*\]/)?.[0] : undefined;
+        if (text) { answer = text; done.abort(); }
+      }
+    })().catch(() => {});
+    await callDscode(sharedSocket, 'session/deliver', { sessionId: live, content: [{ type: 'text', text: 'INSTRUCTIONS' }], mode: 'followup' });
+    await until('instructions answer', () => answer);
+    done.abort(); await following;
+    await until('turn finished', async () => (await hostStatus())?.running === 0);
+    return answer;
+  };
+  const command = async line => {
+    await callDscode(sharedSocket, 'commands/execute', { sessionId: live, line });
+    const done = new AbortController();
+    for await (const frame of openStream(sharedSocket, 'session/follow', { args: { request: { address: { kind: 'session', sessionId: live } } } }, done.signal)) {
+      done.abort();
+      return frame.records.map(record => record.event).filter(event => event.type === 'command/done').at(-1)?.data;
+    }
+  };
+  const skillNames = async () => {
+    const done = new AbortController();
+    for await (const state of openDscodeStream(sharedSocket, 'skills/watch', { sessionId: live, cwd: folder }, done.signal)) { done.abort(); return state.rows.map(row => row.name); }
+  };
+  assert.equal(await ask(), 'instructions:[]');
+  // Everything below appears after the session exists.
+  writeFileSync(join(area, 'AGENTS.md'), 'Ancestor rule: MARKER_GAMMA\n');
+  mkdirSync(join(area, '.agents', 'skills', 'reload-skill'), { recursive: true });
+  writeFileSync(join(area, '.agents', 'skills', 'reload-skill', 'SKILL.md'), '---\nname: reload-skill\ndescription: added above the project after the session started\n---\nBody.\n');
+  const fixturePatch = readFileSync(patch, 'utf8');
+  appendFileSync(patch, `- insert:\n    - id: mcp-reload\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: reloadprobe\n        transport: stdio\n        command: ${JSON.stringify(process.execPath)}\n        args: [${JSON.stringify(join(root, 'tests/fixtures/atomicmail-mcp.mjs'))}, ${JSON.stringify(join(home, 'mcp-started.log'))}]\n`);
+  assert(!(await skillNames()).includes('reload-skill'), 'a new ancestor folder is not seen before /reload');
+  const reloaded = await command('/reload');
+  assert.equal(reloaded?.kind, 'success', JSON.stringify(reloaded));
+  assert.match(reloaded.text, /MCP: added mcp-reload/);
+  assert.match(reloaded.text, /mcp-reload: active, 3 tools/);
+  assert((await skillNames()).includes('reload-skill'), 'the ancestor skill is visible after /reload');
+  assert.match((await command('/mcp tools mcp-reload'))?.text ?? '', /mcp__reloadprobe__help/);
+  assert.equal(await ask(), 'instructions:[MARKER_GAMMA]');
+  writeFileSync(patch, fixturePatch);
+  assert.match((await command('/reload'))?.text ?? '', /MCP: removed mcp-reload/);
+  report.reload = true;
 
   console.log('HOST_VERIFIED ' + JSON.stringify(report));
 } finally {

@@ -2,7 +2,7 @@
 
 > **Design record, not a usage guide.** It records the decisions, evidence and plan for separating the DSCODE runtime from its terminal client. Behaviour follows the code; nothing here is a user-facing feature yet.
 
-Status: P0–P2 implemented in 0.7.47 (2026-10-14). The terminal reaches the runtime only through `RuntimeClient`; `dscode` runs it as a separate client of a background Host by default, with `--in-process` keeping one process. Remote access is deferred. The user guide is [Background host](host.md); the protocol as implemented is specified in [Client and runtime protocol](runtime-protocol.md).
+Status: P0–P2 implemented in 0.7.47 (2026-10-14). The terminal reaches the runtime only through `RuntimeClient`; `dscode` runs it as a separate client of a background Host by default, with `--in-process` keeping one process. Remote access shipped in 0.7.48 as a token-authenticated, unencrypted TCP listener (`dscode server`; see [Remote runtime](remote-runtime.md)); the Hub relay remains deferred. The user guide is [Background host](host.md); the protocol as implemented is specified in [Client and runtime protocol](runtime-protocol.md).
 
 ## Goal and decisions
 
@@ -89,6 +89,20 @@ Superseded during P1 (kept for the record): Not yet carried by the protocol impl
 **Host process.** `scripts/host.mjs` composes the terminal profile without its UI rows and without the process-wide hooks bridge, adding `dsh-api-remotes`, the carrier in Host mode and `plugins/desktop-workspace`, which mounts instructions, ancestor skill roots and hooks per session from the session's folder. `DSCODE_SESSION_WORKSPACES=1` disables the preset's environment-based `agent-instructions` and `skill-filesystem` rows (the Desktop build turns the same switch on unconditionally). The carrier takes an exclusive lock beside the socket before replacing a stale one; a Host that loses the lock exits, and `ensureHost` starts again until one answers. Idle exit counts attached terminals by their `$events` streams and ignores `host/status` probes. In a self-contained package the Host is launched through the package's own launcher, so it holds the installation lock and run lease; `dscode update` stops an idle Host first.
 
 **Evidence.** `scripts/verify-tui-runner.mjs` runs sixteen terminal behaviours plus resume in single-process, same-process protocol and separate-Host modes (the last through the real launcher, asserting a separate Host PID). `scripts/verify-host.mjs` covers two clients on one session, a terminal killed mid-turn and reattached, concurrent starts, idle exit, and per-session ancestor instructions on one Host. The baseline also exposed and fixed a pre-existing `/btw` failure: a child with an inherited prefix lacked the seeded marker.
+
+## Remote access (0.7.48)
+
+Decided on 2026-10-15. The user asked for `dscode server --port N` on the server, `dscode config --runtime host:port --alias NAME --set-default` on the client, and `dscode runtime NAME` or bare `dscode` to attach. Three security models were offered: TLS with a pinned self-signed certificate and a token, a token over plain HTTP, and loopback only behind an SSH tunnel. The user chose the token over plain HTTP, for use on networks that are already encrypted (VPN, Tailscale, LAN). The server prints that traffic is unencrypted, and the guide repeats it.
+
+The listener reuses the carrier's routes unchanged; only an authorization gate and connection settings were added. The protocol therefore stays the one specified in [Client and runtime protocol](runtime-protocol.md), and the TCP form is just another target for the same client. The parts of the terminal that assumed a shared filesystem moved behind `RuntimeClient.sharesFilesystem`:
+
+- Attachments a remote terminal can read locally are sent as content; other paths go to the Host.
+- Git inspection and the status-line branch became Host operations in every mode.
+- `/export` writes through the Host when the filesystem is not shared.
+
+The session folder comes from the launcher, never from the client's `process.cwd()`. Reconnection was added because a network drops connections that a local socket never does: it applies to local and remote clients alike, and a follow stream fills its gap from history pages.
+
+Still deferred: encryption, per-user accounts and the Hub relay.
 
 ## Risks
 

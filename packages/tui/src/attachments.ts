@@ -98,6 +98,91 @@ export function parsePastedAttachmentPaths(input: string): { readonly images: re
   return { images, files }
 }
 
+/**
+ * Facts read from one image the Host may not be able to see: a remote
+ * terminal reads them locally and the Host checks them against its limits.
+ */
+export interface ImageFacts {
+  readonly path: string
+  readonly name: string
+  readonly bytes: number
+  /** The file's leading bytes (at least 16), enough to recognize its format. */
+  readonly signature: Uint8Array
+}
+
+/** Facts read from one non-image file, checked the same way. */
+export interface FileFacts {
+  readonly path: string
+  readonly name: string
+  readonly bytes: number
+}
+
+/** One attachment sent as content rather than as a path. */
+export interface AttachmentData {
+  readonly name: string
+  readonly data: Uint8Array
+}
+
+/** Check image facts against the store's count, size and format limits. */
+export function inspectImageFacts(facts: readonly ImageFacts[], attachments: AttachmentStore | undefined): readonly ImagePathInspection[] {
+  if (facts.length === 0) return []
+  if (attachments === undefined) throw new Error('image attachments are unavailable in this profile')
+  if (facts.length > attachments.imageLimits.maxImagesPerMessage) {
+    throw new Error(`too many images (${facts.length}; limit ${attachments.imageLimits.maxImagesPerMessage})`)
+  }
+  let totalBytes = 0
+  return facts.map(fact => {
+    if (fact.bytes > attachments.imageLimits.maxImageBytes) {
+      throw new Error(`image "${fact.name}" is ${fact.bytes} bytes; limit ${attachments.imageLimits.maxImageBytes}`)
+    }
+    totalBytes += fact.bytes
+    if (totalBytes > attachments.imageLimits.maxMessageImageBytes) {
+      throw new Error(`image batch is ${totalBytes} bytes; limit ${attachments.imageLimits.maxMessageImageBytes}`)
+    }
+    const mediaType = detectImageMediaType(fact.signature)
+    if (mediaType === undefined || !attachments.imageLimits.mediaTypes.includes(mediaType)) {
+      throw new Error(`unsupported image file "${fact.path}" (expected PNG, JPEG, WebP, or GIF)`)
+    }
+    return { path: fact.path, name: fact.name, mediaType, bytes: fact.bytes }
+  })
+}
+
+/** Check non-image file facts against the per-message count and per-file size. */
+export function inspectFileFacts(facts: readonly FileFacts[], attachments: AttachmentStore | undefined): readonly FilePathInspection[] {
+  if (facts.length === 0) return []
+  if (attachments === undefined) throw new Error('file attachments are unavailable in this profile')
+  if (facts.length > MAX_FILES_PER_MESSAGE) {
+    throw new Error(`too many files (${facts.length}; limit ${MAX_FILES_PER_MESSAGE})`)
+  }
+  return facts.map(fact => {
+    if (fact.bytes > MAX_FILE_BYTES) throw new Error(`file "${fact.name}" is ${fact.bytes} bytes; limit ${MAX_FILE_BYTES}`)
+    return { path: fact.path, name: fact.name, bytes: fact.bytes }
+  })
+}
+
+/** Stat one local path for inspection; `signature` also reads its leading bytes. */
+export async function readPathFacts(raw: string, cwd: string, kind: 'image' | 'file'): Promise<ImageFacts> {
+  const path = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw)
+  let facts: Awaited<ReturnType<typeof stat>>
+  try {
+    facts = await stat(path)
+  } catch (error: unknown) {
+    throw new Error(`cannot read ${kind} "${raw}": ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (!facts.isFile()) throw new Error(`${kind} path is not a file: "${raw}"`)
+  const signature = new Uint8Array(16)
+  let bytesRead = 0
+  if (kind === 'image') {
+    const handle = await open(path, 'r')
+    try {
+      bytesRead = (await handle.read(signature, 0, signature.length, 0)).bytesRead
+    } finally {
+      await handle.close()
+    }
+  }
+  return { path, name: basename(path), bytes: facts.size, signature: signature.subarray(0, bytesRead) }
+}
+
 /** Validate path, byte size and encoded signature without writing an attachment object. */
 export async function inspectImagePaths(
   paths: readonly string[],
@@ -106,41 +191,13 @@ export async function inspectImagePaths(
 ): Promise<readonly ImagePathInspection[]> {
   if (paths.length === 0) return []
   if (attachments === undefined) throw new Error('image attachments are unavailable in this profile')
+  // The count bound is checked before any file is opened.
   if (paths.length > attachments.imageLimits.maxImagesPerMessage) {
     throw new Error(`too many images (${paths.length}; limit ${attachments.imageLimits.maxImagesPerMessage})`)
   }
-  const inspected: ImagePathInspection[] = []
-  let totalBytes = 0
-  for (const raw of paths) {
-    const path = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw)
-    let facts: Awaited<ReturnType<typeof stat>>
-    try {
-      facts = await stat(path)
-    } catch (error: unknown) {
-      throw new Error(`cannot read image "${raw}": ${error instanceof Error ? error.message : String(error)}`)
-    }
-    if (!facts.isFile()) throw new Error(`image path is not a file: "${raw}"`)
-    if (facts.size > attachments.imageLimits.maxImageBytes) {
-      throw new Error(`image "${basename(path)}" is ${facts.size} bytes; limit ${attachments.imageLimits.maxImageBytes}`)
-    }
-    totalBytes += facts.size
-    if (totalBytes > attachments.imageLimits.maxMessageImageBytes) {
-      throw new Error(`image batch is ${totalBytes} bytes; limit ${attachments.imageLimits.maxMessageImageBytes}`)
-    }
-    const handle = await open(path, 'r')
-    try {
-      const signature = new Uint8Array(16)
-      const { bytesRead } = await handle.read(signature, 0, signature.length, 0)
-      const mediaType = detectImageMediaType(signature.subarray(0, bytesRead))
-      if (mediaType === undefined || !attachments.imageLimits.mediaTypes.includes(mediaType)) {
-        throw new Error(`unsupported image file "${raw}" (expected PNG, JPEG, WebP, or GIF)`)
-      }
-      inspected.push({ path, name: basename(path), mediaType, bytes: facts.size })
-    } finally {
-      await handle.close()
-    }
-  }
-  return inspected
+  const facts: ImageFacts[] = []
+  for (const raw of paths) facts.push(await readPathFacts(raw, cwd, 'image'))
+  return inspectImageFacts(facts, attachments)
 }
 
 /** Read, validate, and persist an ordered image path list as model content blocks. */
@@ -151,21 +208,35 @@ export async function saveImagePaths(
 ): Promise<readonly ImageBlock[]> {
   if (paths.length === 0) return []
   if (attachments === undefined) throw new Error('image attachments are unavailable in this profile')
+  const items: AttachmentData[] = []
+  for (const path of paths) {
+    if (signal?.aborted === true) throw new Error('image submission cancelled')
+    try {
+      items.push({ name: basename(path), data: await readFile(path) })
+    } catch (error: unknown) {
+      throw new Error(`cannot read image "${path}": ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  return saveImageData(items, attachments, signal)
+}
+
+/** Validate and persist images sent as content (a remote terminal's local files). */
+export async function saveImageData(
+  items: readonly AttachmentData[],
+  attachments: AttachmentStore | undefined,
+  signal?: AbortSignal,
+): Promise<readonly ImageBlock[]> {
+  if (items.length === 0) return []
+  if (attachments === undefined) throw new Error('image attachments are unavailable in this profile')
   const checkCancelled = (): void => {
     if (signal?.aborted === true) throw new Error('image submission cancelled')
   }
   const inputs: SaveImageAttachment[] = []
-  for (const path of paths) {
+  for (const item of items) {
     checkCancelled()
-    let data: Uint8Array
-    try {
-      data = await readFile(path)
-    } catch (error: unknown) {
-      throw new Error(`cannot read image "${path}": ${error instanceof Error ? error.message : String(error)}`)
-    }
-    const mediaType = detectImageMediaType(data)
-    if (mediaType === undefined) throw new Error(`unsupported image file "${path}" (expected PNG, JPEG, WebP, or GIF)`)
-    inputs.push({ data, mediaType, name: basename(path) })
+    const mediaType = detectImageMediaType(item.data)
+    if (mediaType === undefined) throw new Error(`unsupported image file "${item.name}" (expected PNG, JPEG, WebP, or GIF)`)
+    inputs.push({ data: item.data, mediaType, name: item.name })
   }
   checkCancelled()
   const refs = await attachments.saveImages(inputs)
@@ -184,22 +255,9 @@ export async function inspectFilePaths(
   if (paths.length > MAX_FILES_PER_MESSAGE) {
     throw new Error(`too many files (${paths.length}; limit ${MAX_FILES_PER_MESSAGE})`)
   }
-  const inspected: FilePathInspection[] = []
-  for (const raw of paths) {
-    const path = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw)
-    let facts: Awaited<ReturnType<typeof stat>>
-    try {
-      facts = await stat(path)
-    } catch (error: unknown) {
-      throw new Error(`cannot read file "${raw}": ${error instanceof Error ? error.message : String(error)}`)
-    }
-    if (!facts.isFile()) throw new Error(`file path is not a file: "${raw}"`)
-    if (facts.size > MAX_FILE_BYTES) {
-      throw new Error(`file "${basename(path)}" is ${facts.size} bytes; limit ${MAX_FILE_BYTES}`)
-    }
-    inspected.push({ path, name: basename(path), bytes: facts.size })
-  }
-  return inspected
+  const facts: FileFacts[] = []
+  for (const raw of paths) facts.push(await readPathFacts(raw, cwd, 'file'))
+  return inspectFileFacts(facts, attachments)
 }
 
 /** Read and persist an ordered non-image file path list as model file blocks. */
@@ -213,22 +271,32 @@ export async function saveFilePaths(
   // The bounds are re-checked here so a draft inspected earlier still guards
   // the actual read at submission time.
   await inspectFilePaths(paths, attachments)
-  const checkCancelled = (): void => {
-    if (signal?.aborted === true) throw new Error('file submission cancelled')
-  }
-  const inputs: SaveFileAttachment[] = []
+  const items: AttachmentData[] = []
   for (const path of paths) {
-    checkCancelled()
-    let data: Uint8Array
+    if (signal?.aborted === true) throw new Error('file submission cancelled')
     try {
-      data = await readFile(path)
+      items.push({ name: basename(path), data: await readFile(path) })
     } catch (error: unknown) {
       throw new Error(`cannot read file "${path}": ${error instanceof Error ? error.message : String(error)}`)
     }
-    inputs.push({ data, name: basename(path) })
+  }
+  return saveFileData(items, attachments, signal)
+}
+
+/** Validate and persist non-image files sent as content. */
+export async function saveFileData(
+  items: readonly AttachmentData[],
+  attachments: AttachmentStore | undefined,
+  signal?: AbortSignal,
+): Promise<readonly FileBlock[]> {
+  if (items.length === 0) return []
+  if (attachments === undefined) throw new Error('file attachments are unavailable in this profile')
+  inspectFileFacts(items.map(item => ({ path: item.name, name: item.name, bytes: item.data.byteLength })), attachments)
+  const checkCancelled = (): void => {
+    if (signal?.aborted === true) throw new Error('file submission cancelled')
   }
   checkCancelled()
-  const refs = await Promise.all(inputs.map(input => attachments.saveFile(input)))
+  const refs = await Promise.all(items.map(item => attachments.saveFile({ data: item.data, name: item.name } satisfies SaveFileAttachment)))
   checkCancelled()
   return refs.map(attachment => ({ type: 'file', attachment }))
 }

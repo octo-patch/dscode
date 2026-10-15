@@ -23,7 +23,8 @@ export async function mountWorkspaceHooks(agentContext, configPath, creation) {
           return scope.on(event, listener, ...options);
         },
       }, { configPath, defaultTimeoutMs: 10000, stderrSummaryMaxChars: 500 });
-      await sessionStart?.(creation);
+      // A remount (/reload) is not a new session: SessionStart runs only at creation.
+      if (creation !== undefined) await sessionStart?.(creation);
     },
   });
 }

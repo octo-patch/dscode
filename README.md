@@ -43,6 +43,7 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 |---|---|
 | **[Agentic coding loop](docs/dscode-ultra.md)** | Numbered file reads, exact edits and atomic writes with stale-version protection and diff metadata, plus a persistent shell for search, patches and tests. Project instructions, skills, plan, goal and hooks are wired in. |
 | **[Background host](docs/host.md)** | The terminal and the agent runtime run as separate processes: the first `dscode` starts a local background host that owns sessions, and each terminal attaches to it. Work survives closing a terminal, several terminals can share a session, and a crashed terminal reattaches. `dscode host status/stop` manages it; `--in-process` keeps one process. |
+| **[Remote runtime](docs/remote-runtime.md)** | Run the runtime on a server with `dscode server --port 8080` and the terminal on your machine: `dscode config --runtime host:8080 --token … --alias devbox --set-default`, then `dscode` or `dscode runtime devbox`. Tools, files and credentials stay on the server; the terminal reconnects after a dropped connection. Token-authenticated but unencrypted, so use a VPN, LAN or SSH tunnel. |
 | **[Session bridge](docs/session-bridge.md)** | Start a task in the TUI, then add requirements, read output or subscribe to progress from another terminal (`dscode sessions`, `send`, `read`, `watch`). Every source enters the same runtime and context, and readers never take the session write lock. |
 | **[Agent-to-agent tasks](docs/session-communication.md)** | The agent finds, reads and messages other sessions with `list_sessions`, `read_session`, `send_session` and `reply_session`, choosing `queue`, `steer` or `defer`. A persisted mailbox, retry de-duplication and a finite budget bound message loss, double processing and wake-up loops. |
 | **[Session cards](docs/session-cards.md)** | Each session advertises its project, workspace and the topics of its last five user requests—enough to pick the right collaborator without reading its transcript. Cards describe what the user asked for, not conclusions. |
@@ -55,6 +56,8 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 | **[Agent email](docs/email.md)** | A local `[ToAgent]` inbox shared by all sessions: Enter steers a message into the live session as user-selected context, and with Gmail configured the agent can send mail through the same approval flow. |
 
 ## 🆕 What's new
+
+**0.7.48** — [Remote runtime](docs/remote-runtime.md): `dscode server --port PORT` serves a machine's runtime over TCP with a token, and `dscode config --runtime` / `dscode runtime <alias>` attach a terminal on another machine to it. Pasted files are uploaded, `/diff`, `/review` and `/export` work in the server's folder, and terminals reconnect after a dropped connection. The connection is not encrypted. `/reload` applies MCP and configuration edits, ancestor skills and instructions without restarting the runtime. See the [release notes](docs/releases/0.7.48.md).
 
 **0.7.47** — The terminal and the agent runtime now run as separate processes: `dscode` starts a local [background host](docs/host.md) that owns sessions, and terminals attach to it over an owner-only socket. Closing or crashing a terminal leaves running work on the host, several terminals can attach to one session, and each session keeps its own folder's instructions. `--in-process` restores the single-process mode. See the [release notes](docs/releases/0.7.47.md).
 
@@ -198,6 +201,7 @@ npm start
 | `/shell`, `/shell reset` | Inspect or reset the persistent terminal |
 | `/browser` | Browser sessions, profiles, extension pairing, site permissions, Developer mode, WebMCP, handoff and tab retention |
 | `/mcp`, `/skills`, `/hooks` | Manage MCP, inspect skill sources, view or reload hooks |
+| `/reload` | Apply edits to MCP servers and config overlays, and remount this session's instructions, ancestor skill folders and hooks, without restarting the runtime |
 | `/plan`, `/goal` | Plans and long-running objectives |
 | `/agents` | Sub-agent tasks, status and current activity |
 | `/delegate <task>` | The main agent plans the task on a board with priorities and dependencies, dispatches ready tasks in priority order to child agents in isolated Git worktrees as child slots free up, answers their questions, verifies each result and finally stages what it merges |
@@ -223,7 +227,7 @@ The default is a `workspace-write` sandbox with **Auto** permission review, wher
 | Source | repository `.runtime/` | repository `.env` and `config/` |
 | Legacy tar | `.runtime/` inside the install directory | `.env` and `config/` in the install directory |
 
-`config/hooks.local.json`, `config/mcp.local.yml` and `config/harness.local.yml` are supported. Local configs, secrets and sessions never enter a release package. Skills are discovered in the target project's `.agents/skills` and `.dsh/skills`, plus an isolated user skill directory; `/skills conflicts` diagnoses same-name overrides. A project's `.codex/hooks.json`, `.dsh/hooks.json` and `.claude/settings.json` are layered on top of `config/hooks.local.json` by default; set `DSCODE_PROJECT_HOOKS=0` to load the installation file alone. Skills come from the project's `.dsh/skills` and `.agents/skills` plus the user roots, and by default `.dsh/skills`, `.agents/skills` and `.claude/skills` are also read from every directory between the working directory and home, nearest first; `DSCODE_SKILL_ANCESTORS=0` keeps discovery to the project and user roots alone. `AGENTS.md`/`CLAUDE.md` in those ancestor directories is folded into the workspace instructions.
+`config/hooks.local.json`, `config/mcp.local.yml` and `config/harness.local.yml` are supported. Local configs, secrets and sessions never enter a release package. Skills are discovered in the target project's `.agents/skills` and `.dsh/skills`, plus an isolated user skill directory; `/skills conflicts` diagnoses same-name overrides. A project's `.codex/hooks.json`, `.dsh/hooks.json` and `.claude/settings.json` are layered on top of `config/hooks.local.json` by default; set `DSCODE_PROJECT_HOOKS=0` to load the installation file alone. Skills come from the project's `.dsh/skills` and `.agents/skills` plus the user roots, and by default `.dsh/skills`, `.agents/skills` and `.claude/skills` are also read from every directory between the working directory and home, nearest first; `DSCODE_SKILL_ANCESTORS=0` keeps discovery to the project and user roots alone. `AGENTS.md`/`CLAUDE.md` in those ancestor directories is folded into the workspace instructions. Skills added to the project and user roots are picked up while a session runs; after editing `config/mcp.local.yml` or `config/harness.local.yml`, adding an ancestor skill folder or changing an ancestor `AGENTS.md`, run `/reload`.
 
 ## 🧩 Development
 
@@ -248,6 +252,7 @@ DSH is pinned to `0.2.0-rc.2`, bundled Node to `24.21.0`, the TUI is based on `d
 | [ACP clients](docs/acp.md) | `dscode acp`, configured-provider model filtering, custom providers, client approval and protocol limits |
 | [Triggers](docs/triggers.md) | Event-driven runs with fresh or persistent sessions: cron, delay jobs, supervised script loops, `/trigger` TUI management, agent tools, the run log |
 | [Background host](docs/host.md) | The separate runtime process, `dscode host` commands, idle exit, single-process mode and updates |
+| [Remote runtime](docs/remote-runtime.md) | `dscode server`, `dscode config --runtime` and `dscode runtime`: the runtime on a server, the terminal on your machine |
 | [Session bridge](docs/session-bridge.md) | `dscode sessions`, `send`, `read`, `watch` against a live session |
 | [Session communication](docs/session-communication.md) | Agent-side messaging, delivery modes, budgets and de-duplication |
 | [Session cards](docs/session-cards.md) | Project, workspace and topic fields, and how they are derived |

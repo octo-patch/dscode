@@ -1,6 +1,6 @@
 # Client and runtime protocol
 
-> **Developer reference, not a usage guide.** It specifies how a terminal client talks to the DSCODE runtime, for anyone writing or debugging a client. Status: describes the protocol as implemented in 0.7.47; the code is authoritative where the two differ. Why it is shaped this way is in [Runtime and client separation](runtime-client-design.md); the user-facing behaviour is in [Background host](host.md).
+> **Developer reference, not a usage guide.** It specifies how a terminal client talks to the DSCODE runtime, for anyone writing or debugging a client. Status: describes the protocol as implemented in 0.7.48; the code is authoritative where the two differ. Why it is shaped this way is in [Runtime and client separation](runtime-client-design.md); the user-facing behaviour is in [Background host](host.md) and [Remote runtime](remote-runtime.md).
 
 ## Roles
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | **Host** | One Harness process per state directory. It owns sessions, agents, models, tools, permissions, credentials and persistence. | `scripts/host.mjs`, `plugins/local-carrier/index.mjs`, `packages/tui/src/host/` |
 | **Client** | A process that renders and drives sessions without owning any of them. The terminal is the only client DSCODE ships. | `packages/tui/src/client.ts`, `packages/tui/src/runtime/typert.ts` |
-| **Carrier** | HTTP over an owner-only Unix socket between the two. | `plugins/local-carrier/index.mjs` (server), `plugins/local-carrier/client.mjs` (client) |
+| **Carrier** | HTTP over an owner-only Unix socket between the two; `dscode server` adds the same routes over TCP with a bearer token. | `plugins/local-carrier/index.mjs` (server), `plugins/local-carrier/client.mjs` (client) |
 
 The protocol has two layers, both on the same socket:
 
@@ -36,6 +36,17 @@ In single-process mode (`--in-process`) the same `RuntimeClient` interface is im
 The socket is `host.sock` in the session bridge's per-state directory under `/tmp` (`ensureSocketDirectory` in `plugins/session-bridge/paths.mjs`), which keeps the path inside the macOS limit of about 104 bytes. The directory is checked for ownership and mode 0700; the socket is chmod 0600 once listening. Nothing listens on TCP. **Filesystem permissions are the only authentication**: any process running as the same user can connect, and every connection acts as the Host's operator peer.
 
 Before replacing a stale socket, a Host takes an exclusive `flock` on `host.lock` beside it. A Host that cannot take the lock exits with code 3, so exactly one Host serves a state directory.
+
+### TCP listener
+
+`dscode server --port PORT` runs the same Host with a second HTTP server on `bind:port` (default `0.0.0.0`) carrying the same three routes. The Unix socket stays, unauthenticated as before, so terminals on the server attach locally.
+
+- **Authentication.** Every TCP request must carry `Authorization: Bearer <token>`. The token is read at start from the `tokenFile` the server was given (`run/server-token`, 0600, minted as `dsk_` plus 24 random bytes in base64url) and compared in constant time. A token holder acts as the operator peer, exactly like a socket client.
+- **Refusal.** A missing or wrong token gets HTTP 401 before routing, in each route's own failure shape: `{"type": "server-response", "result": {"ok": false, "error": …}}` on `/api`, `{"ok": false, "error": …}` on `/dscode`, and a single `{"error": …}` line on `/stream`. The code is `dscode/unauthorized`. Refused requests do not count as activity.
+- **No encryption.** The listener is plain HTTP. Confidentiality depends on the network (VPN, LAN, SSH tunnel).
+- **Long-lived streams.** `requestTimeout` is disabled, because a stream's request body stays open for uplink items. TCP keepalive (30 s) is on at both ends, so an idle stream is not dropped by NAT. The client sends unary calls through a keep-alive agent and gives every stream its own unpooled connection.
+
+A client names the server as `{url: "http://host:port", token}` instead of a socket path; `plugins/local-carrier/client.mjs` accepts either form everywhere (`requestOptions`, `targetFromEnv`).
 
 ### Routes
 
@@ -77,14 +88,16 @@ One logical stream is one `POST /stream` exchange with `content-type: applicatio
 
 | Operation | Form | Result |
 |---|---|---|
-| `host/status` | DSCODE unary | `{pid, startedAt, socketPath, clients, streams, sessions, running, idleExitMs}` |
+| `host/status` | DSCODE unary | `{version, pid, startedAt, socketPath, clients, streams, sessions, running, idleExitMs, defaultCwd, tcp?}`; `defaultCwd` is the folder a remote client uses when it names none, `tcp` is `{port, bind}` on a server |
 | `host/shutdown` | DSCODE unary | `{stopping: true}`; the Host exits about 50 ms later |
 
 A launcher finds the Host by calling `host/status` with a 2-second timeout. If nothing answers, `ensureHost` (`scripts/host.mjs`) spawns `dscode host serve` detached, with output appended to `run/host.log` in the state directory, and polls `host/status` for up to 90 seconds. A started Host that exits early (it lost the lock race) is relaunched unless another Host has started answering. The launcher then starts the client with `DSCODE_RUNTIME_SOCKET` set to the socket path; the client refuses to start without it.
 
 **Idle accounting.** `clients` counts open `$events` streams, one per attached client; `streams` counts all open streams. Every request except `host/status` refreshes the activity clock, so status probes never keep a Host alive. With `idleExitMs > 0` (default 600000, from `DSCODE_HOST_IDLE_MS`), the Host exits once `clients`, `streams` and running agents have all been zero for that long.
 
-**Versioning.** There is no protocol version handshake. Client and Host are expected to come from the same installation: the launcher always starts its own package's Host, and `dscode update` stops an idle Host before replacing the package and refuses while a client is attached. A client from a different version that attaches to a running Host is unsupported.
+**Remote launch.** For a remote runtime (`dscode runtime <alias>`, or a default other than `local`), the launcher starts no local Host. It calls `host/status` over TCP and refuses to continue if the server does not answer, rejects the token, or reports a different `version`. It then starts the client with `DSCODE_RUNTIME_URL`, `DSCODE_RUNTIME_TOKEN`, `DSCODE_RUNTIME_CWD` (the session folder on the server: `--cwd`, else the alias's folder, else the server's `defaultCwd`) and `DSCODE_RUNTIME_ALIAS`. There is no fallback to this machine.
+
+**Versioning.** There is no protocol version number; client and Host must run the same DSCODE release. For a remote runtime the launcher compares `host/status.version` with its own before starting the client, and the client compares again after every reconnect and reports a mismatch. For the local Host, the launcher always starts its own package's Host, and `dscode update` stops an idle Host before replacing the package and refuses while a client is attached.
 
 ## Client lifecycle
 
@@ -173,11 +186,21 @@ Operations on a session need a live agent on the Host; otherwise they fail with 
 
 Abort the follow, children and watch streams. The session stays on the Host, and a running turn continues. Close `$events` last; the Host then stops counting the client. Nothing has to be flushed, because the Host owns persistence.
 
+### 7. Reconnect
+
+A stream that fails with a connection error, or ends without being aborted, is reopened with backoff (250 ms, 500 ms, 1 s, 2 s, then every 5 s). A failure that carries a Remote or `dscode/*` code is the operation's own and is not retried.
+
+- **`$events`.** A reopened stream gets a new `ready` with a new `clientId`. Prompts still open from the old connection are withdrawn, because the Host replays every waterfall that is still pending. An answer that could not be delivered is kept and sent when its `eventId` is replayed. The terminal shows the drop and the recovery as notices, and the session streams below retry at once instead of finishing their backoff.
+- **`session/follow`.** The reopened stream opens with a fresh `snapshot`. The client keeps what it has folded, takes the snapshot's events newer than the last `seq` it saw, and pages back with `session/page` (`throughSeq` = the new `cursor`, `beforeSeq` = the oldest new record) until it reaches that `seq`. It then emits the missed events in order and re-reads the running state from `session/list`. Live assistant frames from the gap are not recovered; the committed message carries the text.
+- **Watches and feeds** (`commands/watch`, `models/defaults`, `skills/watch`, `status/watch`, `notices/watch`, `sessions/children`, revision streams) reopen the same way. A revision stream's first item after a reopen counts as a change. Child events committed during the gap are not replayed.
+- Unary calls made while disconnected fail and are reported. Opening a session or delivering a message is not retried automatically.
+
 ## Several clients on one session
 
 - Every client follows the same session independently and sees the same committed events in the same order.
 - Live `assistant-stream` frames are delivered only from the moment a client's follow stream opens. Text streamed before that appears once the assistant message is committed.
 - One-way `emit` events are not replayed. State a reconnecting client needs must come from a query (`session/list`), the follow snapshot or a watch stream's opening value.
+- Clients on the local socket and clients over TCP are equal. A remote and a local terminal can share one session on a server.
 - Waterfalls follow the first-answer rule above.
 - Input from every client goes into the session's one inbox; there is no per-client lock or ownership of a turn. Any client can interrupt a turn another client started.
 
@@ -200,8 +223,11 @@ Unary methods are `POST /dscode/<name>`; streams are endpoint `dscode/<name>`. A
 | Catalogs | `jobs/list`, `schedules/list`, `plugins/list`, `presets/planAvailable` | `skills/watch` `{sessionId?, cwd}` | `catalog.ts` |
 | Permissions | `permissions/rows`, `permissions/names`, `permissions/effective`, `permissions/select` | | `catalog.ts` |
 | Mentions | `mentions/candidates` `{sessionId?, cwd, query}`, `mentions/prepare` `{sessionId?, cwd, parsed}` | | `catalog.ts` |
-| Attachments | `attachments/inspectImages`, `attachments/saveImages`, `attachments/inspectFiles`, `attachments/saveFiles` | | `catalog.ts` |
+| Attachments | `attachments/inspectImages`, `attachments/saveImages`, `attachments/inspectFiles`, `attachments/saveFiles` (paths the Host reads); `attachments/inspectImageData`, `attachments/saveImageData`, `attachments/inspectFileData`, `attachments/saveFileData` (content a remote client read) | | `catalog.ts` |
+| Workspace | `workspace/gitDiff` `{cwd, argument}`, `workspace/commitDiff` `{cwd, sha}`, `workspace/mergeBase` `{cwd, branch}`, `workspace/reviewBranches`, `workspace/reviewCommits`, `workspace/gitBranch` `{cwd}`, `workspace/writeText` `{path, text}` | | `workspace.ts` |
 | Footer and notices | | `status/watch` `{sessionId, modelLabel}`, `notices/watch` | `status.ts`, `notices.ts` |
+
+**Content attachments.** A client that does not share the Host's filesystem (`RuntimeClient.sharesFilesystem` is false over TCP) sends a path it can read itself as content. The `…Data` inspect methods take `{items: [{path, name, bytes, signature}]}`, where `signature` is the base64 of the file's first 16 bytes. The save methods take `{items: [{name, data}]}` with the whole file in base64. Both apply the same count, size and format limits as the path methods. The client passes any path it cannot read to the path methods, and the Host resolves it in the session's folder. `workspace/*` always runs on the Host, so `/diff`, `/review`, `/export` and the status-line branch read the session's folder on that machine.
 
 `models/subagentOverride` sets one Host-wide override shared by every client: `/subagent` in one terminal changes delegated agents' models for all sessions on that Host.
 
@@ -219,6 +245,7 @@ DSCODE failures carry a stable `code`; anything that is not a deliberate failure
 
 | Code | Meaning |
 |---|---|
+| `dscode/unauthorized` | A TCP request without the server's token |
 | `dscode/unavailable` | The Host has no DSCODE registry mounted |
 | `dscode/unknown-method`, `dscode/unknown-stream` | No such operation |
 | `dscode/session-not-live` | The session has no live agent on this Host |
@@ -267,13 +294,14 @@ void (async () => {
 await callDscode(socket, 'session/deliver', { sessionId, mode: 'followup', content: [{ type: 'text', text: 'hello' }] });
 ```
 
-The socket path of a running Host is the `socketPath` field of `dscode host status`. Assistant frames are `@deepseek-ai/dsh-agent`'s `AssistantStreamFrame`: `start`, then `chunk` frames carrying an LLM `StreamChunk` (`text-delta`, `reasoning-delta`, `tool-call-delta`, …), then `end` with the committed event's `seq` or `abandoned`. Check them against the pinned DSH version.
+The socket path of a running Host is the `socketPath` field of `dscode host status`. For a remote server, pass `{ url: 'http://host:port', token }` wherever the example passes `socket`. Assistant frames are `@deepseek-ai/dsh-agent`'s `AssistantStreamFrame`: `start`, then `chunk` frames carrying an LLM `StreamChunk` (`text-delta`, `reasoning-delta`, `tool-call-delta`, …), then `end` with the committed event's `seq` or `abandoned`. Check them against the pinned DSH version.
 
 ## Verification
 
 - `scripts/verify-local-carrier.mjs` drives a headless Host from a separate process with upstream methods only: create, select model, prompt, follow with live frames, and an approval rejected through `$events/result`.
 - `scripts/verify-host.mjs` covers two clients on one session, a client killed mid-turn and reattached through paged history, concurrent Host starts, and idle exit.
 - `scripts/verify-tui-runner.mjs` runs the real terminal in single-process, same-process protocol and separate-Host modes.
-- `tests/local-carrier.test.mjs` covers the envelopes, socket permissions, uplink, failure mapping and client abort.
+- `scripts/verify-remote.mjs` runs a real `dscode server` and a terminal with separate state directories: token refusal on every route, `dscode config`, the full terminal scenario over TCP, `/export` and the git branch in the server's folder, a server restart mid-session with the terminal reconnecting, content attachments, and refused launches.
+- `tests/local-carrier.test.mjs` covers the envelopes, socket permissions, uplink, failure mapping, client abort, bearer-token checks on every TCP route and the version refusal. `tests/remote-runtime.test.mjs` covers the runtime configuration, the server token, content-attachment routing and limits, and stream reopening.
 
-Not covered by an automated case: two clients answering the same waterfall at once, a client of a different version, and a Host exiting under an attached client.
+Not covered by an automated case: two clients answering the same waterfall at once, a waterfall answered across a reconnect, a client and server on different machines (the verifier uses loopback), and a long idle stream crossing real NAT.

@@ -6,20 +6,25 @@
  * @module dsh-code/runtime/views
  */
 
+import { readFile, stat } from 'node:fs/promises'
+import { isAbsolute, resolve } from 'node:path'
 import type { AuthorizationInteraction, AuthorizationStatus } from '@deepseek-ai/dsh-authorization'
+import type { FileBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
 import { formatSessionReferenceMention, parseSessionReferenceText } from '@deepseek-ai/dsh-session-reference'
 import { newCustomProfile } from '../../../../plugins/custom/config.mjs'
 import { setMetricSource } from '../../../../plugins/session-metrics/view.mjs'
 import { setSpeedSource } from '../../../../plugins/openai/speed.mjs'
 import { setBoardSource } from '../../../../plugins/dscode/board.mjs'
+import { readPathFacts, type FilePathInspection, type ImagePathInspection } from '../attachments.ts'
 import type { CustomClient } from '../custom-provider-panel.ts'
+import type { GitDiffView, ReviewBranch, ReviewCommit } from '../git-workflow.ts'
 import type { SkillsState } from '../host/catalog.ts'
 import type { AuthorizationStreamItem, AuthorizationUplinkItem } from '../host/providers.ts'
 import type { StatusState } from '../host/status.ts'
 import type { MentionCandidate, MentionsApi, PreparedMention } from '../mentions.ts'
 import type { SkillRow } from '../skills.ts'
 import type { RuntimeClient } from './types.ts'
-import { remoteWatch } from './watch.ts'
+import { remoteWatch, resilient } from './watch.ts'
 
 /**
  * Subscribe to a Host revision stream; the listener runs on every change after
@@ -27,13 +32,13 @@ import { remoteWatch } from './watch.ts'
  */
 export function subscribeRevisions(runtime: RuntimeClient, name: string, listener: () => void): () => void {
   const controller = new AbortController()
-  void (async () => {
-    let first = true
-    for await (const _revision of runtime.stream(name, {}, controller.signal)) {
-      if (first) { first = false; continue }
-      listener()
-    }
-  })().catch(() => {})
+  // A reopened stream starts from a fresh revision; anything may have changed
+  // while it was closed, so its opening item counts as a change.
+  let first = true
+  void resilient(signal => runtime.stream(name, {}, signal), controller.signal, () => {
+    if (first) { first = false; return }
+    listener()
+  }).catch(() => {})
   return () => controller.abort()
 }
 
@@ -140,9 +145,7 @@ export function mirrorStatusSources(runtime: RuntimeClient): { follow(sessionId:
     if (sessionId === undefined) return
     const current = new AbortController()
     controller = current
-    void (async () => {
-      for await (const item of runtime.stream<StatusState>('status/watch', { sessionId, modelLabel: label }, current.signal)) state = item
-    })().catch(() => {})
+    void resilient(signal => runtime.stream<StatusState>('status/watch', { sessionId, modelLabel: label }, signal), current.signal, item => { state = item }).catch(() => {})
   }
   const disposers = [
     setMetricSource((id: string) => id === sessionId ? state?.metrics : undefined),
@@ -162,8 +165,83 @@ export function mirrorStatusSources(runtime: RuntimeClient): { follow(sessionId:
 /** Show Host-originated notices (for example capability-sync warnings) as terminal notices. */
 export function followNotices(runtime: RuntimeClient, notify: (text: string, tone?: 'info' | 'warning' | 'error') => void): () => void {
   const controller = new AbortController()
-  void (async () => {
-    for await (const notice of runtime.stream<{ text: string; tone?: 'info' | 'warning' | 'error' }>('notices/watch', {}, controller.signal)) notify(notice.text, notice.tone)
-  })().catch(() => {})
+  void resilient(signal => runtime.stream<{ text: string; tone?: 'info' | 'warning' | 'error' }>('notices/watch', {}, signal), controller.signal, notice => notify(notice.text, notice.tone)).catch(() => {})
   return () => controller.abort()
+}
+
+/** The attachment operations the composer uses. */
+export interface AttachmentClient {
+  inspectImages(paths: readonly string[]): Promise<readonly ImagePathInspection[]>
+  prepareImages(paths: readonly string[], signal?: AbortSignal): Promise<readonly ImageBlock[]>
+  inspectFiles(paths: readonly string[]): Promise<readonly FilePathInspection[]>
+  prepareFiles(paths: readonly string[], signal?: AbortSignal): Promise<readonly FileBlock[]>
+}
+
+/**
+ * Attachments over the Host. When the Host shares this filesystem it reads the
+ * paths itself. Otherwise a path this terminal can read (a pasted screenshot,
+ * a dropped file) is sent as content, and any other path is left to the Host,
+ * which resolves it in the session's folder on its own machine.
+ * @param cwdOf - the session's folder, for relative paths the Host resolves.
+ */
+export function attachmentClient(runtime: RuntimeClient, cwdOf: () => string): AttachmentClient {
+  if (runtime.sharesFilesystem) {
+    return {
+      inspectImages: paths => runtime.call('attachments/inspectImages', { paths, cwd: cwdOf() }),
+      prepareImages: (paths, signal) => runtime.call('attachments/saveImages', { paths }, signal),
+      inspectFiles: paths => runtime.call('attachments/inspectFiles', { paths, cwd: cwdOf() }),
+      prepareFiles: (paths, signal) => runtime.call('attachments/saveFiles', { paths }, signal),
+    }
+  }
+  const localFile = async (raw: string): Promise<string | undefined> => {
+    const path = isAbsolute(raw) ? raw : resolve(process.cwd(), raw)
+    try { return (await stat(path)).isFile() ? path : undefined } catch { return undefined }
+  }
+  // Split the list into what is sent as content and what the Host resolves, then
+  // merge the two answers back into the original order.
+  const routed = async <T>(paths: readonly string[], asContent: (paths: string[]) => Promise<readonly T[]>, onHost: (paths: string[]) => Promise<readonly T[]>): Promise<readonly T[]> => {
+    const local = await Promise.all(paths.map(localFile))
+    const content = local.filter((path): path is string => path !== undefined)
+    const remote = paths.filter((_, at) => local[at] === undefined)
+    const [fromContent, fromHost] = await Promise.all([
+      content.length === 0 ? [] : asContent(content),
+      remote.length === 0 ? [] : onHost(remote),
+    ])
+    let c = 0, h = 0
+    return local.map(path => path === undefined ? fromHost[h++]! : fromContent[c++]!)
+  }
+  const base64 = async (path: string): Promise<string> => (await readFile(path)).toString('base64')
+  const named = async (path: string): Promise<{ name: string; data: string }> => ({ name: (await readPathFacts(path, process.cwd(), 'file')).name, data: await base64(path) })
+  return {
+    inspectImages: paths => routed(paths,
+      async local => runtime.call('attachments/inspectImageData', { items: await Promise.all(local.map(async path => {
+        const facts = await readPathFacts(path, process.cwd(), 'image')
+        return { path: facts.path, name: facts.name, bytes: facts.bytes, signature: Buffer.from(facts.signature).toString('base64') }
+      })) }),
+      remote => runtime.call('attachments/inspectImages', { paths: remote, cwd: cwdOf() })),
+    prepareImages: (paths, signal) => routed(paths,
+      async local => runtime.call('attachments/saveImageData', { items: await Promise.all(local.map(named)) }, signal),
+      remote => runtime.call('attachments/saveImages', { paths: remote }, signal)),
+    inspectFiles: paths => routed(paths,
+      async local => runtime.call('attachments/inspectFileData', { items: await Promise.all(local.map(async path => {
+        const { path: resolved, name, bytes } = await readPathFacts(path, process.cwd(), 'file')
+        return { path: resolved, name, bytes }
+      })) }),
+      remote => runtime.call('attachments/inspectFiles', { paths: remote, cwd: cwdOf() })),
+    prepareFiles: (paths, signal) => routed(paths,
+      async local => runtime.call('attachments/saveFileData', { items: await Promise.all(local.map(named)) }, signal),
+      remote => runtime.call('attachments/saveFiles', { paths: remote }, signal)),
+  }
+}
+
+/** Git inspection and the status-line branch, run on the Host in the session's folder. */
+export function workspaceClient(runtime: RuntimeClient) {
+  return {
+    gitDiff: (cwd: string, argument: string, signal?: AbortSignal) => runtime.call<GitDiffView>('workspace/gitDiff', { cwd, argument }, signal),
+    commitDiff: (cwd: string, sha: string, signal?: AbortSignal) => runtime.call<GitDiffView>('workspace/commitDiff', { cwd, sha }, signal),
+    mergeBase: async (cwd: string, branch: string, signal?: AbortSignal) => (await runtime.call<string | null>('workspace/mergeBase', { cwd, branch }, signal)) ?? undefined,
+    reviewBranches: (cwd: string, signal?: AbortSignal) => runtime.call<readonly ReviewBranch[]>('workspace/reviewBranches', { cwd }, signal),
+    reviewCommits: (cwd: string, signal?: AbortSignal) => runtime.call<readonly ReviewCommit[]>('workspace/reviewCommits', { cwd }, signal),
+    gitBranch: (cwd: string) => runtime.call<string>('workspace/gitBranch', { cwd }),
+  }
 }

@@ -42,7 +42,7 @@ export function apply(ctx) {
       }
       if (prompt.includes('INSTRUCTIONS')) {
         const system = JSON.stringify(options.system ?? '') + JSON.stringify(options.messages);
-        const seen = ['MARKER_ALPHA', 'MARKER_BETA'].filter(marker => system.includes(marker));
+        const seen = [...new Set(system.match(/MARKER_[A-Z]+/g) ?? [])].sort();
         return yield* text(`instructions:[${seen.join(',')}]`);
       }
       if (prompt.includes('SLOW')) {

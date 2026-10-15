@@ -63,6 +63,7 @@ export function createInProcessRuntime(services: InProcessServices): RuntimeClie
 
   return {
     kind: 'in-process',
+    sharesFilesystem: true,
     async open(request: OpenSessionRequest): Promise<RuntimeSession> {
       const { selection } = request
       // AgentSetup passes the composed agent as its second argument; the preset

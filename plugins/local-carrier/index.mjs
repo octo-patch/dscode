@@ -1,9 +1,13 @@
 // Local carrier for the upstream Typert API: the same /api RPC dispatch and
 // Gateway streams the browser and Desktop use, over an owner-only Unix socket
 // instead of a cookie-authenticated loopback port. Filesystem permissions are
-// the authentication, as for the session bridge; nothing listens on TCP.
+// the authentication, as for the session bridge. `dscode server` adds a TCP
+// listener carrying the same routes, where every request must present the
+// server's bearer token; that listener is not encrypted.
 import { createServer } from 'node:http';
-import { chmodSync, closeSync, mkdirSync, openSync, rmSync, statSync } from 'node:fs';
+import { timingSafeEqual } from 'node:crypto';
+import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { tryLockExclusive } from '@deepseek-ai/node-addon-system/flock';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -15,7 +19,17 @@ export const Config = z.object({
   socketPath: z.string().description('Absolute socket path; defaults to $DSH_HOME/run/host.sock'),
   host: z.boolean().default(false).description('Serve as the shared Host: hold the Host lock and offer host/status and host/shutdown'),
   idleExitMs: z.number().min(0).default(0).description('Exit after this long with no attached terminal and no running turn; 0 never exits'),
+  defaultCwd: z.string().description('Working directory a remote client uses when it names none; defaults to the home directory'),
+  // Optional as a whole: the schema fills an absent object, so serving TCP is keyed on the port.
+  tcp: z.object({
+    port: z.natural().description('TCP port for remote clients; absent serves the socket only'),
+    bind: z.string().default('0.0.0.0').description('Address to listen on'),
+    tokenFile: z.string().description('File holding the bearer token every TCP request must present'),
+  }).description('Serve remote clients over TCP (dscode server); unencrypted'),
 });
+
+/** The package version a Host reports, so a client can refuse a different release. */
+export const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
 export const STREAM_PATH = '/stream';
 /** Unary DSCODE operations (packages/tui/src/host/registry.ts): POST /dscode/<name> with {args}. */
@@ -26,6 +40,27 @@ export const DSCODE_STREAM_PREFIX = 'dscode/';
 // The registry is an optional Host value: without it DSCODE endpoints report unknown.
 const registryOf = ctx => ctx.get('dscodeRemote');
 const failure = error => ({ code: typeof error?.code === 'string' && error.name === 'RemoteFailure' ? error.code : 'dscode/internal', message: error instanceof Error ? error.message : String(error) });
+
+/** Whether a TCP request carries the server token (constant-time comparison). */
+export function authorized(header, token) {
+  const match = /^Bearer (.+)$/.exec(header ?? '');
+  if (match === null) return false;
+  const given = Buffer.from(match[1]), expected = Buffer.from(token);
+  return given.length === expected.length && timingSafeEqual(given, expected);
+}
+
+// Each route's own failure shape, so every client half reports the refusal as a failure.
+function refuse(req, res) {
+  const error = { code: 'dscode/unauthorized', message: 'the runtime refused the token; check `dscode config --list`' };
+  req.resume();
+  if (req.url === STREAM_PATH) {
+    res.writeHead(401, { 'content-type': 'application/x-ndjson' });
+    res.end(JSON.stringify({ error }) + '\n');
+  } else {
+    res.writeHead(401, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(req.url.startsWith(DSCODE_PREFIX) ? { ok: false, error } : { type: 'server-response', result: { ok: false, error } }));
+  }
+}
 
 async function dscodeUnary(ctx, req, res) {
   const chunks = [];
@@ -135,32 +170,54 @@ export async function apply(ctx, config = {}) {
     }
     ctx.effect(() => unlock, 'local carrier: Host lock');
   }
-  const server = createServer((req, res) => {
+  const route = (req, res) => {
     // A status probe (a launcher checking for a Host) must not keep an idle Host alive.
     if (req.url !== `${DSCODE_PREFIX}host%2Fstatus`) activity.lastActivity = Date.now();
-    const route = req.url === STREAM_PATH && req.method === 'POST' ? stream(ctx, req, res, activity)
+    const handled = req.url === STREAM_PATH && req.method === 'POST' ? stream(ctx, req, res, activity)
       : req.url.startsWith(DSCODE_PREFIX) && req.method === 'POST' ? dscodeUnary(ctx, req, res)
         : unary(handler, req, res);
-    route.catch(error => {
+    handled.catch(error => {
       ctx.logger?.warn?.(`local carrier: ${error.message}`);
       if (!res.headersSent) res.writeHead(500);
       res.end();
     });
-  });
+  };
+  const server = createServer(route);
   ctx.effect(() => {
     try { if (statSync(socketPath).isSocket()) rmSync(socketPath); } catch { /* no stale socket */ }
     // The directory is 0700 before the socket exists, so the umask-mode window before chmod admits no other user.
     server.listen(socketPath, () => chmodSync(socketPath, 0o600));
     return () => new Promise(resolve => { server.closeAllConnections(); server.close(() => { rmSync(socketPath, { force: true }); resolve(); }); });
   }, 'local carrier: Unix socket');
+  if (config.tcp?.port) {
+    if (!config.tcp.tokenFile) throw Error('serving TCP needs tcp.tokenFile');
+    // Read once at start: rotating the token means restarting the server.
+    const token = readFileSync(config.tcp.tokenFile, 'utf8').trim();
+    if (token.length < 16) throw Error(`the server token in ${config.tcp.tokenFile} is too short`);
+    const remote = createServer((req, res) => authorized(req.headers.authorization, token) ? route(req, res) : refuse(req, res));
+    // Streams are long-lived requests whose bodies stay open for uplink items,
+    // and idle ones cross NAT: no request deadline, and TCP keepalive on.
+    remote.requestTimeout = 0;
+    remote.on('connection', socket => { socket.setKeepAlive(true, 30_000); socket.setNoDelay(true); });
+    ctx.effect(() => new Promise((resolve, reject) => {
+      remote.once('error', reject);
+      remote.listen(config.tcp.port, config.tcp.bind, () => {
+        remote.off('error', reject);
+        ctx.logger?.info?.(`local carrier: serving remote clients on ${config.tcp.bind}:${config.tcp.port}`);
+        resolve(() => new Promise(done => { remote.closeAllConnections(); remote.close(() => done()); }));
+      });
+    }), 'local carrier: TCP listener');
+  }
   if (!config.host) return;
   const running = () => (ctx.get('agents')?.list() ?? []).filter(agent => agent.status === 'running').length;
   const exit = code => setTimeout(() => ctx.get('appExit')?.(code), 50);
   ctx.inject(['dscodeRemote'], scoped => scoped.effect(() => {
     const offs = [
       scoped.dscodeRemote.method('host/status', () => ({
-        pid: process.pid, startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
+        version: VERSION, pid: process.pid, startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
         sessions: (ctx.get('agents')?.list() ?? []).length, running: running(), idleExitMs: config.idleExitMs ?? 0,
+        defaultCwd: config.defaultCwd || homedir(),
+        ...(config.tcp?.port ? { tcp: { port: config.tcp.port, bind: config.tcp.bind } } : {}),
       })),
       scoped.dscodeRemote.method('host/shutdown', () => { exit(0); return { stopping: true }; }),
     ];

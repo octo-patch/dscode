@@ -23,7 +23,7 @@ test('default and configured Harness homes own workspace hooks, browser state, r
       import { appendMetric } from './plugins/session-metrics/store.mjs';
       import { sessionSpend } from './plugins/session-metrics/view.mjs';
       const home = join(homedir(), process.env.DSH_HOME?.trim() ? 'custom-harness' : '.dsh');
-      workspace({ on() {} });
+      workspace({ on() {}, provide() {} });
       assert(existsSync(join(home, 'config/hooks.local.json')));
       assert.equal(browserHome(), join(home, 'browser'));
       const commands = [];

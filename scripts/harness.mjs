@@ -155,6 +155,8 @@ export function environment(home = runtimeHome, cwd = process.cwd()) {
     DSCODE_INSTRUCTION_HOME: instructions ?? home,
     DSCODE_SANDBOX_RUNNER: join(root, 'plugins/tui-tools/sandbox-runner.mjs'),
     DSCODE_CLI_PATH: join(root, standalone ? 'dscode' : 'bin/dscode.mjs'),
+    // /reload re-reads these, including one created after the Harness started (plugins/tui-tools/reload.mjs).
+    DSCODE_LOCAL_OVERLAYS: JSON.stringify(localOverlayPaths()),
     DSH_TUI_REVIEW_ENTRY: join(root, 'plugins/auto-review/index.mjs'),
   };
 }
@@ -171,17 +173,19 @@ export function runDsh(args, { home = runtimeHome, cwd = root, stdio = 'inherit'
   });
 }
 
+/** Every installation-local overlay a Harness may read, present or not, in load order. */
+export const localOverlayPaths = () => ['mcp.local.yml', 'harness.local.yml'].map(file => join(configRoot, 'config', file));
+
 /** Installation-local composition overlays, applied to every Harness this launcher starts. */
 export function localOverlays() {
-  const overlays = [];
-  for (const file of ['mcp.local.yml', 'harness.local.yml']) {
-    const path = join(configRoot, 'config', file);
-    if (existsSync(path)) overlays.push('--patch', path);
-  }
-  return overlays;
+  return localOverlayPaths().filter(path => existsSync(path)).flatMap(path => ['--patch', path]);
 }
 
-export async function main(argv = process.argv.slice(2), defaultCwd = root) {
+/**
+ * @param options.runtime - the runtime alias `dscode runtime <alias>` names;
+ * otherwise the configured default (docs/remote-runtime.md).
+ */
+export async function main(argv = process.argv.slice(2), defaultCwd = root, options = {}) {
   loadLocalEnvironment();
   const [command = 'start', ...args] = argv;
   if (!['setup', 'start', 'doctor', 'config'].includes(command)) throw new Error(`Unknown command: ${command}`);
@@ -190,39 +194,59 @@ export async function main(argv = process.argv.slice(2), defaultCwd = root) {
     return;
   }
   let cwd = defaultCwd;
+  let cwdArgument;
   const cwdIndex = args.indexOf('--cwd');
   if (cwdIndex !== -1) {
     if (!args[cwdIndex + 1]) throw new Error('--cwd requires a directory');
-    cwd = realpathSync(resolve(args[cwdIndex + 1]));
+    cwdArgument = args[cwdIndex + 1];
     args.splice(cwdIndex, 2);
   }
+  // The interactive terminal attaches to the shared Host by default;
+  // --in-process (or DSCODE_RUNTIME=in-process) keeps the single-process mode.
+  const inProcessFlag = args.indexOf('--in-process');
+  if (inProcessFlag !== -1) args.splice(inProcessFlag, 1);
+  const inProcess = inProcessFlag !== -1 || process.env.DSCODE_RUNTIME === 'in-process';
+  // Launcher-level flags (--dump-config, --patch, --profile) belong to the DSH CLI, not the terminal.
+  const launcherFlag = args.some(arg => ['--dump-config', '--patch', '--profile'].includes(arg.split('=')[0]));
+  const { checkRemote, resolveRuntime } = await import('./runtimes.mjs');
+  // A remote runtime's folder is a path on the server, so it is never resolved here.
+  const runtime = command !== 'start' || launcherFlag || (inProcess && options.runtime === undefined)
+    ? { kind: 'local' }
+    : resolveRuntime(runtimeHome, options.runtime);
+  if (runtime.kind === 'remote' && inProcess) throw new Error(`--in-process runs this machine's runtime; it cannot be combined with runtime ${runtime.alias}`);
+  if (runtime.kind === 'local' && cwdArgument !== undefined) cwd = realpathSync(resolve(cwdArgument));
   const profile = provision(runtimeHome, { cwd });
   if (command === 'setup') {
     console.log(`Ready: ${profile}\nStart with npm start. State stays in ${runtimeHome}`);
     return;
   }
   const overlays = localOverlays();
-  // The interactive terminal attaches to the shared Host by default;
-  // --in-process (or DSCODE_RUNTIME=in-process) keeps the single-process mode.
-  const inProcessFlag = args.indexOf('--in-process');
-  if (inProcessFlag !== -1) args.splice(inProcessFlag, 1);
-  // Launcher-level flags (--dump-config, --patch, --profile) belong to the DSH CLI, not the terminal.
-  const launcherFlag = args.some(arg => ['--dump-config', '--patch', '--profile'].includes(arg.split('=')[0]));
-  if (command === 'start' && inProcessFlag === -1 && !launcherFlag && process.env.DSCODE_RUNTIME !== 'in-process') {
+  // DSCODE_TERMINAL_CLIENT substitutes the client entry (verification installs its probe there).
+  const startClient = connection => {
+    const client = process.env.DSCODE_TERMINAL_CLIENT || join(root, 'scripts/terminal-client.mjs');
+    const child = spawn(process.execPath, [...quietNodeArgs, client, ...args], {
+      cwd, env: { ...environment(runtimeHome, cwd), ...connection }, stdio: runtimeStdio('inherit'),
+    });
+    for (const signal of ['SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal));
+    child.on('error', error => { console.error(error.message); process.exitCode = 1; });
+    child.on('exit', (code, signal) => { process.exitCode = code ?? (signal ? 1 : 0); });
+  };
+  if (runtime.kind === 'remote') {
+    // No fallback: the user asked for that machine, so a refusal is the answer.
+    const status = await checkRemote(runtime, manifest.version);
+    const remoteCwd = cwdArgument ?? runtime.cwd ?? status.defaultCwd;
+    if (!remoteCwd.startsWith('/')) throw new Error(`--cwd for runtime ${runtime.alias} must be an absolute path on the server`);
+    startClient({ DSCODE_RUNTIME_URL: runtime.target.url, DSCODE_RUNTIME_TOKEN: runtime.target.token, DSCODE_RUNTIME_CWD: remoteCwd, DSCODE_RUNTIME_ALIAS: runtime.alias });
+    return;
+  }
+  if (command === 'start' && !inProcess && !launcherFlag) {
     const { ensureHost } = await import('./host.mjs');
     let socket;
     try { socket = await ensureHost(); } catch (error) {
       console.error(`dscode: the shared Host is unavailable, continuing in a single process: ${error.message.split('\n')[0]}`);
     }
     if (socket !== undefined) {
-      // DSCODE_TERMINAL_CLIENT substitutes the client entry (verification installs its probe there).
-      const client = process.env.DSCODE_TERMINAL_CLIENT || join(root, 'scripts/terminal-client.mjs');
-      const child = spawn(process.execPath, [...quietNodeArgs, client, ...args], {
-        cwd, env: { ...environment(runtimeHome, cwd), DSCODE_RUNTIME_SOCKET: socket }, stdio: runtimeStdio('inherit'),
-      });
-      for (const signal of ['SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal));
-      child.on('error', error => { console.error(error.message); process.exitCode = 1; });
-      child.on('exit', (code, signal) => { process.exitCode = code ?? (signal ? 1 : 0); });
+      startClient({ DSCODE_RUNTIME_SOCKET: socket });
       return;
     }
   }

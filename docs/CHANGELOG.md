@@ -10,6 +10,20 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.48] - 2026-10-15
+
+### Added
+
+- Remote runtime: `dscode server --port PORT` serves this machine's runtime over TCP to terminals on other machines, guarded by a bearer token (stored owner-only, rotated with `--new-token`) and **not encrypted**. `dscode config --runtime HOST:PORT --token … --alias NAME [--cwd DIR] [--set-default]` records a server; `dscode runtime NAME` attaches to it, bare `dscode` attaches to the default, and `dscode runtime local` uses this machine. See [Remote runtime](remote-runtime.md).
+- The launcher checks that a remote runtime answers, accepts the token and runs the same DSCODE version before starting the terminal, and never falls back to this machine.
+- `/reload` applies edits to `config/mcp.local.yml`, `config/harness.local.yml` and the other overlays to the running runtime (MCP servers start, stop or restart as changed), and remounts the session's ancestor instructions, ancestor skill folders and hook layers. Quitting the terminal no longer reloads configuration since the host outlives it.
+
+### Changed
+
+- A terminal reconnects after its connection to the runtime drops, for the local host and remote servers alike: it announces the drop and the recovery, fills the transcript with what was committed meanwhile, and reopens its status, notice and catalog streams. Previously it reported failed requests until restarted.
+- Pasted images and dropped files a remote terminal can read are uploaded as content; `/diff`, `/review`, the status-line branch and `/export` run in the session's folder on the runtime's machine.
+- `dscode host status` reports the host's DSCODE version and default folder.
+
 ## [0.7.47] - 2026-10-14
 
 ### Added

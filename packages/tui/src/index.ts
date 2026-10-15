@@ -59,25 +59,19 @@ import { copyText, latestAssistantText } from './editor.ts'
 import { applyCtrlRPassthrough, resolveEditorKeysStartupHint, type EditorKeysEnv } from './editor-keys.ts'
 import { openAuthorizationUrl, type ProviderAuthorizationDirectory } from './authorization.ts'
 import { selectForkSeed } from './fork.ts'
-import {
-  buildReviewPrompt,
-  listReviewBranches,
-  listReviewCommits,
-  loadCommitDiff,
-  loadGitDiff,
-  mergeBaseWith,
-  type ReviewSelection,
-} from './git-workflow.ts'
+import { buildReviewPrompt, type ReviewSelection } from './git-workflow.ts'
 import type { TuiStartup } from './startup.ts'
 import { SessionSwitchQueue } from './session-switch.ts'
 import { agentPresetsFrom } from './presets.ts'
 import { DSCODE_PRESET, requireDscodePreset } from './dscode/preset.ts'
 import { createInProcessRuntime } from './runtime/in-process.ts'
-import { createTypertRuntime } from './runtime/typert.ts'
+import { createTypertRuntime, type CarrierTarget } from './runtime/typert.ts'
+import { describeTarget, targetFromEnv } from '../../../plugins/local-carrier/client.mjs'
 import type { RuntimeClient, RuntimeSession, SelectionCell } from './runtime/types.ts'
 import { remoteWatch } from './runtime/watch.ts'
 import {
-  beginAuthorization, customClient, followNotices, mirrorStatusSources, remoteMentions, subscribeRevisions, watchRemoteSkills, type RemoteSkillsView,
+  attachmentClient, beginAuthorization, customClient, followNotices, mirrorStatusSources, remoteMentions, subscribeRevisions, watchRemoteSkills,
+  workspaceClient, type RemoteSkillsView,
 } from './runtime/views.ts'
 import { permissionPresetsFrom, type PermissionRow } from './permissions.ts'
 import type { PluginRow } from './plugin-inventory.ts'
@@ -452,21 +446,27 @@ interface AppBridge {
 /** Routes asynchronous runtime failures to the terminal once it can show notices. */
 export interface RuntimeErrorSink {
   report(error: unknown): void
-  attach(notify: (text: string) => void): void
+  /** A plain notice about the runtime itself (the connection dropped, it is back). */
+  announce(text: string, tone: 'info' | 'warning' | 'error'): void
+  attach(notify: (text: string, tone: 'info' | 'warning' | 'error') => void): void
 }
 
 export function runtimeErrorSink(): RuntimeErrorSink {
-  let notify: ((text: string) => void) | undefined
-  const pending: string[] = []
+  type Tone = 'info' | 'warning' | 'error'
+  let notify: ((text: string, tone: Tone) => void) | undefined
+  const pending: [string, Tone][] = []
+  const send = (text: string, tone: Tone): void => {
+    if (notify === undefined) pending.push([text, tone])
+    else notify(text, tone)
+  }
   return {
     report(error) {
-      const text = `runtime request failed: ${error instanceof Error ? error.message : String(error)}`
-      if (notify === undefined) pending.push(text)
-      else notify(text)
+      send(`runtime request failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
     },
+    announce: send,
     attach(next) {
       notify = next
-      for (const text of pending.splice(0)) next(text)
+      for (const [text, tone] of pending.splice(0)) next(text, tone)
     },
   }
 }
@@ -479,12 +479,35 @@ export interface RunnerEnvironment {
   readonly detached: boolean
   /** Receives the protocol runtime's asynchronous failures. */
   readonly errors?: RuntimeErrorSink
+  /**
+   * Folder for new sessions and `--continue` when it is not this process's
+   * own: a remote runtime's folder is a path on the server.
+   */
+  readonly cwd?: string
 }
 
 async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Promise<void> {
   const { runtime } = env
   if (startup.kind === 'fresh' || startup.kind === 'named') requireDscodePreset(startup.mode)
-  const cwd = process.cwd()
+  const cwd = env.cwd ?? process.cwd()
+  const attachments = attachmentClient(runtime, () => session?.header.cwd ?? cwd)
+  const workspace = workspaceClient(runtime)
+  // The status-line branch: read directly when this process sees the folder,
+  // otherwise asked of the Host and refreshed at most every few seconds.
+  const remoteBranches = new Map<string, { value: string; at: number }>()
+  const branchOf = (dir: string): string => {
+    if (runtime.sharesFilesystem) return gitBranch(dir)
+    const known = remoteBranches.get(dir)
+    if (known === undefined || Date.now() - known.at > 5000) {
+      remoteBranches.set(dir, { value: known?.value ?? '', at: Date.now() })
+      void workspace.gitBranch(dir).then(value => {
+        if (value === remoteBranches.get(dir)?.value) return
+        remoteBranches.set(dir, { value, at: Date.now() })
+        renderCurrent()
+      }, () => {})
+    }
+    return known?.value ?? ''
+  }
   // Live deployment default (web selectModel parity), pushed by the Host on
   // every change, so a /model pick saved anywhere applies to later sessions.
   const defaultsWatch = remoteWatch<ModelSelection | undefined>(runtime, 'models/defaults', undefined, {})
@@ -832,7 +855,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
     agentId => session !== undefined && agentId === session.agentId,
   )
 
-  env.errors?.attach(text => bridge.notify(text, 'error'))
+  env.errors?.attach((text, tone) => bridge.notify(text, tone))
   // Host notices (for example the background capability sync's warnings).
   const offNotices = followNotices(runtime, (text, tone) => bridge.notify(text, tone))
   // A separate terminal mirrors the Host's footer sources for the active session.
@@ -1522,7 +1545,9 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
         : join(sessionCwd, wanted)
     const markdown = buildExportMarkdown(store.getView(), session.id)
     try {
-      await writeFileAsync(target, `${markdown}\n`, 'utf8')
+      // The session's folder is on the Host's machine, which a remote terminal cannot write.
+      if (runtime.sharesFilesystem) await writeFileAsync(target, `${markdown}\n`, 'utf8')
+      else await runtime.call('workspace/writeText', { path: target, text: `${markdown}\n` })
       bridge.notify(`exported to ${target}`)
     } catch (error: unknown) {
       bridge.notify(`export failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
@@ -1739,11 +1764,11 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
     // actually land), commit reviews the commit's own patch, everything
     // else reviews the uncommitted working tree.
     const load = selection.kind === 'commit'
-      ? loadCommitDiff(reviewCwd, selection.sha, controller.signal)
+      ? workspace.commitDiff(reviewCwd, selection.sha, controller.signal)
       : selection.kind === 'base-branch'
-        ? mergeBaseWith(reviewCwd, selection.branch, controller.signal)
-          .then(base => loadGitDiff(reviewCwd, base ?? selection.branch, controller.signal))
-        : loadGitDiff(reviewCwd, '', controller.signal)
+        ? workspace.mergeBase(reviewCwd, selection.branch, controller.signal)
+          .then(base => workspace.gitDiff(reviewCwd, base ?? selection.branch, controller.signal))
+        : workspace.gitDiff(reviewCwd, '', controller.signal)
     const note = selection.kind === 'custom' ? selection.instructions : undefined
     void load.then(({ title, files }) => {
       finish()
@@ -1864,7 +1889,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
       effort,
       cwd: basename(sessionCwd),
       workspaceRoot: sessionCwd,
-      branch: gitBranch(sessionCwd),
+      branch: branchOf(sessionCwd),
       sessionId: session === undefined ? '' : session.id.slice(-8),
       resumed: active?.resumed ?? false,
       mode: active?.mode ?? DSCODE_PRESET,
@@ -1899,10 +1924,10 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
       openAuthorizationUrl,
       copyTextValue: copyText,
       loadMentions: (query: string, signal?: AbortSignal) => mentions.candidates(query, signal),
-      inspectImages: paths => runtime.call<readonly ImagePathInspection[]>('attachments/inspectImages', { paths, cwd: session?.header.cwd ?? cwd }),
-      prepareImages: (paths, signal) => runtime.call<readonly ImageBlock[]>('attachments/saveImages', { paths }, signal),
-      inspectFiles: paths => runtime.call<readonly FilePathInspection[]>('attachments/inspectFiles', { paths, cwd: session?.header.cwd ?? cwd }),
-      prepareFiles: (paths, signal) => runtime.call<readonly FileBlock[]>('attachments/saveFiles', { paths }, signal),
+      inspectImages: paths => attachments.inspectImages(paths),
+      prepareImages: (paths, signal) => attachments.prepareImages(paths, signal),
+      inspectFiles: paths => attachments.inspectFiles(paths),
+      prepareFiles: (paths, signal) => attachments.prepareFiles(paths, signal),
       cycleMode,
       setPermission: setPermissionAction,
       selectModel,
@@ -1914,9 +1939,9 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
       exportTranscript,
       renameTitle,
       copyLastResponse,
-      loadGitDiff: (argument: string) => loadGitDiff(session?.header.cwd ?? cwd, argument),
-      listReviewBranches: (signal?: AbortSignal) => listReviewBranches(session?.header.cwd ?? cwd, signal),
-      listReviewCommits: (signal?: AbortSignal) => listReviewCommits(session?.header.cwd ?? cwd, signal),
+      loadGitDiff: (argument: string) => workspace.gitDiff(session?.header.cwd ?? cwd, argument),
+      listReviewBranches: (signal?: AbortSignal) => workspace.reviewBranches(session?.header.cwd ?? cwd, signal),
+      listReviewCommits: (signal?: AbortSignal) => workspace.reviewCommits(session?.header.cwd ?? cwd, signal),
       reviewChanges,
       loadPermissions: () => runtime.call<readonly PermissionRow[]>('permissions/rows'),
       createSession,
@@ -1976,7 +2001,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
       bridge.notify(`processing ${startup.images!.length} startup image${startup.images!.length === 1 ? '' : 's'}…`)
     }
     void inputGate.run(async deliver => {
-      const images = await runtime.call<ContentBlock[]>('attachments/saveImages', { paths: startup.images ?? [] })
+      const images: ContentBlock[] = [...await attachments.prepareImages(startup.images ?? [])]
       if (images.length > 0) bridge.notify(`${images.length} startup image${images.length === 1 ? '' : 's'} attached`)
       deliver({ text: startup.prompt ?? '', mode: 'followup', images })
     }).catch((error: unknown) => {
@@ -2030,8 +2055,12 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
 
 /** Options for a terminal running as a separate client of a Host. */
 export interface TerminalClientOptions {
-  /** The Host's local carrier socket. */
-  readonly socketPath: string
+  /** The Host's local carrier socket, or a remote `dscode server`. */
+  readonly target: CarrierTarget
+  /** Folder for new sessions on a remote runtime (a path on the server). */
+  readonly cwd?: string
+  /** The runtime's alias, for connection notices. */
+  readonly label?: string
   readonly startup: TuiStartup
   /** Process exit request; defaults to `process.exit`. */
   readonly exit?: (code: number) => void
@@ -2047,9 +2076,16 @@ export async function runTerminalClient(options: TerminalClientOptions): Promise
   if (options.startup.theme !== undefined) setTheme(options.startup.theme)
   const io: TuiIo = { mount: element => internals.mount(element), exit: options.exit ?? (code => process.exit(code)) }
   const errors = runtimeErrorSink()
-  const runtime = createTypertRuntime({ socketPath: options.socketPath, onError: errors.report })
+  const name = options.label ?? describeTarget(options.target)
+  const runtime = createTypertRuntime({
+    target: options.target,
+    onError: errors.report,
+    onConnection: state => state === 'lost'
+      ? errors.announce(`lost the connection to runtime ${name}; reconnecting…`, 'warning')
+      : errors.announce(`reconnected to runtime ${name}`, 'info'),
+  })
   try {
-    await run({ runtime, detached: true, errors }, options.startup, io)
+    await run({ runtime, detached: true, errors, ...(options.cwd === undefined ? {} : { cwd: options.cwd }) }, options.startup, io)
   } catch (error: unknown) {
     fail(io, error)
   }
@@ -2097,10 +2133,10 @@ export function apply(ctx: Context, config: Config): void {
     const permissionPresets = permissionPresetsFrom(ctx)
     // DSCODE_RUNTIME_SOCKET selects the protocol client over a Host's local
     // carrier; without it the terminal drives this process's Harness directly.
-    const socketPath = process.env.DSCODE_RUNTIME_SOCKET
+    const target = targetFromEnv() as CarrierTarget | undefined
     const errors = runtimeErrorSink()
-    const runtime: RuntimeClient = socketPath !== undefined && socketPath !== ''
-      ? createTypertRuntime({ socketPath, onError: errors.report })
+    const runtime: RuntimeClient = target !== undefined
+      ? createTypertRuntime({ target, onError: errors.report })
       : createInProcessRuntime({
         ctx, presets, defaults: () => defaultModel.currentSelection(),
         ...(permissionPresets === undefined ? {} : { permissionPresets }),

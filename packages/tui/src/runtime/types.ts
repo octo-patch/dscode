@@ -114,6 +114,12 @@ export interface ForkSessionRequest extends Omit<OpenSessionRequest, 'resume' | 
 export interface RuntimeClient {
   /** `in-process` drives this process's Harness; `protocol` reaches a Host through its carrier. */
   readonly kind: 'in-process' | 'protocol'
+  /**
+   * Whether the runtime sees this process's filesystem. False for a remote
+   * `dscode server`: local paths (pasted images, dropped files) must then be
+   * sent as content, and workspace reads (git, exports) run on the Host.
+   */
+  readonly sharesFilesystem: boolean
   /** Open (create, resume or fork) one session and compose its agent. */
   open(request: OpenSessionRequest): Promise<RuntimeSession>
   /** Fork a session and open the fork. */

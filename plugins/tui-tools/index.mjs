@@ -13,6 +13,7 @@ import { redact } from '../auto-review/policy.mjs';
 import { plainConfig } from '../cordis-config/plain.mjs';
 import { analyzeDoctorEvidence, collectDoctorEvidence, recordRuntimeLog } from './doctor.mjs';
 import { isolatedDshPath } from './workspace-discovery.mjs';
+import { reloadOverlays } from './reload.mjs';
 
 export const name = 'dscode-tui-tools';
 export const inject = ['commands', 'agents', 'tools', 'skills', 'permissionPresets', 'sessionPersistence', 'llm'];
@@ -223,6 +224,31 @@ function install(ctx, desktop) {
       return ok(`${entry.id}: ${state(entry)}. Use /${commandName('mcp')} tools ${entry.id} to check discovery.`);
     });
   });
+  register('reload', "Reload MCP servers and config overlays, and this session's instructions, skills and hooks", async ({ agent, signal }) => mutate(async () => {
+    const { files, mcp, warnings } = await reloadOverlays(ctx);
+    const tools = ctx.tools.schemas(agent).map(tool => tool.name);
+    const servers = mcps(agent).map(e => {
+      const count = tools.filter(name => name.startsWith(`mcp__${e.options.config?.serverName}__`)).length;
+      return `  ${e.id}: ${state(e)}, ${count} tool${count === 1 ? '' : 's'}`;
+    });
+    const changes = [['added', mcp.added], ['removed', mcp.removed], ['restarted', mcp.changed]].filter(([, ids]) => ids.length > 0).map(([label, ids]) => `${label} ${ids.join(', ')}`);
+    const lines = [
+      `Configuration: re-read ${files.length} overlay file${files.length === 1 ? '' : 's'}${files.length ? ` (${files.map(file => file.split('/').pop()).join(', ')})` : ''}.`,
+      `MCP: ${changes.length ? changes.join('; ') : 'no server changed'}.`,
+      ...servers,
+    ];
+    // On a Host each session mounts its folder's instructions, ancestor skill roots and hooks itself.
+    const workspace = ctx.get('dscodeSessionWorkspace');
+    if (workspace?.has(agent)) {
+      const { skillDirs } = await workspace.reload(agent);
+      lines.push(`Session workspace: instructions, hooks and ${skillDirs.length} ancestor skill root${skillDirs.length === 1 ? '' : 's'} remounted.`);
+    } else {
+      lines.push('Session workspace: project and user skills are picked up automatically; instruction and hook changes need a restart in this mode.');
+    }
+    const { skills } = await ctx.skills.snapshot({ cwd: agent.session.header.cwd ?? process.cwd(), scope: agent, signal });
+    lines.push(`Skills: ${skills.length} available.`, ...warnings.map(warning => `warning: ${warning}`));
+    return ok(lines.join('\n'));
+  }));
   register('skills', 'Skill catalog, sources, details and filesystem conflicts', async ({ agent, rawInput, signal }) => {
     const options = { cwd: agent.session.header.cwd ?? process.cwd(), scope: agent, signal };
     const { skills, complete } = await ctx.skills.snapshot(options);

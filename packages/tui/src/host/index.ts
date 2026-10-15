@@ -18,6 +18,7 @@ import { registerNotices } from './notices.ts'
 import { registerProviders } from './providers.ts'
 import { registerSessions } from './sessions.ts'
 import { registerStatus } from './status.ts'
+import { registerWorkspace } from './workspace.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'tui-host'
@@ -32,7 +33,7 @@ declare module '@deepseek-ai/cordis' {
 export function apply(ctx: Context): void {
   const registry = new DscodeRemoteRegistry()
   ctx.provide('dscodeRemote', registry)
-  const groups = [registerNotices, registerCommands, registerModels, registerProviders, registerSessions, registerCatalog, registerDelivery, registerStatus, registerChildren]
+  const groups = [registerNotices, registerCommands, registerModels, registerProviders, registerSessions, registerCatalog, registerDelivery, registerStatus, registerChildren, registerWorkspace]
   for (const register of groups) ctx.effect(() => {
     const disposers = register(ctx, registry)
     return () => { for (const dispose of disposers) dispose() }

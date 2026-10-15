@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import {
   applyConfig, listing, parseConfigArgs, readRuntimes, resolveRuntime, runtimeUrl, writeRuntimes,
 } from '../scripts/runtimes.mjs';
-import { parseServerArgs, serverToken, serverTokenFile } from '../scripts/host.mjs';
+import { parseServerArgs, runningHostDecision, serverToken, serverTokenFile } from '../scripts/host.mjs';
 import { attachmentClient } from '../packages/tui/src/runtime/views.ts';
 import { resilient, retryable } from '../packages/tui/src/runtime/watch.ts';
 import { inspectFileFacts, inspectImageFacts, saveImageData } from '../packages/tui/src/attachments.ts';
@@ -157,4 +157,22 @@ test('long-lived streams reopen after a connection failure but not after an oper
   })(), controller.signal, (item, reopened) => seen.push([item, reopened]));
   assert.deepEqual(seen, [['a', false], ['b', true]]);
   await assert.rejects(resilient(() => (async function* () { throw Object.assign(Error('gone'), { code: 'dscode/unknown-stream' }); })(), new AbortController().signal, () => {}), /gone/);
+});
+
+test('a running local Host is attached when compatible and replaced or refused when not', () => {
+  const protocol = { major: 2, minor: 3 };
+  const host = (extra) => ({ version: 'other', pid: 42, clients: 0, running: 0, protocol, ...extra });
+  const decide = status => runningHostDecision(status, { version: 'mine', protocol });
+  assert.deepEqual(decide(host({ clients: 1 })), { action: 'attach' });
+  assert.deepEqual(decide(host({ protocol: { major: 2, minor: 9 } })), { action: 'attach' });
+  // An idle Host on an older minor gives way to this installation's newer one; a busy one stays.
+  assert.deepEqual(decide(host({ protocol: { major: 2, minor: 1 } })), { action: 'replace' });
+  assert.deepEqual(decide(host({ protocol: { major: 2, minor: 1 }, running: 1 })), { action: 'attach' });
+  assert.deepEqual(decide(host({ protocol: { major: 1, minor: 0 } })), { action: 'replace' });
+  const refused = decide(host({ protocol: { major: 1, minor: 0 }, clients: 2 }));
+  assert.equal(refused.action, 'refuse');
+  assert.match(refused.reason, /pid 42\) speaks protocol 1\.0 .*in use, so exit its sessions or run `dscode host stop`/);
+  // A Host from before negotiation is only attached when it is this very release.
+  assert.deepEqual(decide({ version: 'mine', pid: 1, clients: 1, running: 0 }), { action: 'attach' });
+  assert.equal(decide({ version: '0.7.48', pid: 1, clients: 1, running: 0 }).action, 'refuse');
 });

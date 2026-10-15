@@ -2,6 +2,45 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## Protocol version negotiation — 2026-10-15
+
+Unreleased, on the desktop-client branch. Client and Host negotiate on a protocol version (`plugins/local-carrier/protocol.mjs`, now 1.0), reported by `host/status`, instead of requiring the same DSCODE release (docs/runtime-protocol.md#host-lifecycle).
+
+- **Who checks.** The remote launcher, the terminal after a reconnect, the local launcher's `ensureHost` (attach, replace, or refuse a running Host) and the Rust client all apply the same rule.
+- **Keeping the number honest.** `protocol/versions.json` records each version's schema fingerprint, and `scripts/protocol-compat.mjs` checks a schema against its major's baseline for changes that break clients.
+
+A dry run on temporary edits showed:
+
+- An unbumped contract change was refused.
+- An added method recorded as 1.1.
+- Dropping `preserved` from the `session/interrupt` result with only a minor bump was refused, naming `.preserved`.
+- A major bump recorded 2.0 and reset the baseline.
+
+Comparing the real schema with itself reports no false positives (0.14 s).
+
+Tests added:
+
+- the compatibility rules: same major, an older minor, other majors, and a pre-negotiation Host;
+- the running-Host decision;
+- eight checker cases;
+- recorded-version and baseline assertions;
+- the Rust negotiation test;
+- `verify-protocol.mjs` checking that the live Host reports the schema's version.
+
+The Rust `chat` example negotiated with a fixture Host over TCP. Not covered: a real client and Host from different releases, since none exists yet with protocol support on both sides; the compatibility paths are exercised with fake `host/status` answers.
+
+## Typert in the protocol schema — 2026-10-15
+
+Unreleased, on the desktop-client branch. The contract now also lists the upstream Typert calls, the two streams, and the approval and question waterfalls a client depends on, with types from upstream (docs/runtime-protocol.md#dscode-operation-catalog). The terminal's Typert calls in `runtime/typert.ts` are typed from it, and history records are read explicitly as session events. `verify-protocol.mjs` now checks every `$events` and `session/follow` frame, the approval payload and answer, history paging, and six Typert results.
+
+Making the Rust client decode live traffic through these types found three gaps:
+
+- `SessionSeq | -1` generated a type that cannot decode a number. Such redundant unions now collapse to their bare member.
+- The open unions generated a struct of two optional halves. They are now a `oneOf` whose "other" member excludes the known tags.
+- Inline union members got positional names (`Variant0`). They are now titled after their tag.
+
+Checks run: lint, both TypeScript configurations, the unit suite, `node scripts/protocol-schema.mjs --check`, and the integration verifiers listed under the run below. In Rust, `cargo test` passed. The `conformance` example decoded, through the typed API with 0 failures: the `$events` frames, the approval payload and answer, 34 follow events, 66 live assistant frames, 37 snapshot events as known members, and `session/list` and `session/fork`.
+
 ## Protocol schema — 2026-10-15
 
 Unreleased, on the desktop-client branch. Every DSCODE operation is now listed in the wire contract `packages/tui/src/host/protocol.ts`, and `protocol/dscode-runtime.schema.json` is generated from it (docs/runtime-protocol.md#dscode-operation-catalog). Typechecking now fails when either side drifts from the contract: the Host's registrations and the terminal's `call`/`stream` callers. Five Host methods that resolved with no value now answer `null`: `providers/saveCredential`, `providers/saveConfiguration`, `providers/unsetCredential`, `providers/remove` and `authorization/logout`.

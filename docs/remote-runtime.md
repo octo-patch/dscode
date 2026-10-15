@@ -86,6 +86,10 @@ Pasted screenshots and dropped files are read on your machine and uploaded with 
 
 The terminal says `lost the connection to runtime devbox; reconnecting…` and keeps trying, then `reconnected to runtime devbox`. Work on the server continues meanwhile. After reconnecting, the transcript is filled in with everything committed while you were away; text that was streaming at that moment appears once its message is committed. An approval or question that was still open closes when the connection drops; the server offers it again after reconnecting, and you answer it there.
 
+## Versions
+
+The terminal and the server do not have to run the same DSCODE release. Each release speaks a protocol version, `major.minor`, and two releases work together when the major matches. `dscode config` prints the server's release and protocol when it connects, and `dscode host status` on the server shows the protocol in its output. If the server is on an older minor than the terminal, the features added since are unavailable on that server. A server on DSCODE 0.7.48 or older predates protocol versions, and only the identical release can use it.
+
 ## Refusals
 
 DSCODE never falls back to this machine when you asked for a remote runtime:
@@ -94,7 +98,8 @@ DSCODE never falls back to this machine when you asked for a remote runtime:
 |---|---|
 | `runtime devbox refused the token` | The server's token changed (`--new-token`); copy the new `dscode config` line from the server's output |
 | `runtime devbox (…) did not answer` | The server is not running, the address or port is wrong, or a firewall blocks it |
-| `runtime devbox runs DSCODE x, this terminal is y` | Update one side so both run the same version |
+| `runtime devbox speaks protocol x.y (DSCODE …); this client speaks …` | The two releases are incompatible; update the side the message names |
+| `runtime devbox runs DSCODE x, which predates protocol negotiation` | The server runs DSCODE 0.7.48 or older; update it |
 | `no runtime named devbox` | `dscode config --list` shows the configured names |
 
 ## Limits

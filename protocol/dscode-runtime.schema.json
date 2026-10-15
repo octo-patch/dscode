@@ -283,6 +283,163 @@
       ],
       "type": "object"
     },
+    "ApprovalRequestPayload": {
+      "properties": {
+        "callId": {
+          "description": "Exact tool call being decided, when available.",
+          "type": "string"
+        },
+        "displayReason": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Localized presentation only; never persisted in approval audit events.",
+          "properties": {
+            "en": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "en"
+          ],
+          "type": "object"
+        },
+        "reason": {
+          "description": "Human-readable reason supplied by the asker.",
+          "type": "string"
+        },
+        "toolName": {
+          "description": "Tool whose operation requires a decision.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "toolName"
+      ],
+      "type": "object"
+    },
+    "AskUserQuestionAnswer": {
+      "description": "The human's answer.",
+      "properties": {
+        "answers": {
+          "description": "Structured answers keyed by question id.",
+          "items": {
+            "$ref": "#/definitions/AskUserQuestionAnswerItem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "answers"
+      ],
+      "type": "object"
+    },
+    "AskUserQuestionAnswerItem": {
+      "description": "Answer to one question.",
+      "properties": {
+        "custom": {
+          "description": "Optional free-text \"Other\" answer.",
+          "type": "string"
+        },
+        "id": {
+          "description": "The answered question id.",
+          "type": "string"
+        },
+        "selected": {
+          "description": "Selected option labels. May accompany custom text for a multi-select question.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "selected"
+      ],
+      "type": "object"
+    },
+    "AskUserQuestionIntent": {
+      "description": "A caller-declared presentation intent: the question IS this kind of decision, so a UI that recognises the tag may present it as such instead of as a generic option list. Tagged so further intents can be added; a UI that does not know a tag renders the generic flow, and the answer encoding is identical either way — an intent changes presentation only, never the protocol.",
+      "properties": {
+        "approve": {
+          "description": "The option label that approves the plan; every other option declines it. Named rather than positional so no UI infers the verdict from option order. An `approve` naming no option of its own question is rejected at `ask()`.",
+          "type": "string"
+        },
+        "callId": {
+          "description": "Logged tool invocation whose arguments contain the reviewed plan.",
+          "type": "string"
+        },
+        "kind": {
+          "const": "plan-review",
+          "description": "A plan submitted for review: `detail` is the plan markdown `ask()` requires, and the decision approves or declines it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "approve"
+      ],
+      "type": "object"
+    },
+    "AskUserQuestionItem": {
+      "description": "One question in a user-questions request.",
+      "properties": {
+        "detail": {
+          "description": "Optional supporting detail rendered with the question but kept out of option labels.",
+          "type": "string"
+        },
+        "header": {
+          "description": "Optional short heading/group label.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Stable caller-provided question id, echoed in the answer.",
+          "type": "string"
+        },
+        "intent": {
+          "$ref": "#/definitions/AskUserQuestionIntent",
+          "description": "Optional presentation intent for capable UIs; absent asks for the generic option list."
+        },
+        "multiSelect": {
+          "description": "Whether more than one option may be selected. Defaults to single-select.",
+          "type": "boolean"
+        },
+        "options": {
+          "description": "Optional choices the UI can render as a menu.",
+          "items": {
+            "$ref": "#/definitions/AskUserQuestionOption"
+          },
+          "type": "array"
+        },
+        "question": {
+          "description": "The question to display.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "question"
+      ],
+      "type": "object"
+    },
+    "AskUserQuestionOption": {
+      "description": "One selectable answer offered to the user.",
+      "properties": {
+        "description": {
+          "description": "Optional extra context rendered by capable UIs.",
+          "type": "string"
+        },
+        "label": {
+          "description": "User-facing label.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
     "AssistantAttemptEventData": {
       "description": "One model attempt that committed no surface message. The embedded stream preserves a failed, retried, cancelled, or stream-error attempt that reached settlement without fabricating model-visible history.",
       "properties": {
@@ -2100,6 +2257,66 @@
       ],
       "type": "object"
     },
+    "DshApiSessionControllerPromptContentPart": {
+      "anyOf": [
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "const": "text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "mediaType": {
+              "$ref": "#/definitions/ImageMediaType"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "image",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "mediaType",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "receiptId": {
+              "type": "string"
+            },
+            "type": {
+              "const": "file",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "receiptId"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Browser-submitted prompt content; the Host promotes image bytes to durable references. File parts carry the opaque receipt returned by a preceding `uploadFile` call on the same Session."
+    },
     "DshLlmMessage": {
       "anyOf": [
         {
@@ -2176,6 +2393,9 @@
         "config"
       ],
       "type": "object"
+    },
+    "EventsResultResult": {
+      "type": "null"
     },
     "EveryScheduleDispatchChange": {
       "description": "Records one fixed-rate decision and advances directly past missed occurrences.",
@@ -2717,7 +2937,6 @@
       "type": "object"
     },
     "HostStatus": {
-      "description": "`host/status`: who answers, and whether it is the release a client speaks.",
       "properties": {
         "clients": {
           "description": "Attached clients: open `$events` streams.",
@@ -2733,6 +2952,10 @@
         },
         "pid": {
           "type": "number"
+        },
+        "protocol": {
+          "$ref": "#/definitions/ProtocolVersion",
+          "description": "Negotiated instead of `version`. Absent on DSCODE 0.7.48 and older, which only match their own release."
         },
         "running": {
           "description": "Agents running a turn.",
@@ -2774,6 +2997,7 @@
       },
       "required": [
         "version",
+        "protocol",
         "pid",
         "startedAt",
         "socketPath",
@@ -3545,7 +3769,8 @@
       "type": "string"
     },
     "MessageSource": {
-      "anyOf": [
+      "description": "Any known message source, derived from  {@link  MessageSourceMap } ; switch on `kind` and fall through unknowns (merge-extensible).",
+      "oneOf": [
         {
           "$ref": "#/definitions/MessageSourceKnown"
         },
@@ -3554,6 +3779,41 @@
           "description": "A MessageSource member this contract does not describe; `kind` names it.",
           "properties": {
             "kind": {
+              "not": {
+                "enum": [
+                  "agent-instructions",
+                  "agent-message",
+                  "compact-checkpoint",
+                  "cordis-host-runner",
+                  "dsh-session-title-llm",
+                  "goal",
+                  "hooks-claude-code",
+                  "hooks-codex",
+                  "model",
+                  "model-selection",
+                  "plan-mode",
+                  "ptc-mode",
+                  "repeat-tool-reminder",
+                  "runtime-context",
+                  "schedule",
+                  "session-reference",
+                  "skill-catalog",
+                  "skill-invocation",
+                  "subagent-settled",
+                  "system-prompt",
+                  "team-message",
+                  "time-context",
+                  "tmux-context",
+                  "tool",
+                  "tool-goal",
+                  "tool-jobs",
+                  "tool-registry",
+                  "user",
+                  "user-approval",
+                  "user-question-reply",
+                  "webhook"
+                ]
+              },
               "type": "string"
             }
           },
@@ -3563,8 +3823,7 @@
           "title": "MessageSourceOther",
           "type": "object"
         }
-      ],
-      "description": "Any known message source, derived from  {@link  MessageSourceMap } ; switch on `kind` and fall through unknowns (merge-extensible)."
+      ]
     },
     "MessageSourceKnown": {
       "anyOf": [
@@ -3578,6 +3837,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownUser",
           "type": "object"
         },
         {
@@ -3599,6 +3859,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownModelSelection",
           "type": "object"
         },
         {
@@ -3616,6 +3877,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownModelSelectionInstructions",
           "type": "object"
         },
         {
@@ -3633,6 +3895,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownModelSelectionCatalog",
           "type": "object"
         },
         {
@@ -3658,6 +3921,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownModelSelectionSnapshot",
           "type": "object"
         },
         {
@@ -3680,6 +3944,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownModelSelectionNotice",
           "type": "object"
         },
         {
@@ -3697,6 +3962,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownModelSelectionRelay",
           "type": "object"
         },
         {
@@ -3714,6 +3980,28 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownModelSelectionRecall",
+          "type": "object"
+        },
+        {
+          "description": "Browser prompt correlation and optional Host-validated time zone.",
+          "properties": {
+            "clientTimeZone": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "user",
+              "type": "string"
+            },
+            "rpcId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "rpcId"
+          ],
+          "title": "MessageSourceKnownUser2",
           "type": "object"
         },
         {
@@ -3736,6 +4024,7 @@
             "callId",
             "outcome"
           ],
+          "title": "MessageSourceKnownUserQuestionReply",
           "type": "object"
         },
         {
@@ -3754,6 +4043,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownPlanMode",
           "type": "object"
         },
         {
@@ -3771,6 +4061,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownPlanModeInstructions",
           "type": "object"
         },
         {
@@ -3788,6 +4079,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownPlanModeCatalog",
           "type": "object"
         },
         {
@@ -3813,6 +4105,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownPlanModeSnapshot",
           "type": "object"
         },
         {
@@ -3835,6 +4128,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownPlanModeNotice",
           "type": "object"
         },
         {
@@ -3852,6 +4146,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownPlanModeRelay",
           "type": "object"
         },
         {
@@ -3869,6 +4164,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownPlanModeRecall",
           "type": "object"
         },
         {
@@ -3881,6 +4177,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownUserApproval",
           "type": "object"
         },
         {
@@ -3898,6 +4195,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownUserApprovalInstructions",
           "type": "object"
         },
         {
@@ -3915,6 +4213,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownUserApprovalCatalog",
           "type": "object"
         },
         {
@@ -3940,6 +4239,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownUserApprovalSnapshot",
           "type": "object"
         },
         {
@@ -3962,6 +4262,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownUserApprovalNotice",
           "type": "object"
         },
         {
@@ -3979,6 +4280,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownUserApprovalRelay",
           "type": "object"
         },
         {
@@ -3996,6 +4298,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownUserApprovalRecall",
           "type": "object"
         },
         {
@@ -4009,6 +4312,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownPtcMode",
           "type": "object"
         },
         {
@@ -4022,6 +4326,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownToolRegistry",
           "type": "object"
         },
         {
@@ -4049,6 +4354,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownRuntimeContext",
           "type": "object"
         },
         {
@@ -4066,6 +4372,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownRuntimeContextInstructions",
           "type": "object"
         },
         {
@@ -4083,6 +4390,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownRuntimeContextCatalog",
           "type": "object"
         },
         {
@@ -4108,6 +4416,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownRuntimeContextSnapshot",
           "type": "object"
         },
         {
@@ -4130,6 +4439,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownRuntimeContextNotice",
           "type": "object"
         },
         {
@@ -4147,6 +4457,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownRuntimeContextRelay",
           "type": "object"
         },
         {
@@ -4164,26 +4475,7 @@
             "form",
             "kind"
           ],
-          "type": "object"
-        },
-        {
-          "description": "Browser prompt correlation and optional Host-validated time zone.",
-          "properties": {
-            "clientTimeZone": {
-              "type": "string"
-            },
-            "kind": {
-              "const": "user",
-              "type": "string"
-            },
-            "rpcId": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "kind",
-            "rpcId"
-          ],
+          "title": "MessageSourceKnownRuntimeContextRecall",
           "type": "object"
         },
         {
@@ -4196,6 +4488,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownCordisHostRunner",
           "type": "object"
         },
         {
@@ -4211,6 +4504,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownHooksClaudeCode",
           "type": "object"
         },
         {
@@ -4228,6 +4522,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownHooksClaudeCodeInstructions",
           "type": "object"
         },
         {
@@ -4245,6 +4540,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownHooksClaudeCodeCatalog",
           "type": "object"
         },
         {
@@ -4270,6 +4566,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownHooksClaudeCodeSnapshot",
           "type": "object"
         },
         {
@@ -4292,6 +4589,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownHooksClaudeCodeNotice",
           "type": "object"
         },
         {
@@ -4309,6 +4607,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownHooksClaudeCodeRelay",
           "type": "object"
         },
         {
@@ -4326,6 +4625,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownHooksClaudeCodeRecall",
           "type": "object"
         },
         {
@@ -4338,6 +4638,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownHooksCodex",
           "type": "object"
         },
         {
@@ -4355,6 +4656,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownHooksCodexInstructions",
           "type": "object"
         },
         {
@@ -4372,6 +4674,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownHooksCodexCatalog",
           "type": "object"
         },
         {
@@ -4397,6 +4700,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownHooksCodexSnapshot",
           "type": "object"
         },
         {
@@ -4419,6 +4723,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownHooksCodexNotice",
           "type": "object"
         },
         {
@@ -4436,6 +4741,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownHooksCodexRelay",
           "type": "object"
         },
         {
@@ -4453,6 +4759,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownHooksCodexRecall",
           "type": "object"
         },
         {
@@ -4465,6 +4772,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownRepeatToolReminder",
           "type": "object"
         },
         {
@@ -4482,6 +4790,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownRepeatToolReminderInstructions",
           "type": "object"
         },
         {
@@ -4499,6 +4808,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownRepeatToolReminderCatalog",
           "type": "object"
         },
         {
@@ -4524,6 +4834,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownRepeatToolReminderSnapshot",
           "type": "object"
         },
         {
@@ -4546,6 +4857,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownRepeatToolReminderNotice",
           "type": "object"
         },
         {
@@ -4563,6 +4875,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownRepeatToolReminderRelay",
           "type": "object"
         },
         {
@@ -4580,6 +4893,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownRepeatToolReminderRecall",
           "type": "object"
         },
         {
@@ -4592,6 +4906,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownSchedule",
           "type": "object"
         },
         {
@@ -4609,6 +4924,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownScheduleInstructions",
           "type": "object"
         },
         {
@@ -4626,6 +4942,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownScheduleCatalog",
           "type": "object"
         },
         {
@@ -4651,6 +4968,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownScheduleSnapshot",
           "type": "object"
         },
         {
@@ -4673,6 +4991,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownScheduleNotice",
           "type": "object"
         },
         {
@@ -4690,6 +5009,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownScheduleRelay",
           "type": "object"
         },
         {
@@ -4707,6 +5027,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownScheduleRecall",
           "type": "object"
         },
         {
@@ -4719,6 +5040,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownDshSessionTitleLlm",
           "type": "object"
         },
         {
@@ -4736,6 +5058,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownDshSessionTitleLlmInstructions",
           "type": "object"
         },
         {
@@ -4753,6 +5076,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownDshSessionTitleLlmCatalog",
           "type": "object"
         },
         {
@@ -4778,6 +5102,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownDshSessionTitleLlmSnapshot",
           "type": "object"
         },
         {
@@ -4800,6 +5125,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownDshSessionTitleLlmNotice",
           "type": "object"
         },
         {
@@ -4817,6 +5143,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownDshSessionTitleLlmRelay",
           "type": "object"
         },
         {
@@ -4834,6 +5161,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownDshSessionTitleLlmRecall",
           "type": "object"
         },
         {
@@ -4846,6 +5174,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownTimeContext",
           "type": "object"
         },
         {
@@ -4863,6 +5192,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownTimeContextInstructions",
           "type": "object"
         },
         {
@@ -4880,6 +5210,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownTimeContextCatalog",
           "type": "object"
         },
         {
@@ -4905,6 +5236,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownTimeContextSnapshot",
           "type": "object"
         },
         {
@@ -4927,6 +5259,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownTimeContextNotice",
           "type": "object"
         },
         {
@@ -4944,6 +5277,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownTimeContextRelay",
           "type": "object"
         },
         {
@@ -4961,6 +5295,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownTimeContextRecall",
           "type": "object"
         },
         {
@@ -4973,6 +5308,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownTmuxContext",
           "type": "object"
         },
         {
@@ -4990,6 +5326,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownTmuxContextInstructions",
           "type": "object"
         },
         {
@@ -5007,6 +5344,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownTmuxContextCatalog",
           "type": "object"
         },
         {
@@ -5032,6 +5370,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownTmuxContextSnapshot",
           "type": "object"
         },
         {
@@ -5054,6 +5393,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownTmuxContextNotice",
           "type": "object"
         },
         {
@@ -5071,6 +5411,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownTmuxContextRelay",
           "type": "object"
         },
         {
@@ -5088,6 +5429,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownTmuxContextRecall",
           "type": "object"
         },
         {
@@ -5100,6 +5442,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownToolGoal",
           "type": "object"
         },
         {
@@ -5117,6 +5460,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownToolGoalInstructions",
           "type": "object"
         },
         {
@@ -5134,6 +5478,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownToolGoalCatalog",
           "type": "object"
         },
         {
@@ -5159,6 +5504,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownToolGoalSnapshot",
           "type": "object"
         },
         {
@@ -5181,6 +5527,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownToolGoalNotice",
           "type": "object"
         },
         {
@@ -5198,6 +5545,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownToolGoalRelay",
           "type": "object"
         },
         {
@@ -5215,6 +5563,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownToolGoalRecall",
           "type": "object"
         },
         {
@@ -5227,6 +5576,7 @@
           "required": [
             "kind"
           ],
+          "title": "MessageSourceKnownToolJobs",
           "type": "object"
         },
         {
@@ -5244,6 +5594,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownToolJobsInstructions",
           "type": "object"
         },
         {
@@ -5261,6 +5612,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownToolJobsCatalog",
           "type": "object"
         },
         {
@@ -5286,6 +5638,7 @@
             "kind",
             "sections"
           ],
+          "title": "MessageSourceKnownToolJobsSnapshot",
           "type": "object"
         },
         {
@@ -5308,6 +5661,7 @@
             "kind",
             "summary"
           ],
+          "title": "MessageSourceKnownToolJobsNotice",
           "type": "object"
         },
         {
@@ -5325,6 +5679,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownToolJobsRelay",
           "type": "object"
         },
         {
@@ -5342,6 +5697,7 @@
             "form",
             "kind"
           ],
+          "title": "MessageSourceKnownToolJobsRecall",
           "type": "object"
         },
         {
@@ -5383,6 +5739,7 @@
             "form",
             "summary"
           ],
+          "title": "MessageSourceKnownWebhookNotice",
           "type": "object"
         }
       ],
@@ -5838,6 +6195,22 @@
     },
     "PresetsPlanAvailableResult": {
       "type": "boolean"
+    },
+    "ProtocolVersion": {
+      "description": "The wire protocol version (plugins/local-carrier/protocol.mjs): same major is compatible.",
+      "properties": {
+        "major": {
+          "type": "number"
+        },
+        "minor": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
     },
     "ProviderAuthorizationDirectory": {
       "description": "The provider-login directory plus non-fatal record lookup failures.",
@@ -6353,6 +6726,209 @@
       ],
       "type": "object"
     },
+    "RemoteEventCancellationFrame": {
+      "description": "Cancellation of a pending waterfall previously delivered under the same id.",
+      "properties": {
+        "eventId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "eventId"
+      ],
+      "type": "object"
+    },
+    "RemoteEventDownlinkFrame": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/RemoteEventReadyFrame"
+        },
+        {
+          "$ref": "#/definitions/RemoteEventEmitFrame"
+        },
+        {
+          "$ref": "#/definitions/RemoteEventInvocationFrame"
+        },
+        {
+          "$ref": "#/definitions/RemoteEventCancellationFrame"
+        }
+      ],
+      "description": "Every item carried by the Gateway-internal forwarded-event stream."
+    },
+    "RemoteEventEmitFrame": {
+      "description": "One Host notification delivered to a Client generation.",
+      "properties": {
+        "args": {
+          "items": {},
+          "type": "array"
+        },
+        "event": {
+          "type": "string"
+        },
+        "type": {
+          "const": "emit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "event",
+        "args"
+      ],
+      "type": "object"
+    },
+    "RemoteEventHostInfo": {
+      "description": "Stable Host facts published with every established Client event generation.",
+      "properties": {
+        "home": {
+          "description": "Host account home used only to abbreviate displayed filesystem paths.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "home"
+      ],
+      "type": "object"
+    },
+    "RemoteEventInvocationFrame": {
+      "description": "One pending Agent-scoped waterfall delivered to a Client generation.",
+      "properties": {
+        "agentId": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string"
+        },
+        "eventId": {
+          "type": "string"
+        },
+        "request": {
+          "additionalProperties": {},
+          "type": "object"
+        },
+        "type": {
+          "const": "waterfall",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "event",
+        "eventId",
+        "agentId",
+        "request"
+      ],
+      "type": "object"
+    },
+    "RemoteEventReadyFrame": {
+      "description": "Opening item that binds later HTTP results to this active event stream.",
+      "properties": {
+        "clientId": {
+          "type": "string"
+        },
+        "host": {
+          "$ref": "#/definitions/RemoteEventHostInfo",
+          "description": "Stable Host facts attached to this connection generation."
+        },
+        "type": {
+          "const": "ready",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "clientId",
+        "host"
+      ],
+      "type": "object"
+    },
+    "RemoteEventRejection": {
+      "description": "Error fields retained when a Client listener rejects a Host waterfall.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "details": {},
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "message"
+      ],
+      "type": "object"
+    },
+    "RemoteEventResult": {
+      "description": "Client response to one scoped Remote Event delivery.",
+      "properties": {
+        "clientId": {
+          "type": "string"
+        },
+        "eventId": {
+          "type": "string"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "properties": {
+                "kind": {
+                  "const": "next",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "result",
+                  "type": "string"
+                },
+                "value": {}
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "error": {
+                  "$ref": "#/definitions/RemoteEventRejection"
+                },
+                "kind": {
+                  "const": "rejected",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "error"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "clientId",
+        "eventId",
+        "outcome"
+      ],
+      "type": "object"
+    },
     "ReplayEnvelope": {
       "description": "Adapter-private lossless-JSON state for replaying a successful response, carried by a terminal `finish` chunk and stored on the assembled assistant message's model source. Both halves stay opaque to the harness; only the split is shared vocabulary, so assembly can keep stored metadata aligned with stored content without reading either half.",
       "properties": {
@@ -6655,6 +7231,324 @@
       ],
       "type": "object"
     },
+    "SessionAddress": {
+      "anyOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "session",
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "sessionId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "childSessionId": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "subagent",
+              "type": "string"
+            },
+            "mode": {
+              "enum": [
+                "one-shot",
+                "continuable",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "parentSessionId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "parentSessionId",
+            "childSessionId",
+            "mode"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Durable identity selecting an ordinary Session or one direct subagent child."
+    },
+    "SessionAssistantStreamAttempt": {
+      "description": "One active assistant attempt in a reconnect opening snapshot.",
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        },
+        "nextIndex": {
+          "description": "Dense position expected for the next live chunk frame.",
+          "type": "number"
+        },
+        "startedAfterSeq": {
+          "$ref": "#/definitions/SessionSeqCursor",
+          "description": "Last durable Session seq observed when this attempt started."
+        },
+        "step": {
+          "type": "number"
+        },
+        "stream": {
+          "description": "Compact detached stream accumulated at this opening revision.",
+          "items": {
+            "$ref": "#/definitions/DshUtilValuesJsonValue"
+          },
+          "type": "array"
+        },
+        "turn": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "attemptId",
+        "startedAfterSeq",
+        "turn",
+        "step",
+        "nextIndex",
+        "stream"
+      ],
+      "type": "object"
+    },
+    "SessionAssistantStreamBaseline": {
+      "description": "Complete process-local assistant state at one follow opening.",
+      "properties": {
+        "activeAttempt": {
+          "$ref": "#/definitions/SessionAssistantStreamAttempt"
+        },
+        "revision": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "type": "object"
+    },
+    "SessionAssistantStreamFrame": {
+      "anyOf": [
+        {
+          "properties": {
+            "attemptId": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "number"
+            },
+            "startedAfterSeq": {
+              "$ref": "#/definitions/SessionSeqCursor"
+            },
+            "step": {
+              "type": "number"
+            },
+            "turn": {
+              "type": "number"
+            },
+            "type": {
+              "const": "start",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "attemptId",
+            "revision",
+            "startedAfterSeq",
+            "turn",
+            "step"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "attemptId": {
+              "type": "string"
+            },
+            "chunk": {
+              "$ref": "#/definitions/DshUtilValuesJsonValue"
+            },
+            "index": {
+              "type": "number"
+            },
+            "revision": {
+              "type": "number"
+            },
+            "time": {
+              "type": "number"
+            },
+            "type": {
+              "const": "chunk",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "attemptId",
+            "revision",
+            "index",
+            "time",
+            "chunk"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "attemptId": {
+              "type": "string"
+            },
+            "index": {
+              "description": "Number of chunk frames represented by this terminal marker.",
+              "type": "number"
+            },
+            "outcome": {
+              "anyOf": [
+                {
+                  "properties": {
+                    "eventType": {
+                      "enum": [
+                        "assistant/message",
+                        "assistant/attempt"
+                      ],
+                      "type": "string"
+                    },
+                    "kind": {
+                      "const": "committed",
+                      "type": "string"
+                    },
+                    "seq": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "eventType",
+                    "seq"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "const": "abandoned",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "revision": {
+              "type": "number"
+            },
+            "type": {
+              "const": "end",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "attemptId",
+            "revision",
+            "index",
+            "outcome"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Browser wire form of one process-local assistant frame."
+    },
+    "SessionCancelArgs": {
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/SessionCancelRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "SessionCancelRequest": {
+      "description": "Active-turn cancellation request.",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionCancelValue": {
+      "description": "Receipt after cancellation is admitted to the live Agent.",
+      "properties": {
+        "accepted": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
+      ],
+      "type": "object"
+    },
+    "SessionCreateArgs": {
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/SessionCreateRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "SessionCreateRequest": {
+      "description": "Session creation or explicit-id adoption request.",
+      "properties": {
+        "agentPreset": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SessionCreateValue": {
+      "description": "Session creation response value.",
+      "properties": {
+        "agentPreset": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "SessionDeliverArgs": {
       "properties": {
         "content": {
@@ -6725,7 +7619,8 @@
       "type": "object"
     },
     "SessionEvent": {
-      "anyOf": [
+      "description": "One immutable entry in the session log.\n\nA proper discriminated union over `type` (not independent `type`/`data` unions), so `switch (event.type)` narrows `event.data` without casts.\n\nThe  {@link  sourceEventSeqs  }  and  {@link  surfaceOp  }  fields are conditional: they only exist on  {@link  SurfaceEventType }  variants (`system/message`, `user/message`, `assistant/message`, `tool/result`). Non-surface events (boundary markers, attempts, errors) never carry surface metadata — the compiler enforces this at `Session.append()` call sites.",
+      "oneOf": [
         {
           "$ref": "#/definitions/SessionEventKnown"
         },
@@ -6734,6 +7629,68 @@
           "description": "A SessionEvent member this contract does not describe; `type` names it.",
           "properties": {
             "type": {
+              "not": {
+                "enum": [
+                  "agent-preset/selected",
+                  "agent/inbox/spliced",
+                  "approval/asked",
+                  "approval/decided",
+                  "approval/policy",
+                  "assistant/attempt",
+                  "assistant/message",
+                  "command/done",
+                  "command/run",
+                  "compaction/end",
+                  "compaction/prune",
+                  "compaction/start",
+                  "compaction/summary",
+                  "deliverables/presented",
+                  "developer/message",
+                  "feedback/message-delete",
+                  "feedback/message-put",
+                  "feedback/record",
+                  "goal/change",
+                  "hook/invoked",
+                  "hook/result",
+                  "image/offload",
+                  "llm/retry",
+                  "llm/retry-started",
+                  "model/selection",
+                  "permission/preset",
+                  "plan/mode",
+                  "request/context",
+                  "request/header",
+                  "sandbox/mode",
+                  "schedule/change",
+                  "session-log-deepseek/delivery-accepted",
+                  "session/end-seed",
+                  "session/title",
+                  "session/title-llm-request",
+                  "step/end",
+                  "step/start",
+                  "subagent/catalog",
+                  "subagent/descriptor",
+                  "subagent/model-selection-policy",
+                  "system/message",
+                  "team/member",
+                  "team/message/delivered",
+                  "team/message/queued",
+                  "team/task",
+                  "todo/write",
+                  "tool-workflow/agent-end",
+                  "tool-workflow/agent-start",
+                  "tool-workflow/run-end",
+                  "tool-workflow/run-start",
+                  "tool/call",
+                  "tool/ptc-dispatch",
+                  "tool/ptc-dispatch-start",
+                  "tool/result",
+                  "turn/end",
+                  "turn/start",
+                  "user/message",
+                  "workspace/changes"
+                ]
+              },
               "type": "string"
             }
           },
@@ -6743,8 +7700,24 @@
           "title": "SessionEventOther",
           "type": "object"
         }
+      ]
+    },
+    "SessionEventEntry": {
+      "description": "One raw Session event in the Remote journal.",
+      "properties": {
+        "event": {
+          "$ref": "#/definitions/SessionWireEvent"
+        },
+        "type": {
+          "const": "event",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "event"
       ],
-      "description": "One immutable entry in the session log.\n\nA proper discriminated union over `type` (not independent `type`/`data` unions), so `switch (event.type)` narrows `event.data` without casts.\n\nThe  {@link  sourceEventSeqs  }  and  {@link  surfaceOp  }  fields are conditional: they only exist on  {@link  SurfaceEventType }  variants (`system/message`, `user/message`, `assistant/message`, `tool/result`). Non-surface events (boundary markers, attempts, errors) never carry surface metadata — the compiler enforces this at `Session.append()` call sites."
+      "type": "object"
     },
     "SessionEventKnown": {
       "anyOf": [
@@ -7268,6 +8241,99 @@
         {
           "properties": {
             "data": {
+              "$ref": "#/definitions/DshApiSessionControllerModelSelection"
+            },
+            "ignorable": {
+              "const": true,
+              "description": "Marks an event a reader may safely skip when it does not recognize `type`. Absent means required: a reader meeting an unrecognized type without this marker MUST refuse to reconstruct the session instead of silently dropping the event, because an unrecognized required event may change how the rest of the log is interpreted. A writer sets `true` only on purely informational records whose loss cannot affect reconstruction; defaulting to required means a forgotten marker over-refuses (an inconvenience) rather than silently resuming a gutted session.",
+              "type": "boolean"
+            },
+            "seq": {
+              "description": "Monotonic sequence number within the session.",
+              "type": "number"
+            },
+            "time": {
+              "description": "Unix epoch milliseconds.",
+              "type": "number"
+            },
+            "type": {
+              "const": "model/selection",
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "seq",
+            "time",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/ApprovalAskedEventData"
+            },
+            "ignorable": {
+              "const": true,
+              "description": "Marks an event a reader may safely skip when it does not recognize `type`. Absent means required: a reader meeting an unrecognized type without this marker MUST refuse to reconstruct the session instead of silently dropping the event, because an unrecognized required event may change how the rest of the log is interpreted. A writer sets `true` only on purely informational records whose loss cannot affect reconstruction; defaulting to required means a forgotten marker over-refuses (an inconvenience) rather than silently resuming a gutted session.",
+              "type": "boolean"
+            },
+            "seq": {
+              "description": "Monotonic sequence number within the session.",
+              "type": "number"
+            },
+            "time": {
+              "description": "Unix epoch milliseconds.",
+              "type": "number"
+            },
+            "type": {
+              "const": "approval/asked",
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "seq",
+            "time",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "$ref": "#/definitions/ApprovalDecidedEventData"
+            },
+            "ignorable": {
+              "const": true,
+              "description": "Marks an event a reader may safely skip when it does not recognize `type`. Absent means required: a reader meeting an unrecognized type without this marker MUST refuse to reconstruct the session instead of silently dropping the event, because an unrecognized required event may change how the rest of the log is interpreted. A writer sets `true` only on purely informational records whose loss cannot affect reconstruction; defaulting to required means a forgotten marker over-refuses (an inconvenience) rather than silently resuming a gutted session.",
+              "type": "boolean"
+            },
+            "seq": {
+              "description": "Monotonic sequence number within the session.",
+              "type": "number"
+            },
+            "time": {
+              "description": "Unix epoch milliseconds.",
+              "type": "number"
+            },
+            "type": {
+              "const": "approval/decided",
+              "type": "string"
+            }
+          },
+          "required": [
+            "data",
+            "seq",
+            "time",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
               "$ref": "#/definitions/CommandRunEventData"
             },
             "ignorable": {
@@ -7609,68 +8675,6 @@
         {
           "properties": {
             "data": {
-              "$ref": "#/definitions/ApprovalAskedEventData"
-            },
-            "ignorable": {
-              "const": true,
-              "description": "Marks an event a reader may safely skip when it does not recognize `type`. Absent means required: a reader meeting an unrecognized type without this marker MUST refuse to reconstruct the session instead of silently dropping the event, because an unrecognized required event may change how the rest of the log is interpreted. A writer sets `true` only on purely informational records whose loss cannot affect reconstruction; defaulting to required means a forgotten marker over-refuses (an inconvenience) rather than silently resuming a gutted session.",
-              "type": "boolean"
-            },
-            "seq": {
-              "description": "Monotonic sequence number within the session.",
-              "type": "number"
-            },
-            "time": {
-              "description": "Unix epoch milliseconds.",
-              "type": "number"
-            },
-            "type": {
-              "const": "approval/asked",
-              "type": "string"
-            }
-          },
-          "required": [
-            "data",
-            "seq",
-            "time",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "data": {
-              "$ref": "#/definitions/ApprovalDecidedEventData"
-            },
-            "ignorable": {
-              "const": true,
-              "description": "Marks an event a reader may safely skip when it does not recognize `type`. Absent means required: a reader meeting an unrecognized type without this marker MUST refuse to reconstruct the session instead of silently dropping the event, because an unrecognized required event may change how the rest of the log is interpreted. A writer sets `true` only on purely informational records whose loss cannot affect reconstruction; defaulting to required means a forgotten marker over-refuses (an inconvenience) rather than silently resuming a gutted session.",
-              "type": "boolean"
-            },
-            "seq": {
-              "description": "Monotonic sequence number within the session.",
-              "type": "number"
-            },
-            "time": {
-              "description": "Unix epoch milliseconds.",
-              "type": "number"
-            },
-            "type": {
-              "const": "approval/decided",
-              "type": "string"
-            }
-          },
-          "required": [
-            "data",
-            "seq",
-            "time",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "data": {
               "$ref": "#/definitions/ApprovalPolicyEventData"
             },
             "ignorable": {
@@ -7967,37 +8971,6 @@
             },
             "type": {
               "const": "agent-preset/selected",
-              "type": "string"
-            }
-          },
-          "required": [
-            "data",
-            "seq",
-            "time",
-            "type"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "data": {
-              "$ref": "#/definitions/DshApiSessionControllerModelSelection"
-            },
-            "ignorable": {
-              "const": true,
-              "description": "Marks an event a reader may safely skip when it does not recognize `type`. Absent means required: a reader meeting an unrecognized type without this marker MUST refuse to reconstruct the session instead of silently dropping the event, because an unrecognized required event may change how the rest of the log is interpreted. A writer sets `true` only on purely informational records whose loss cannot affect reconstruction; defaulting to required means a forgotten marker over-refuses (an inconvenience) rather than silently resuming a gutted session.",
-              "type": "boolean"
-            },
-            "seq": {
-              "description": "Monotonic sequence number within the session.",
-              "type": "number"
-            },
-            "time": {
-              "description": "Unix epoch milliseconds.",
-              "type": "number"
-            },
-            "type": {
-              "const": "model/selection",
               "type": "string"
             }
           },
@@ -8601,6 +9574,158 @@
       ],
       "description": "The SessionEvent members the contract knows."
     },
+    "SessionFollowArgs": {
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/SessionFollowRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "SessionFollowFrame": {
+      "anyOf": [
+        {
+          "properties": {
+            "assistantStream": {
+              "$ref": "#/definitions/SessionAssistantStreamBaseline"
+            },
+            "cursor": {
+              "type": "number"
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "header": {
+              "$ref": "#/definitions/SessionWireHeader"
+            },
+            "projections": {
+              "$ref": "#/definitions/SessionProjectionBaseline"
+            },
+            "records": {
+              "items": {
+                "$ref": "#/definitions/SessionHistoryRecord"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "snapshot",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "header",
+            "cursor",
+            "records",
+            "hasMore",
+            "projections"
+          ],
+          "title": "SessionFollowFrameSnapshot",
+          "type": "object"
+        },
+        {
+          "$ref": "#/definitions/SessionEventEntry"
+        },
+        {
+          "properties": {
+            "frame": {
+              "$ref": "#/definitions/SessionAssistantStreamFrame"
+            },
+            "type": {
+              "const": "assistant-stream",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "frame"
+          ],
+          "title": "SessionFollowFrameAssistantStream",
+          "type": "object"
+        }
+      ],
+      "description": "Complete opening window followed by ordered durable events and opted-in assistant frames."
+    },
+    "SessionFollowRequest": {
+      "description": "One live event request for a durable Session address.",
+      "properties": {
+        "address": {
+          "$ref": "#/definitions/SessionAddress"
+        },
+        "assistantStream": {
+          "const": true,
+          "description": "Include process-local assistant presentation frames for the Web client.",
+          "type": "boolean"
+        },
+        "maxMessages": {
+          "type": "number"
+        },
+        "turnWindow": {
+          "description": "Stop at a Turn start after both minima, unless maxMessages or history exhaustion wins.",
+          "properties": {
+            "minMessages": {
+              "description": "Minimum append-origin user/assistant messages; must not exceed maxMessages.",
+              "type": "number"
+            },
+            "minTurns": {
+              "description": "Minimum Turn starts crossed, including the partial Turn at beforeSeq.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "minMessages",
+            "minTurns"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "address"
+      ],
+      "type": "object"
+    },
+    "SessionForkArgs": {
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/SessionForkRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "SessionForkRequest": {
+      "description": "Session fork request.",
+      "properties": {
+        "atSeq": {
+          "description": "Exact inclusive source event seq; omission selects the latest completed-turn prefix.",
+          "type": "number"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionForkValue": {
+      "description": "Identity of a newly forked Session.",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "SessionHeader": {
       "description": "Immutable validated storage metadata, kept outside the conversation event log.",
       "properties": {
@@ -8651,6 +9776,10 @@
       ],
       "type": "object"
     },
+    "SessionHistoryRecord": {
+      "$ref": "#/definitions/SessionEventEntry",
+      "description": "One history-page record with compact Assistant streams embedded inside events."
+    },
     "SessionInterruptArgs": {
       "properties": {
         "sessionId": {
@@ -8659,6 +9788,41 @@
       },
       "required": [
         "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionListArgs": {
+      "properties": {
+        "_request": {
+          "$ref": "#/definitions/SessionListRequest"
+        }
+      },
+      "required": [
+        "_request"
+      ],
+      "type": "object"
+    },
+    "SessionListRequest": {
+      "description": "Session list request.",
+      "properties": {
+        "cursor": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "SessionListValue": {
+      "description": "Session list response value.",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/definitions/SessionSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
       ],
       "type": "object"
     },
@@ -8681,6 +9845,186 @@
       "required": [
         "sessionId",
         "throughSeq"
+      ],
+      "type": "object"
+    },
+    "SessionPage": {
+      "description": "One contiguous backwards page of a Session log.",
+      "properties": {
+        "hasMore": {
+          "type": "boolean"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/definitions/SessionHistoryRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records",
+        "hasMore"
+      ],
+      "type": "object"
+    },
+    "SessionPageArgs": {
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/SessionPageRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "SessionPageRequest": {
+      "description": "One message-aligned backwards-history request.",
+      "properties": {
+        "address": {
+          "$ref": "#/definitions/SessionAddress"
+        },
+        "beforeSeq": {
+          "type": "number"
+        },
+        "maxMessages": {
+          "type": "number"
+        },
+        "throughSeq": {
+          "description": "Inclusive log cut obtained from the corresponding follow opening frame.",
+          "type": "number"
+        },
+        "turnWindow": {
+          "description": "Stop at a Turn start after both minima, unless maxMessages or history exhaustion wins.",
+          "properties": {
+            "minMessages": {
+              "description": "Minimum append-origin user/assistant messages; must not exceed maxMessages.",
+              "type": "number"
+            },
+            "minTurns": {
+              "description": "Minimum Turn starts crossed, including the partial Turn at beforeSeq.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "minMessages",
+            "minTurns"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "address",
+        "throughSeq"
+      ],
+      "type": "object"
+    },
+    "SessionProjectionBaseline": {
+      "description": "Complete projection values at an exact Session event cursor.",
+      "properties": {
+        "asOfSeq": {
+          "type": "number"
+        },
+        "values": {
+          "$ref": "#/definitions/SessionProjectionValues",
+          "description": "Provider-validated values; omitted keys are absent capabilities at this cut."
+        }
+      },
+      "required": [
+        "asOfSeq",
+        "values"
+      ],
+      "type": "object"
+    },
+    "SessionProjectionHints": {
+      "description": "Every available wire value a Session-list row carries as partial, possibly stale hints. `kind` and `asOfSeq` are independent facts: `kind` says which sequence space `asOfSeq` belongs to, and therefore how a client may merge the block; `asOfSeq` is the producer's watermark in that space.",
+      "properties": {
+        "asOfSeq": {
+          "description": "Watermark of the block in the sequence space named by `kind`.",
+          "type": "number"
+        },
+        "kind": {
+          "description": "`sequenced`: the Host's live registry produced the block for an attached Session, so `asOfSeq` is comparable with baselines and frames of the same connection. `cached`: a header-only listing viewed the block from the persisted projection cache, so `asOfSeq` is the stored record's own watermark and must not be compared with the connected Session's values.",
+          "enum": [
+            "cached",
+            "sequenced"
+          ],
+          "type": "string"
+        },
+        "values": {
+          "$ref": "#/definitions/SessionProjectionValues",
+          "description": "Provider-validated values present in the block; omitted keys remain unknown."
+        }
+      },
+      "required": [
+        "kind",
+        "asOfSeq",
+        "values"
+      ],
+      "type": "object"
+    },
+    "SessionProjectionValues": {
+      "description": "Typed known projections plus JSON-safe values contributed outside this compilation face.",
+      "properties": {},
+      "type": "object"
+    },
+    "SessionPromptArgs": {
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/SessionPromptRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "SessionPromptRequest": {
+      "description": "Session prompt request.",
+      "properties": {
+        "clientTimeZone": {
+          "type": "string"
+        },
+        "content": {
+          "description": "At least one non-whitespace text part or attachment.",
+          "items": {
+            "$ref": "#/definitions/DshApiSessionControllerPromptContentPart"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "queue",
+            "steer"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "description": "Client-minted identity persisted on the exact accepted user message.",
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "sessionId",
+        "mode",
+        "content"
+      ],
+      "type": "object"
+    },
+    "SessionPromptValue": {
+      "description": "Receipt after one prompt enters the target Agent inbox.",
+      "properties": {
+        "accepted": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accepted"
       ],
       "type": "object"
     },
@@ -8841,12 +10185,104 @@
       ],
       "type": "string"
     },
+    "SessionSelectModelArgs": {
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/SessionSelectModelRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "SessionSelectModelRequest": {
+      "description": "Session model-selection request.",
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "reasoningEffort": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "provider",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "SessionSelectModelValue": {
+      "description": "Accepted model selection after Host resolution.",
+      "properties": {
+        "selected": {
+          "$ref": "#/definitions/DshApiSessionControllerModelSelection"
+        }
+      },
+      "required": [
+        "selected"
+      ],
+      "type": "object"
+    },
+    "SessionSeqCursor": {
+      "description": "Inclusive Session event watermark, or `-1` before any event exists.",
+      "type": "number"
+    },
     "SessionSort": {
       "enum": [
         "newest",
         "oldest"
       ],
       "type": "string"
+    },
+    "SessionSummary": {
+      "description": "One Session list entry.",
+      "properties": {
+        "agentAvailable": {
+          "description": "Whether this Session currently owns a live Agent.",
+          "type": "boolean"
+        },
+        "blank": {
+          "type": "boolean"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "origin": {
+          "const": "subagent",
+          "type": "string"
+        },
+        "parentSessionId": {
+          "type": "string"
+        },
+        "projections": {
+          "$ref": "#/definitions/SessionProjectionHints"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "agentAvailable",
+        "sessionId",
+        "updatedAt",
+        "running",
+        "blank"
+      ],
+      "type": "object"
     },
     "SessionTitleEventData": {
       "description": "Payload of the log-only `session/title` event.",
@@ -9001,6 +10437,83 @@
         "sessionId",
         "messageId",
         "action"
+      ],
+      "type": "object"
+    },
+    "SessionWireEvent": {
+      "description": "Exact Session event envelope accepted by the Client journal adapter. Surface events require surfaceOp; only non-Assistant surface events may cite earlier sources. Durable readers own recognition of merge-extensible event names.",
+      "properties": {
+        "data": {
+          "$ref": "#/definitions/DshUtilValuesJsonValue"
+        },
+        "ignorable": {
+          "const": true,
+          "type": "boolean"
+        },
+        "seq": {
+          "type": "number"
+        },
+        "sourceEventSeqs": {
+          "$ref": "#/definitions/DshUtilValuesJsonValue",
+          "description": "Earlier sources on current surface events; opaque JSON on unknown ignorable events."
+        },
+        "surfaceOp": {
+          "$ref": "#/definitions/DshUtilValuesJsonValue",
+          "description": "Canonical placement on current surface events; opaque JSON on unknown ignorable events."
+        },
+        "time": {
+          "type": "number"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "seq",
+        "time",
+        "data"
+      ],
+      "type": "object"
+    },
+    "SessionWireHeader": {
+      "description": "Current logical Session metadata carried on the browser wire.",
+      "properties": {
+        "agentPreset": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "delegationDepth": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "isSeeded": {
+          "description": "Whether the Session contains a fork-inherited prefix.",
+          "type": "boolean"
+        },
+        "origin": {
+          "const": "subagent",
+          "type": "string"
+        },
+        "parentSession": {
+          "type": "string"
+        },
+        "version": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "createdAt",
+        "isSeeded"
       ],
       "type": "object"
     },
@@ -10468,6 +11981,7 @@
           "required": [
             "kind"
           ],
+          "title": "TurnEndCancelCauseLegacy",
           "type": "object"
         }
       ],
@@ -10746,6 +12260,38 @@
         "id",
         "role",
         "source"
+      ],
+      "type": "object"
+    },
+    "UserQuestionsRequestPayload": {
+      "properties": {
+        "questions": {
+          "description": "Questions to display.",
+          "items": {
+            "$ref": "#/definitions/AskUserQuestionItem"
+          },
+          "type": "array"
+        },
+        "wait": {
+          "description": "Tool call the Client card is keyed by. Timed answerers attach to the business wait stream before starting their local countdown.",
+          "properties": {
+            "callId": {
+              "description": "Tool call the Client card is keyed by.",
+              "type": "string"
+            },
+            "timed": {
+              "description": "True for a foreground wait that requires a Client claim; absent for indefinite waits.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "callId"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "questions"
       ],
       "type": "object"
     },
@@ -11221,6 +12767,70 @@
       "args": "StatusWatchArgs",
       "description": "Footer metrics, service speed and delegation board, sampled every 500 ms and sent on change.",
       "item": "StatusState"
+    }
+  },
+  "x-protocol-version": {
+    "major": 1,
+    "minor": 0
+  },
+  "x-typert-methods": {
+    "$events/result": {
+      "args": "RemoteEventResult",
+      "description": "Answer, decline (`next`) or fail one `$events` waterfall. The first answer wins.",
+      "result": "EventsResultResult"
+    },
+    "session/cancel": {
+      "args": "SessionCancelArgs",
+      "result": "SessionCancelValue"
+    },
+    "session/create": {
+      "args": "SessionCreateArgs",
+      "description": "Without `sessionId` the Host mints one. `cwd` fixes the session's folder.",
+      "result": "SessionCreateValue"
+    },
+    "session/fork": {
+      "args": "SessionForkArgs",
+      "result": "SessionForkValue"
+    },
+    "session/list": {
+      "args": "SessionListArgs",
+      "result": "SessionListValue"
+    },
+    "session/page": {
+      "args": "SessionPageArgs",
+      "description": "Older history while a follow snapshot reports `hasMore`.",
+      "result": "SessionPage"
+    },
+    "session/prompt": {
+      "args": "SessionPromptArgs",
+      "description": "Upstream delivery; DSCODE clients use `session/deliver`, which carries DSCODE behaviour.",
+      "result": "SessionPromptValue"
+    },
+    "session/selectModel": {
+      "args": "SessionSelectModelArgs",
+      "result": "SessionSelectModelValue"
+    }
+  },
+  "x-typert-streams": {
+    "$events": {
+      "args": "NoArgs",
+      "description": "The forwarded-event stream, open for the client's lifetime: `ready` first, then emits, waterfalls and cancels.",
+      "item": "RemoteEventDownlinkFrame"
+    },
+    "session/follow": {
+      "args": "SessionFollowArgs",
+      "description": "One session: a `snapshot`, then committed events and live assistant frames. Opening it resumes a persisted session.",
+      "item": "SessionFollowFrame"
+    }
+  },
+  "x-typert-waterfalls": {
+    "approval/request": {
+      "request": "ApprovalRequestPayload",
+      "value": "ApprovalOutcome"
+    },
+    "user-questions/request": {
+      "request": "UserQuestionsRequestPayload",
+      "value": "AskUserQuestionAnswer"
     }
   }
 }

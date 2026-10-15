@@ -48,6 +48,16 @@ function check(definition, value, label) {
 }
 const methods = schema['x-dscode-methods'];
 const streams = schema['x-dscode-streams'];
+const typertMethods = schema['x-typert-methods'];
+const typertStreams = schema['x-typert-streams'];
+const waterfalls = schema['x-typert-waterfalls'];
+/** A Typert call through `/api`, with its arguments and value checked. */
+async function typert(name, args) {
+  check(typertMethods[name].args, args, `${name} args`);
+  const result = value(await call(socket, name, args));
+  check(typertMethods[name].result, result === undefined ? null : result, `${name} result`);
+  return result;
+}
 async function method(name, args) {
   check(methods[name].args, args, `${name} args`);
   const result = await callDscode(socket, name, args);
@@ -75,24 +85,39 @@ let socket;
 const controller = new AbortController();
 try {
   socket = await ensureHost();
-  await method('host/status', {});
+  const status = await method('host/status', {});
+  assert.deepEqual(status.protocol, schema['x-protocol-version'], 'the Host speaks the protocol version the schema describes');
 
-  // Attach; reject every approval, pass on anything else.
+  // Attach; reject every approval, pass on anything else. Every frame and the
+  // payload of each waterfall the contract lists are checked.
   let clientId;
+  const answered = [];
+  check(typertStreams.$events.args, {}, '$events args');
   void (async () => {
     for await (const frame of openStream(socket, '$events', { args: {} }, controller.signal)) {
+      check(typertStreams.$events.item, frame, `$events ${frame.type} frame`);
       if (frame.type === 'ready') clientId = frame.clientId;
-      if (frame.type === 'waterfall') await call(socket, '$events/result', { clientId, eventId: frame.eventId,
-        outcome: frame.event === 'approval/request' ? { kind: 'result', value: 'rejected' } : { kind: 'next' } });
+      if (frame.type !== 'waterfall') continue;
+      const known = waterfalls[frame.event];
+      if (known !== undefined) check(known.request, frame.request, `${frame.event} payload`);
+      const outcome = frame.event === 'approval/request' ? { kind: 'result', value: 'rejected' } : { kind: 'next' };
+      if (outcome.kind === 'result') check(known.value, outcome.value, `${frame.event} answer`);
+      answered.push(await typert('$events/result', { clientId, eventId: frame.eventId, outcome }));
     }
-  })().catch(() => {});
+  })().catch(error => failures.push(`$events: ${error.message}`));
   await until('$events ready', () => clientId);
 
-  const { sessionId } = value(await call(socket, 'session/create', { request: { cwd: workspace, agentPreset: 'dscode' } }));
+  const { sessionId } = await typert('session/create', { request: { cwd: workspace, agentPreset: 'dscode' } });
+  await typert('session/selectModel', { request: { sessionId, provider: 'fixture', model: 'fixture' } });
   const live = [];
+  const followArgs = { request: { address: { kind: 'session', sessionId }, assistantStream: true } };
+  check(typertStreams['session/follow'].args, followArgs, 'session/follow args');
   void (async () => {
-    for await (const frame of openStream(socket, 'session/follow', { args: { request: { address: { kind: 'session', sessionId }, assistantStream: true } } }, controller.signal)) live.push(frame);
-  })().catch(() => {});
+    for await (const frame of openStream(socket, 'session/follow', { args: followArgs }, controller.signal)) {
+      check(typertStreams['session/follow'].item, frame, `session/follow ${frame.type} frame`);
+      live.push(frame);
+    }
+  })().catch(error => failures.push(`session/follow: ${error.message}`));
   await until('follow snapshot', () => live.length > 0);
   const children = [];
   void (async () => {
@@ -114,13 +139,26 @@ try {
   }
   await method('btw/dispose', { ids: [childId] });
 
+  assert.ok(answered.length > 0, 'the approval was answered through $events/result');
+  assert.ok(live.some(frame => frame.type === 'assistant-stream'), 'live assistant frames were followed');
+
   // Every committed event, from a fresh snapshot, must be a member the schema knows.
+  // A small page size forces history paging through session/page.
   const kinds = new Set();
-  for await (const frame of openStream(socket, 'session/follow', { args: { request: { address: { kind: 'session', sessionId }, assistantStream: true, maxMessages: 1000 } } })) {
-    assert.equal(frame.type, 'snapshot');
-    for (const record of frame.records) { kinds.add(record.event.type); check('SessionEventKnown', record.event, `event ${record.event.type} seq ${record.event.seq}`); }
-    break;
+  const address = { kind: 'session', sessionId };
+  let snapshot;
+  for await (const frame of openStream(socket, 'session/follow', { args: { request: { address, assistantStream: true, maxMessages: 4 } } })) { snapshot = frame; break; }
+  assert.equal(snapshot.type, 'snapshot');
+  check(typertStreams['session/follow'].item, snapshot, 'paged snapshot');
+  const records = [...snapshot.records];
+  for (let hasMore = snapshot.hasMore; hasMore;) {
+    const page = await typert('session/page', { request: { address, throughSeq: snapshot.cursor, beforeSeq: records[0].event.seq, maxMessages: 4 } });
+    records.unshift(...page.records);
+    hasMore = page.hasMore;
   }
+  for (const record of records) { kinds.add(record.event.type); check('SessionEventKnown', record.event, `event ${record.event.type} seq ${record.event.seq}`); }
+  await typert('session/list', { _request: {} });
+  await typert('session/fork', { request: { sessionId } });
 
   // Read-only methods and value watches.
   await method('models/directory', {});

@@ -1,6 +1,8 @@
 /**
- * Wire contract of the DSCODE operations: for each method its arguments and
- * result, for each stream its arguments, items and (when it reads one) uplink.
+ * Wire contract between a client and the Host: the DSCODE operations (for each
+ * method its arguments and result, for each stream its arguments, items and,
+ * when it reads one, uplink), and the upstream Typert calls a client makes for
+ * the session core, with the interactive requests it answers on `$events`.
  * The registry checks every registration of a listed name against this table,
  * and `scripts/protocol-schema.mjs` turns it into the JSON Schema that clients
  * in other languages generate their types from
@@ -14,6 +16,14 @@
  */
 
 import type { ModelSelection } from '@deepseek-ai/dsh-agent'
+import type { RemoteEventDownlinkFrame, RemoteEventResult } from '@deepseek-ai/dsh-api-gateway/stream-protocol'
+import type {
+  SessionCancelRequest, SessionCancelValue, SessionCreateRequest, SessionCreateValue, SessionFollowFrame, SessionFollowRequest,
+  SessionForkRequest, SessionForkValue, SessionListRequest, SessionListValue, SessionPage, SessionPageRequest,
+  SessionPromptRequest, SessionPromptValue, SessionSelectModelRequest, SessionSelectModelValue,
+} from '@deepseek-ai/dsh-api-session-controller/types'
+import type { ApprovalOutcome, ApprovalRequestEvent } from '@deepseek-ai/dsh-user-approval/types'
+import type { AskUserQuestionAnswer, AskUserQuestionRequestEvent } from '@deepseek-ai/dsh-user-questions/types'
 import type { ContentBlock, FileBlock, ImageBlock } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type { QueueMutation } from '../app.ts'
@@ -42,8 +52,16 @@ import type { StatusState } from './status.ts'
 export type NoArgs = Record<string, never>
 
 /** `host/status`: who answers, and whether it is the release a client speaks. */
+/** The wire protocol version (plugins/local-carrier/protocol.mjs): same major is compatible. */
+export interface ProtocolVersion {
+  major: number
+  minor: number
+}
+
 export interface HostStatus {
   version: string
+  /** Negotiated instead of `version`. Absent on DSCODE 0.7.48 and older, which only match their own release. */
+  protocol: ProtocolVersion
   pid: number
   startedAt: number
   socketPath: string
@@ -264,6 +282,44 @@ export interface DscodeStreams {
   'status/watch': { args: { sessionId: string; modelLabel: string }; item: StatusState }
   /** Host notices from when the stream opens. */
   'notices/watch': { args: NoArgs; item: HostNotice }
+}
+
+/**
+ * Upstream Typert methods a DSCODE client uses: `POST /api/<name>` with the
+ * envelope's `payload.args`, whose keys are the method's parameter names.
+ */
+export interface TypertMethods {
+  /** Without `sessionId` the Host mints one. `cwd` fixes the session's folder. */
+  'session/create': { args: { request: SessionCreateRequest }; result: SessionCreateValue }
+  'session/selectModel': { args: { request: SessionSelectModelRequest }; result: SessionSelectModelValue }
+  'session/fork': { args: { request: SessionForkRequest }; result: SessionForkValue }
+  /** Older history while a follow snapshot reports `hasMore`. */
+  'session/page': { args: { request: SessionPageRequest }; result: SessionPage }
+  'session/list': { args: { _request: SessionListRequest }; result: SessionListValue }
+  /** Upstream delivery; DSCODE clients use `session/deliver`, which carries DSCODE behaviour. */
+  'session/prompt': { args: { request: SessionPromptRequest }; result: SessionPromptValue }
+  'session/cancel': { args: { request: SessionCancelRequest }; result: SessionCancelValue }
+  /** Answer, decline (`next`) or fail one `$events` waterfall. The first answer wins. */
+  '$events/result': { args: RemoteEventResult; result: null }
+}
+
+/** Upstream Typert streams a DSCODE client opens on `POST /stream`. */
+export interface TypertStreams {
+  /** The forwarded-event stream, open for the client's lifetime: `ready` first, then emits, waterfalls and cancels. */
+  '$events': { args: NoArgs; item: RemoteEventDownlinkFrame }
+  /** One session: a `snapshot`, then committed events and live assistant frames. Opening it resumes a persisted session. */
+  'session/follow': { args: { request: SessionFollowRequest }; item: SessionFollowFrame }
+}
+
+/**
+ * Waterfalls a DSCODE client answers on `$events`: the `request` it receives
+ * (the upstream event without its live `agent` and `signal`, which the gateway
+ * strips; the item's `agentId` names the agent) and the `value` it answers with
+ * in a `result` outcome. Any other waterfall is passed on with `next`.
+ */
+export interface TypertWaterfalls {
+  'approval/request': { request: Omit<ApprovalRequestEvent, 'agent' | 'signal'>; value: ApprovalOutcome }
+  'user-questions/request': { request: Omit<AskUserQuestionRequestEvent, 'agent' | 'signal'>; value: AskUserQuestionAnswer }
 }
 
 export type MethodName = keyof DscodeMethods

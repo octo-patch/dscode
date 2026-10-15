@@ -4,7 +4,7 @@
 // attaches to one, and a default makes bare `dscode` attach to it.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { callDscode } from '../plugins/local-carrier/client.mjs';
+import { callDscode, formatProtocol, protocolCompatibility } from '../plugins/local-carrier/client.mjs';
 
 export const LOCAL = 'local';
 const ALIAS = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
@@ -133,8 +133,8 @@ export function resolveRuntime(home, name) {
 }
 
 /**
- * Ask a remote runtime for its status and check it runs this release.
- * @throws when it does not answer, refuses the token, or runs another version.
+ * Ask a remote runtime for its status and check it speaks a compatible protocol.
+ * @throws when it does not answer, refuses the token, or is incompatible.
  */
 export async function checkRemote(runtime, version, timeoutMs = 10_000) {
   let status;
@@ -144,9 +144,8 @@ export async function checkRemote(runtime, version, timeoutMs = 10_000) {
     if (error.code === 'dscode/unauthorized') throw Error(`runtime ${runtime.alias} refused the token; copy the current one from the server's \`dscode server\` output into \`dscode config --runtime … --alias ${runtime.alias}\``, { cause: error });
     throw Error(`runtime ${runtime.alias} (${runtime.target.url}) did not answer: ${error.message}`, { cause: error });
   }
-  if (status?.version !== version) {
-    throw Error(`runtime ${runtime.alias} runs DSCODE ${status?.version ?? 'before 0.7.48'}, this terminal is ${version}; update one side so both match`);
-  }
+  const compatibility = protocolCompatibility(status, { version });
+  if (!compatibility.compatible) throw Error(`runtime ${runtime.alias} ${compatibility.reason}`);
   return status;
 }
 
@@ -161,7 +160,7 @@ export async function configMain(argv, { home, version, log = console.log } = {}
   if (options.runtime !== undefined) {
     try {
       const status = await checkRemote(resolveRuntime(home, options.alias), version, 5000);
-      log(`Connected: DSCODE ${status.version} on ${options.url}, default folder ${status.defaultCwd}`);
+      log(`Connected: DSCODE ${status.version} (protocol ${formatProtocol(status.protocol)}) on ${options.url}, default folder ${status.defaultCwd}`);
     } catch (error) { log(`Saved, but not reachable now: ${error.message}`); }
   }
 }

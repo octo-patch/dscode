@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { ndjson, STREAM_PATH } from './index.mjs';
 
 export { VERSION } from './index.mjs';
+export { PROTOCOL, formatProtocol, protocolCompatibility } from './protocol.mjs';
 
 // Unary calls reuse connections; streams hold theirs for their lifetime. Keepalive
 // probes stop an idle stream from being dropped by NAT between the two machines.

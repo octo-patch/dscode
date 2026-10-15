@@ -12,6 +12,7 @@ import { tryLockExclusive } from '@deepseek-ai/node-addon-system/flock';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import z from '@deepseek-ai/schemastery';
+import { PROTOCOL } from './protocol.mjs';
 
 export const name = 'dscode-local-carrier';
 export const inject = ['connection', 'typertGateway'];
@@ -28,7 +29,7 @@ export const Config = z.object({
   }).description('Serve remote clients over TCP (dscode server); unencrypted'),
 });
 
-/** The package version a Host reports, so a client can refuse a different release. */
+/** The package version a Host reports, beside the protocol version clients negotiate on. */
 export const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 
 export const STREAM_PATH = '/stream';
@@ -214,7 +215,7 @@ export async function apply(ctx, config = {}) {
   ctx.inject(['dscodeRemote'], scoped => scoped.effect(() => {
     const offs = [
       scoped.dscodeRemote.method('host/status', () => ({
-        version: VERSION, pid: process.pid, startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
+        version: VERSION, protocol: PROTOCOL, pid: process.pid, startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
         sessions: (ctx.get('agents')?.list() ?? []).length, running: running(), idleExitMs: config.idleExitMs ?? 0,
         defaultCwd: config.defaultCwd || homedir(),
         ...(config.tcp?.port ? { tcp: { port: config.tcp.port, bind: config.tcp.bind } } : {}),

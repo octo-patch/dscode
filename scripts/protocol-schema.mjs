@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
@@ -6,6 +7,8 @@ import {
   DEFAULT_CONFIG, ExposeNodeParser, InterfaceAndClassNodeParser, NumberType, SchemaGenerator, StringType, UnknownType,
   createFormatter, createParser, symbolAtNode,
 } from 'ts-json-schema-generator';
+import { PROTOCOL, formatProtocol } from '../plugins/local-carrier/protocol.mjs';
+import { breakingChanges } from './protocol-compat.mjs';
 
 // The DSCODE operations' wire contract lives in TypeScript
 // (packages/tui/src/host/protocol.ts), where the Host registry is checked
@@ -13,8 +16,15 @@ import {
 // in other languages; the Rust desktop client generates its types from the
 // output. Run it after changing the table and commit the result:
 //
-//   node scripts/protocol-schema.mjs          # write protocol/dscode-runtime.schema.json
-//   node scripts/protocol-schema.mjs --check  # exit 1 when the committed file is stale
+//   node scripts/protocol-schema.mjs           # write protocol/dscode-runtime.schema.json
+//   node scripts/protocol-schema.mjs --record  # also record the protocol version (after a bump)
+//   node scripts/protocol-schema.mjs --check   # exit 1 when the files or the version are out of date
+//
+// The schema carries the protocol version (plugins/local-carrier/protocol.mjs).
+// protocol/versions.json records each version's schema fingerprint, so any
+// change to the contract needs a version bump; protocol/baseline.schema.json is
+// the first schema of the current major, and a later schema of the same major
+// must not break a client of it (scripts/protocol-compat.mjs).
 //
 // Every operation gets named definitions, `<Operation>Args` and
 // `<Operation>Result` (methods) or `<Operation>Item` (streams), unless its
@@ -24,9 +34,11 @@ import {
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 export const SOURCE = 'packages/tui/src/host/protocol.ts';
 export const OUTPUT = 'protocol/dscode-runtime.schema.json';
+export const VERSIONS = 'protocol/versions.json';
+export const BASELINE = 'protocol/baseline.schema.json';
 
-/** `models/compactionPreview` → `ModelsCompactionPreview`. */
-const pascal = name => name.split(/[/_-]/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1)).join('');
+/** `models/compactionPreview` → `ModelsCompactionPreview`; `$events/result` → `EventsResult`. */
+const pascal = name => name.split(/[^A-Za-z0-9]+/).filter(Boolean).map(part => part[0].toUpperCase() + part.slice(1)).join('');
 
 /** Stable output: object keys sorted, array order kept. */
 const sortKeys = value => Array.isArray(value)
@@ -202,21 +214,34 @@ function openUnions(definitions) {
     nameEventData(definitions, known, discriminator);
     const { description, ...members } = known;
     definitions[`${name}Known`] = { ...members, description: `The ${name} members the contract knows.` };
+    // Exactly one applies: a known member, or an object whose discriminator is not a known value.
+    const tags = [...new Set(knownTags(definitions, members, discriminator))].sort();
     definitions[name] = {
       ...(description ? { description } : {}),
-      anyOf: [
+      oneOf: [
         { $ref: `#/definitions/${name}Known` },
         {
           title: `${name}Other`,
           description: `A ${name} member this contract does not describe; \`${discriminator}\` names it.`,
           type: 'object',
-          properties: { [discriminator]: { type: 'string' } },
+          properties: { [discriminator]: { type: 'string', not: { enum: tags } } },
           required: [discriminator],
           additionalProperties: true,
         },
       ],
     };
   }
+}
+
+/** Discriminator values of a union's members, following one level of `$ref`. */
+function knownTags(definitions, union, discriminator) {
+  return (union.anyOf ?? []).flatMap(member => {
+    const resolved = member.$ref ? definitions[member.$ref.slice('#/definitions/'.length)] : member;
+    const property = resolved?.properties?.[discriminator];
+    if (typeof property?.const === 'string') return [property.const];
+    if (Array.isArray(property?.enum)) return property.enum;
+    return resolved?.anyOf ? knownTags(definitions, resolved, discriminator) : [];
+  });
 }
 
 // Each event carries its own inline `data` object. Anonymous objects get
@@ -231,6 +256,48 @@ function nameEventData(definitions, union, discriminator) {
     if (definitions[name] !== undefined) throw Error(`${name} already defined`);
     definitions[name] = data;
     member.properties.data = { $ref: `#/definitions/${name}` };
+  }
+}
+
+// `SessionSeq | -1` becomes `anyOf: [number, const -1]`, which says no more
+// than `number`, but code generators turn it into a union a plain number cannot
+// decode into. A union whose bare-typed member admits every other member
+// collapses to that member.
+function collapseRedundantUnions(value) {
+  if (Array.isArray(value)) return value.map(collapseRedundantUnions);
+  if (value === null || typeof value !== 'object') return value;
+  const result = Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, collapseRedundantUnions(inner)]));
+  const members = result.anyOf;
+  if (Array.isArray(members)) {
+    const bare = members.find(member => typeof member.type === 'string' && Object.keys(member).every(key => key === 'type' || key === 'description'));
+    const covered = member => member === bare || (member.type === bare?.type && Object.keys(member).every(key => ['type', 'const', 'enum', 'description'].includes(key)));
+    if (bare !== undefined && members.every(covered)) {
+      const { anyOf, ...rest } = result;
+      void anyOf;
+      return { ...rest, type: bare.type };
+    }
+  }
+  return result;
+}
+
+// A union that mixes named members with inline objects gets positional names
+// for the inline ones in generated code (`Variant0`). Title each inline member
+// after its discriminator (and `form`, when members of one kind differ by it):
+// `SessionFollowFrame` + `snapshot` → `SessionFollowFrameSnapshot`.
+function titleInlineMembers(definitions) {
+  for (const [name, definition] of Object.entries(definitions)) {
+    const members = definition.anyOf;
+    if (!Array.isArray(members) || !members.some(member => member.$ref) || !members.some(member => !member.$ref)) continue;
+    const seen = new Map();
+    for (const member of members) {
+      if (member.$ref || member.title) continue;
+      const tags = [member.properties?.type?.const ?? member.properties?.kind?.const, member.properties?.form?.const].filter(tag => typeof tag === 'string');
+      if (tags.length === 0) continue;
+      const title = name + tags.map(pascal).join('');
+      const count = (seen.get(title) ?? 0) + 1;
+      seen.set(title, count);
+      member.title = count === 1 ? title : `${title}${count}`;
+    }
   }
 }
 
@@ -262,7 +329,14 @@ export function buildSchema() {
   const generator = new SchemaGenerator(program, parser, createFormatter(config), config);
   const definitions = {};
   const tables = {};
-  for (const [table, parts] of [['DscodeMethods', ['args', 'result']], ['DscodeStreams', ['args', 'item', 'uplink']]]) {
+  const tableKeys = {
+    DscodeMethods: ['x-dscode-methods', ['args', 'result']],
+    DscodeStreams: ['x-dscode-streams', ['args', 'item', 'uplink']],
+    TypertMethods: ['x-typert-methods', ['args', 'result']],
+    TypertStreams: ['x-typert-streams', ['args', 'item']],
+    TypertWaterfalls: ['x-typert-waterfalls', ['request', 'value'], { request: 'Payload', value: 'Answer' }],
+  };
+  for (const [table, [key, parts, suffixes = {}]] of Object.entries(tableKeys)) {
     const schema = generator.createSchema(table);
     Object.assign(definitions, schema.definitions);
     const operations = {};
@@ -275,22 +349,28 @@ export function buildSchema() {
         const ref = partSchema.$ref?.startsWith('#/definitions/') && Object.keys(partSchema).length === 1
           ? decodeURIComponent(partSchema.$ref.slice('#/definitions/'.length))
           : undefined;
-        const typeName = ref ?? pascal(name) + pascal(part);
-        if (ref === undefined) definitions[typeName] = partSchema;
+        const typeName = ref ?? pascal(name) + (suffixes[part] ?? pascal(part));
+        if (ref === undefined) {
+          if (definitions[typeName] !== undefined) throw Error(`${key} ${name}.${part}: ${typeName} is already defined`);
+          definitions[typeName] = partSchema;
+        }
         entry[part] = typeName;
       }
       operations[name] = entry;
     }
-    tables[table === 'DscodeMethods' ? 'x-dscode-methods' : 'x-dscode-streams'] = operations;
+    tables[key] = operations;
   }
   restoreNaming();
   replaceNonJson(definitions);
   openUnions(definitions);
+  titleInlineMembers(definitions);
+  for (const name of Object.keys(definitions)) definitions[name] = collapseRedundantUnions(definitions[name]);
   assertNoFunctions(definitions);
   return sortKeys({
     $schema: 'http://json-schema.org/draft-07/schema#',
     $comment: `Generated by scripts/protocol-schema.mjs from ${SOURCE}; do not edit.`,
     title: 'DSCODE runtime operations',
+    'x-protocol-version': { ...PROTOCOL },
     ...tables,
     definitions,
   });
@@ -298,19 +378,79 @@ export function buildSchema() {
 
 export const render = schema => JSON.stringify(schema, null, 2) + '\n';
 
+const ANNOTATIONS = new Set(['description', 'title', '$comment', 'markdownDescription', 'examples']);
+const stripAnnotations = value => Array.isArray(value) ? value.map(stripAnnotations)
+  : value !== null && typeof value === 'object'
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => !ANNOTATIONS.has(key)).map(([key, inner]) => [key, stripAnnotations(inner)]))
+    : value;
+
+/** What a protocol version stands for: the schema without its version and wording. */
+export function fingerprint(schema) {
+  const { 'x-protocol-version': version, ...rest } = schema;
+  void version;
+  return 'sha256:' + createHash('sha256').update(JSON.stringify(stripAnnotations(rest))).digest('hex');
+}
+
+const readJson = (file, fallback) => existsSync(join(root, file)) ? JSON.parse(readFileSync(join(root, file), 'utf8')) : fallback;
+const compareVersions = (a, b) => a.major - b.major || a.minor - b.minor;
+const parseVersion = key => { const [major, minor] = key.split('.').map(Number); return { major, minor }; };
+
+/**
+ * Problems with the protocol version for `schema`: unrecorded, recorded with a
+ * different schema, or breaking a client of the current major's baseline.
+ * `record` writes what is missing instead of reporting it, where that is allowed.
+ */
+export function versionProblems(schema, { record = false } = {}) {
+  const key = formatProtocol(PROTOCOL);
+  const versions = readJson(VERSIONS, {});
+  const print = fingerprint(schema);
+  const problems = [];
+  if (versions[key] !== undefined && versions[key] !== print) {
+    problems.push(`the contract changed since protocol ${key} was recorded: bump the minor (additive change) or the major (breaking change) in plugins/local-carrier/protocol.mjs, then run node scripts/protocol-schema.mjs --record`);
+    return problems;
+  }
+  const newer = Object.keys(versions).filter(recorded => compareVersions(parseVersion(recorded), PROTOCOL) > 0);
+  if (newer.length > 0) problems.push(`protocol ${key} is older than the recorded ${newer.join(', ')}`);
+  const baseline = readJson(BASELINE, undefined);
+  const baselineVersion = baseline?.['x-protocol-version'];
+  const newMajor = baselineVersion === undefined || baselineVersion.major < PROTOCOL.major;
+  if (!newMajor) {
+    const breaking = breakingChanges(baseline, schema);
+    if (breaking.length > 0) problems.push(`protocol ${key} breaks clients of ${formatProtocol(baselineVersion)}; bump the major in plugins/local-carrier/protocol.mjs and run --record:\n  ${breaking.slice(0, 20).join('\n  ')}${breaking.length > 20 ? `\n  … ${breaking.length - 20} more` : ''}`);
+  }
+  if (problems.length === 0 && versions[key] === undefined) {
+    if (!record) problems.push(`protocol ${key} is not recorded; run node scripts/protocol-schema.mjs --record`);
+    else {
+      writeFileSync(join(root, VERSIONS), JSON.stringify(Object.fromEntries(Object.entries({ ...versions, [key]: print }).sort(([a], [b]) => compareVersions(parseVersion(a), parseVersion(b)))), null, 2) + '\n');
+      if (newMajor) writeFileSync(join(root, BASELINE), render(schema));
+    }
+  }
+  return problems;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const text = render(buildSchema());
+  const schema = buildSchema();
+  const text = render(schema);
   const target = join(root, OUTPUT);
   if (process.argv.includes('--check')) {
     let current = '';
     try { current = readFileSync(target, 'utf8'); } catch { /* missing counts as stale */ }
-    if (current !== text) {
-      console.error(`${OUTPUT} is stale; run node scripts/protocol-schema.mjs`);
+    const problems = current === text ? versionProblems(schema) : [`${OUTPUT} is stale; run node scripts/protocol-schema.mjs`];
+    if (problems.length > 0) {
+      console.error(problems.join('\n'));
       process.exit(1);
     }
-    console.log(`${OUTPUT} is current`);
+    console.log(`${OUTPUT} is current; protocol ${formatProtocol(PROTOCOL)}`);
   } else {
     writeFileSync(target, text);
     console.log(`wrote ${OUTPUT}`);
+    if (process.argv.includes('--record')) {
+      const problems = versionProblems(schema, { record: true });
+      if (problems.length > 0) {
+        console.error(problems.join('\n'));
+        process.exit(1);
+      }
+      console.log(`protocol ${formatProtocol(PROTOCOL)} recorded`);
+    }
   }
 }

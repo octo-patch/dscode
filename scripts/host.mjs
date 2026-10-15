@@ -10,8 +10,8 @@ import { randomBytes } from 'node:crypto';
 import { hostname, networkInterfaces } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
-import { localOverlays, root, provision, runDsh, runtimeHome } from './harness.mjs';
-import { callDscode } from '../plugins/local-carrier/client.mjs';
+import { localOverlays, manifest, root, provision, runDsh, runtimeHome } from './harness.mjs';
+import { callDscode, protocolCompatibility } from '../plugins/local-carrier/client.mjs';
 import { ensureSocketDirectory } from '../plugins/session-bridge/paths.mjs';
 
 /** Exit after this long with no attached terminal and no running turn. */
@@ -84,8 +84,14 @@ function serveCommand() {
  * @throws when a started Host does not answer within the timeout; the error
  * carries the tail of its log.
  */
-export async function ensureHost({ home = runtimeHome } = {}) {
-  if (await hostStatus(home) !== undefined) return hostSocket(home);
+export async function ensureHost({ home = runtimeHome, version = manifest.version } = {}) {
+  const running = await hostStatus(home);
+  if (running !== undefined) {
+    const decision = runningHostDecision(running, { version });
+    if (decision.action === 'attach') return hostSocket(home);
+    if (decision.action === 'refuse') throw Error(decision.reason);
+    await stop({ home });
+  }
   mkdirSync(hostDirectory(home), { recursive: true, mode: 0o700 });
   const launch = () => {
     const log = openSync(hostLog(home), 'a', 0o600);
@@ -110,6 +116,21 @@ export async function ensureHost({ home = runtimeHome } = {}) {
   if (await hostStatus(home) !== undefined) return hostSocket(home);
   const tail = existsSync(hostLog(home)) ? readFileSync(hostLog(home), 'utf8').split('\n').slice(-20).join('\n') : '';
   throw Error(`the DSCODE Host did not start (log: ${hostLog(home)})${tail ? `\n${tail}` : ''}`);
+}
+
+/**
+ * What to do with a Host already answering on this state directory's socket.
+ * Another installation sharing the directory (the desktop app's runtime beside
+ * the terminal's, say) may have started it, so it may speak another protocol.
+ * @returns `attach`; `replace` when it is idle and incompatible, or idle on an
+ * older minor; or `refuse` with a reason when it is incompatible and in use.
+ */
+export function runningHostDecision(status, { version = manifest.version, protocol } = {}) {
+  const compatibility = protocolCompatibility(status, { version, ...(protocol === undefined ? {} : { protocol }) });
+  const idle = status.clients === 0 && status.running === 0;
+  if (compatibility.compatible) return { action: compatibility.hostBehind && idle ? 'replace' : 'attach' };
+  if (idle) return { action: 'replace' };
+  return { action: 'refuse', reason: `the running DSCODE Host (pid ${status.pid}) ${compatibility.reason}; it is in use, so exit its sessions or run \`dscode host stop\`` };
 }
 
 /** Ask the Host to exit and wait until its socket stops answering. */

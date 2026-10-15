@@ -20,7 +20,9 @@
 import type { AgentStatus, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
-import { call, callDscode, isRemoteTarget, openDscodeStream, openStream, VERSION } from '../../../../plugins/local-carrier/client.mjs'
+import type { SessionWireEvent } from '@deepseek-ai/dsh-api-session-controller/types'
+import type { HostStatus, TypertMethods } from '../host/protocol.ts'
+import { call, callDscode, isRemoteTarget, openDscodeStream, openStream, protocolCompatibility, VERSION } from '../../../../plugins/local-carrier/client.mjs'
 import type {
   ApprovalAnswerer, OpenSessionRequest, QuestionAnswerer, RequestConfig, RuntimeClient, RuntimeSession,
 } from './types.ts'
@@ -52,6 +54,14 @@ function emitter<A extends unknown[]>(): { add(listener: Listener<A>): () => voi
 interface WaterfallFrame { type: 'waterfall'; event: string; eventId: string; agentId: string; request: Record<string, unknown> }
 type HistoryRecord = { event: SessionEvent }
 
+/**
+ * A history record's event as the session event it is. Upstream types the
+ * wire envelope generically (`type` plus JSON `data`) and leaves recognizing
+ * the merge-extensible kinds to the reader; the Host sends the session's own
+ * events, which scripts/verify-protocol.mjs checks against the schema.
+ */
+const sessionEventOf = (record: { readonly event: SessionWireEvent }): SessionEvent => record.event as unknown as SessionEvent
+
 /** Messages per history page when attaching to a session (DSCODE_HISTORY_PAGE lets verification force paging). */
 const HISTORY_PAGE = Number.parseInt(process.env.DSCODE_HISTORY_PAGE ?? '', 10) > 0 ? Number.parseInt(process.env.DSCODE_HISTORY_PAGE!, 10) : 1000
 
@@ -71,7 +81,9 @@ export interface TypertRuntimeOptions {
 /** Create a RuntimeClient that reaches the Host through its carrier. */
 export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClient {
   const { target, onError, onConnection } = options
-  const rpc = async <T>(method: string, args: Record<string, unknown>): Promise<T> => value<T>(await call(target, method, args))
+  // Typert calls typed by the wire contract (host/protocol.ts).
+  const rpc = async <N extends keyof TypertMethods>(method: N, args: TypertMethods[N]['args']): Promise<TypertMethods[N]['result']> =>
+    value<TypertMethods[N]['result']>(await call(target, method, args))
   const sessionEvents = emitter<[{ readonly id: string; readonly header: SessionHeader }, SessionEvent]>()
   const assistantStream = emitter<[string, AssistantStreamFrame]>()
   const approvals: ApprovalAnswerer[] = []
@@ -87,7 +99,7 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
   // Status changes arrive as events; after an attach or a reconnect the
   // current state is read once, so the terminal can interrupt a running turn.
   const refreshRunning = async (sessionId: string): Promise<void> => {
-    const listed = await rpc<{ items: { sessionId: string; running: boolean }[] }>('session/list', { _request: {} }).catch(() => undefined)
+    const listed = await rpc('session/list', { _request: {} }).catch(() => undefined)
     const summary = listed?.items.find(item => item.sessionId === sessionId)
     if (summary !== undefined) setRunning(sessionId, summary.running)
   }
@@ -161,8 +173,10 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
     reconnected.abort()
     reconnected = new AbortController()
     onConnection?.('restored')
-    void callDscode(target, 'host/status', {}).then((status: { version?: string }) => {
-      if (status?.version !== VERSION) onError(new Error(`the runtime now runs DSCODE ${status?.version ?? 'unknown'}, this terminal is ${VERSION}; restart dscode`))
+    // The runtime may have been replaced while the connection was down.
+    void callDscode(target, 'host/status', {}).then((status: HostStatus) => {
+      const compatibility = protocolCompatibility(status, { version: VERSION })
+      if (!compatibility.compatible) onError(new Error(`the runtime now ${compatibility.reason}; restart dscode`))
     }, () => {})
     for (const sessionId of running.keys()) void refreshRunning(sessionId)
   }
@@ -223,7 +237,7 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
 
       const follow = new AbortController()
       request.signal.addEventListener('abort', () => follow.abort(), { once: true })
-      const address = { kind: 'session', sessionId }
+      const address = { kind: 'session' as const, sessionId }
       const log: SessionEvent[] = []
       let header: SessionHeader | undefined
       const lastSeq = (): number => log.at(-1)?.seq ?? -1
@@ -242,10 +256,10 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
         let oldest = records[0]?.event.seq
         let more = hasMore
         while (more && oldest !== undefined && oldest > known + 1) {
-          const page = await rpc<{ records: HistoryRecord[]; hasMore: boolean }>('session/page', { request: { address, throughSeq: cursor, beforeSeq: oldest, maxMessages: HISTORY_PAGE } })
+          const page = await rpc('session/page', { request: { address, throughSeq: cursor, beforeSeq: oldest, maxMessages: HISTORY_PAGE } })
           if (page.records.length === 0) break
-          missed.unshift(...page.records.map(record => record.event).filter(event => event.seq > known))
-          oldest = page.records[0]!.event.seq
+          missed.unshift(...page.records.map(sessionEventOf).filter(event => event.seq > known))
+          oldest = sessionEventOf(page.records[0]!).seq
           more = page.hasMore
         }
         for (const event of missed) append(event)
@@ -292,11 +306,11 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
       // log (transcript, fork points, cross-session history), so page back to
       // the start before showing the session.
       while (hasMore) {
-        const page = await rpc<{ records: HistoryRecord[]; hasMore: boolean }>('session/page', {
+        const page = await rpc('session/page', {
           request: { address, throughSeq: cursor, ...(log[0] === undefined ? {} : { beforeSeq: log[0].seq }), maxMessages: HISTORY_PAGE },
         })
         if (page.records.length === 0) break
-        log.unshift(...page.records.map(record => record.event))
+        log.unshift(...page.records.map(sessionEventOf))
         hasMore = page.hasMore
       }
       if (!running.has(sessionId)) await refreshRunning(sessionId)
@@ -346,11 +360,11 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
       }
     },
     async fork(request) {
-      const forked = await rpc<{ sessionId: string }>('session/fork', { request: { sessionId: SessionId(request.sourceSessionId), ...(request.atSeq === undefined ? {} : { atSeq: request.atSeq }) } })
+      const forked = await rpc('session/fork', { request: { sessionId: SessionId(request.sourceSessionId), ...(request.atSeq === undefined ? {} : { atSeq: request.atSeq }) } })
       return client.open({ ...request, sessionId: forked.sessionId, resume: true })
     },
     async persistedSessions() {
-      const listed = await rpc<{ items: { sessionId: string; cwd?: string; updatedAt: number; parentSessionId?: string; origin?: 'subagent' }[] }>('session/list', { _request: {} })
+      const listed = await rpc('session/list', { _request: {} })
       return listed.items.map(item => ({
         version: 0, id: SessionId(item.sessionId), createdAt: item.updatedAt, isSeeded: false,
         ...(item.cwd === undefined ? {} : { cwd: item.cwd }),

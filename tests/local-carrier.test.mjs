@@ -5,7 +5,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { apply, authorized, VERSION } from '../plugins/local-carrier/index.mjs';
-import { call, callDscode, openDscodeStream, openStream } from '../plugins/local-carrier/client.mjs';
+import { call, callDscode, openDscodeStream, openStream, PROTOCOL, protocolCompatibility } from '../plugins/local-carrier/client.mjs';
 import { checkRemote } from '../scripts/runtimes.mjs';
 
 const freePort = () => new Promise(resolve => { const probe = createServer().listen(0, '127.0.0.1', () => { const { port } = probe.address(); probe.close(() => resolve(port)); }); });
@@ -35,7 +35,9 @@ async function carrier(t, extra = {}) {
     effect: fn => { const disposer = fn(); disposers.push(disposer); return disposer; },
     // A stand-in DSCODE registry: echoes its arguments, answers host/status.
     get: name => name === 'dscodeRemote' ? {
-      invoke: async (method, args) => method === 'host/status' ? { version: extra.version ?? VERSION, defaultCwd: '/srv/app' } : { method, args },
+      invoke: async (method, args) => method === 'host/status'
+        ? { version: extra.version ?? VERSION, ...(extra.protocol === null ? {} : { protocol: extra.protocol ?? PROTOCOL }), defaultCwd: '/srv/app' }
+        : { method, args },
       open: async function* (stream, args) { yield { stream, args }; },
     } : undefined,
   };
@@ -127,11 +129,29 @@ test('the local socket needs no token while the TCP listener runs beside it', as
   assert.deepEqual(await callDscode(socketPath, 'sessions/list', {}), { method: 'sessions/list', args: {} });
 });
 
-test('a terminal refuses a runtime of another release', async t => {
+test('a terminal accepts a runtime of the same protocol major and refuses any other', async t => {
   const same = await tcpCarrier(t);
   assert.equal((await checkRemote({ alias: 'box', target: same.target }, VERSION)).defaultCwd, '/srv/app');
   await assert.rejects(checkRemote({ alias: 'box', target: same.wrong }, VERSION), /refused the token/);
-  const other = await tcpCarrier(t, { version: '0.0.1' });
-  await assert.rejects(checkRemote({ alias: 'box', target: other.target }, VERSION), /runs DSCODE 0\.0\.1, this terminal is/);
+  // Another release on the same protocol major works together.
+  const otherRelease = await tcpCarrier(t, { version: '0.0.1', protocol: { major: PROTOCOL.major, minor: PROTOCOL.minor + 3 } });
+  assert.equal((await checkRemote({ alias: 'box', target: otherRelease.target }, VERSION)).version, '0.0.1');
+  const otherMajor = await tcpCarrier(t, { version: '9.0.0', protocol: { major: PROTOCOL.major + 1, minor: 0 } });
+  await assert.rejects(checkRemote({ alias: 'box', target: otherMajor.target }, VERSION), new RegExp(`runtime box speaks protocol ${PROTOCOL.major + 1}\\.0 .*Update this client`));
+  // A runtime from before negotiation reports no protocol: only its own release matches.
+  const legacy = await tcpCarrier(t, { version: '0.0.1', protocol: null });
+  await assert.rejects(checkRemote({ alias: 'box', target: legacy.target }, VERSION), /runs DSCODE 0\.0\.1, which predates protocol negotiation/);
   await assert.rejects(checkRemote({ alias: 'gone', target: { url: 'http://127.0.0.1:1', token: 'x' } }, VERSION, 2000), /did not answer/);
+});
+
+test('protocol compatibility: same major works, an older Host minor is reported, other majors refuse', () => {
+  const client = { protocol: { major: 2, minor: 3 }, version: '1.0.0' };
+  assert.deepEqual(protocolCompatibility({ version: 'x', protocol: { major: 2, minor: 3 } }, client), { compatible: true, hostBehind: false });
+  assert.deepEqual(protocolCompatibility({ version: 'x', protocol: { major: 2, minor: 1 } }, client), { compatible: true, hostBehind: true });
+  assert.deepEqual(protocolCompatibility({ version: 'x', protocol: { major: 2, minor: 9 } }, client), { compatible: true, hostBehind: false });
+  assert.match(protocolCompatibility({ version: 'x', protocol: { major: 1, minor: 9 } }, client).reason, /speaks protocol 1\.9 \(DSCODE x\); this client speaks 2\.3\. Update the runtime/);
+  assert.match(protocolCompatibility({ version: 'x', protocol: { major: 3, minor: 0 } }, client).reason, /Update this client/);
+  assert.deepEqual(protocolCompatibility({ version: '1.0.0' }, client), { compatible: true, hostBehind: false });
+  assert.equal(protocolCompatibility({ version: '0.9.0' }, client).compatible, false);
+  assert.equal(protocolCompatibility(undefined, client).compatible, false);
 });

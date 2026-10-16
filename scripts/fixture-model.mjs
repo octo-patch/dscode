@@ -4,7 +4,9 @@
 // write outside the workspace with escalation, so an approval must be decided;
 // ASK calls ask_user_question; SLOW streams until the turn is cancelled;
 // INSTRUCTIONS reports which workspace instruction markers reached its system
-// prompt. After a tool result it reports that result.
+// prompt; LONG [KB] [FAST] streams a long Markdown reply (60 KB by default,
+// paced unless FAST); TOOL lists the workspace with glob. After a tool result
+// it reports that result.
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 export const name = 'fixture-model';
 export const inject = ['llm'];
@@ -15,6 +17,22 @@ const textOf = message => (message?.content ?? []).map(b => b.text ?? '').join('
 // user message that is none of those.
 const injected = /^(<system-reminder>|Current runtime context|Time (mark|sampled))/;
 const lastUser = messages => textOf(messages.findLast(m => m.role === 'user' && !injected.test(textOf(m).trimStart())));
+// A Markdown document of about `bytes` bytes that cycles through what replies
+// contain: headings, CJK and Latin paragraphs, lists, code blocks and tables.
+export function longMarkdown(bytes) {
+  const sections = [
+    i => `## ${i}. 第 ${i} 节：流式渲染\n\n这一段是中文正文，用来检查 CJK 文本在流式输出时的换行、字形和选择。模型每次只发出几个字符，客户端需要在不卡顿的情况下增量解析 Markdown。\n`,
+    i => `The client folds **section ${i}** as it streams: \`TextView\` appends the delta, the parser extends the document, and [the list](https://example.com/${i}) remeasures the last row.\n`,
+    i => `- item ${i}.1 with \`inline code\`\n- item ${i}.2, *emphasis* and **strong**\n  - nested ${i}.2.1\n- item ${i}.3\n`,
+    i => '```rust\n' + `fn section_${i}(rows: &[Row]) -> usize {\n    rows.iter().filter(|row| row.visible).map(|row| row.height as usize).sum()\n}\n` + '```\n',
+    i => `| Column | Value ${i} | Note |\n|---|---:|---|\n| alpha | ${i * 3} | 第一行 |\n| beta | ${i * 7} | second row |\n| gamma | ${i * 11} | third |\n`,
+    i => '```typescript\n' + `export async function load${i}(socket: string): Promise<number> {\n  const rows = await fetchRows(socket, { page: ${i} });\n  return rows.length;\n}\n` + '```\n',
+  ];
+  let text = '';
+  for (let i = 0; text.length < bytes; i++) text += sections[i % sections.length](Math.floor(i / sections.length) + 1) + '\n';
+  return text;
+}
+
 export function apply(ctx) {
   class Adapter extends LlmAdapter {
     providerInfo(provider) { return { id: provider, name: 'Fixture' }; }
@@ -57,6 +75,21 @@ export function apply(ctx) {
         yield { type: 'finish', reason: { kind: 'stop' } };
         return;
       }
+      if (prompt.includes('LONG')) {
+        const kb = Number(prompt.match(/LONG\s+(\d+)/)?.[1] ?? 60);
+        const pause = prompt.includes('FAST') ? 0 : 4;
+        const value = longMarkdown(kb * 1024);
+        yield { type: 'block-start', index: 0, blockType: 'text' };
+        for (const part of value.match(/[^]{1,16}/g)) {
+          if (options.signal?.aborted) throw options.signal.reason ?? new Error('aborted');
+          if (pause) await new Promise(resolve => setTimeout(resolve, pause));
+          yield { type: 'text-delta', index: 0, text: part };
+        }
+        yield { type: 'block-end', index: 0, block: { type: 'text', text: value } };
+        yield { type: 'finish', reason: { kind: 'stop' } };
+        return;
+      }
+      if (prompt.includes('TOOL')) return yield* call('glob', { pattern: '*' });
       if (prompt.includes('ASK')) {
         return yield* call('ask_user_question', { questions: [{ id: 'color', question: 'Which color should the fixture use?', header: 'Color', options: [{ label: 'Blue' }, { label: 'Red' }] }] });
       }

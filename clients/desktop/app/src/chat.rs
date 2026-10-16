@@ -1,5 +1,6 @@
+use crate::bench::{Frames, ScrollBench};
 use crate::runtime::{self, Catalog, Choice, Connection, Live, Open, Page, Reporter, RuntimeEvent, Session};
-use crate::transcript::{Entry, Role, ToolStatus, Transcript};
+use crate::transcript::{Role, ToolStatus, Transcript};
 use dscode_client_core::protocol::types;
 use dscode_client_core::runtimes::LOCAL;
 use gpui_kit::component::button::{Button, ButtonRounded, ButtonVariants as _};
@@ -13,7 +14,7 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Ic
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashSet;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// The conversation column's width; wider windows center it.
 const COLUMN: f32 = 760.;
@@ -85,6 +86,8 @@ pub struct ChatView {
     /// Where older history of the shown session continues, if it does.
     older: Option<Page>,
     loading_older: bool,
+    frames: Option<Frames>,
+    scroll_bench: Option<ScrollBench>,
 }
 
 impl ChatView {
@@ -150,6 +153,8 @@ impl ChatView {
             approvals: Vec::new(),
             older: None,
             loading_older: false,
+            frames: Frames::from_env(),
+            scroll_bench: ScrollBench::from_env(),
         };
         // An address from the command line needs no catalog; a name waits for it.
         if let Some(choice) = startup.choice {
@@ -425,9 +430,10 @@ impl ChatView {
             } else if after < before {
                 scroller.reset(after, cx);
             }
-            // The last row grows while it streams.
+            // The last row grows while it streams; when a reply starts a new
+            // part, the line that opened it moves out of the row before.
             if after > 0 {
-                scroller.remeasure_items(after - 1..after, cx);
+                scroller.remeasure_items(after.saturating_sub(2)..after, cx);
             }
         });
         cx.notify();
@@ -787,7 +793,7 @@ impl ChatView {
     fn render_row(transcript: &Entity<Transcript>, index: usize, cx: &mut App) -> AnyElement {
         let theme = cx.theme();
         let (muted, secondary, border, danger, success) = (theme.muted_foreground, theme.secondary, theme.border, theme.danger, theme.success);
-        let entry: Entry = transcript.read(cx).row(index);
+        let entry = transcript.read(cx).row(index);
         let body = match entry.role {
             Role::User => h_flex()
                 .justify_end()
@@ -822,7 +828,15 @@ impl ChatView {
                     .into_any_element()
             }
         };
-        h_flex().w_full().justify_center().px_6().py_2().child(div().w_full().max_w(px(COLUMN)).child(body)).into_any_element()
+        // The parts of one reply read as one: no gap above a continued part.
+        h_flex()
+            .w_full()
+            .justify_center()
+            .px_6()
+            .py_2()
+            .when(entry.continued, |row| row.pt_0())
+            .child(div().w_full().max_w(px(COLUMN)).child(body))
+            .into_any_element()
     }
 
     fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -991,8 +1005,34 @@ impl ChatView {
     }
 }
 
+impl ChatView {
+    /// One row of the scroll pass per frame, once the opened session has its rows.
+    fn step_scroll_bench(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rows = self.transcript.read(cx).len();
+        let Some(bench) = self.scroll_bench.as_mut().filter(|_| self.session.is_some() && !self.opening) else { return };
+        match bench.step(rows) {
+            Some(row) => {
+                if let Some(frames) = &self.frames {
+                    frames.hold();
+                }
+                self.scroller.update(cx, |scroller, cx| scroller.scroll_to_item(row, cx));
+                window.request_animation_frame();
+            }
+            None if bench.done => {
+                if let Some(frames) = &self.frames {
+                    frames.report(&format!("scroll pass over {rows} rows"));
+                }
+                cx.quit();
+            }
+            None => {}
+        }
+    }
+}
+
 impl Render for ChatView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let start = Instant::now();
+        self.step_scroll_bench(window, cx);
         let theme = cx.theme();
         let (background, border, muted, danger) = (theme.background, theme.border, theme.muted_foreground, theme.danger);
         let transcript = self.transcript.clone();
@@ -1057,6 +1097,7 @@ impl Render for ChatView {
         });
 
         h_flex()
+            .relative()
             .size_full()
             .bg(background)
             .child(self.render_sidebar(cx))
@@ -1070,5 +1111,6 @@ impl Render for ChatView {
                     .children(failure)
                     .child(self.render_composer(cx)),
             )
+            .children(self.frames.as_ref().map(|frames| frames.probe(start)))
     }
 }

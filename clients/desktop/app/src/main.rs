@@ -12,6 +12,7 @@
 //! DSCODE_RUNTIME_SOCKET, or DSCODE_RUNTIME_URL and DSCODE_RUNTIME_TOKEN, act
 //! as the address flags, as for the terminal client.
 
+mod bench;
 mod chat;
 mod runtime;
 mod transcript;
@@ -61,15 +62,22 @@ fn main() -> ExitCode {
     gpui_kit::application().with_assets(gpui_kit::assets::AllAssets).run(move |cx| {
         gpui_kit::init(cx);
         let bounds = Bounds::centered(None, size(px(1180.), px(800.)), cx);
+        // A frame-timing run keeps the window above the others without taking
+        // focus: macOS presents no frames for a window that is covered.
+        let measuring = std::env::var_os("DSCODE_DESKTOP_FRAMES").is_some();
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions { title: Some("DSCODE".into()), ..Default::default() }),
+            kind: if measuring { WindowKind::PopUp } else { WindowKind::Normal },
+            focus: !measuring,
             ..Default::default()
         };
         gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| ChatView::new(startup, window, cx)))
             .expect("failed to open the window");
         cx.on_window_closed(|cx, _| cx.quit()).detach();
-        cx.activate(true);
+        if !measuring {
+            cx.activate(true);
+        }
     });
     ExitCode::SUCCESS
 }

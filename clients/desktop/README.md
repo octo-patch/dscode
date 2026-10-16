@@ -32,7 +32,23 @@ DSCODE_SOURCE_HOME=HOME cargo run --example chat -- --dscode ../../bin/dscode.mj
 
 `HOME` is the `home` the fixture prints. An installed `dscode` from before `host locate` is reported as too old; point `--dscode` at this checkout's `bin/dscode.mjs`.
 
-Fixture prompts: `APPROVE` asks to write outside the workspace (an approval), `ASK` asks a question, `SLOW` streams slowly.
+Fixture prompts: `APPROVE` asks to write outside the workspace (an approval), `ASK` asks a question, `SLOW` streams slowly, `LONG [KB] [FAST]` streams a long Markdown reply (60 KB by default; headings, CJK paragraphs, lists, code blocks and tables), `TOOL` runs `glob`.
+
+### Performance checks
+
+```bash
+# A long session: turns cycle through a Markdown reply of --kb KB, a tool call and a short reply.
+node clients/desktop/scripts/fill-session.mjs --socket SOCKET --cwd WORKSPACE --turns 600 --kb 3   # prints FILLED_SESSION ID
+
+cargo build --release -p dscode-desktop
+# Scroll the whole session one row per frame, up and back, print the frame times and quit.
+DSCODE_DESKTOP_FRAMES=1 DSCODE_DESKTOP_SCROLL_BENCH=1 DSCODE_DESKTOP_PAGE_MESSAGES=5000 \
+  target/release/dscode-desktop --socket SOCKET --session ID
+# Frame times every two seconds while a reply streams: open a session, then deliver `LONG 200` into it from outside.
+DSCODE_DESKTOP_FRAMES=1 target/release/dscode-desktop --socket SOCKET --session ID
+```
+
+`DSCODE_DESKTOP_FRAMES` times each frame from the start of the view's render to the end of paint (CPU only) and makes the window float above the others without taking focus, because a covered window presents no frames. Measure release builds; a debug build is several times slower.
 
 ## What the spike checked (2026-10-14, macOS 26.6, Apple Silicon)
 
@@ -42,11 +58,13 @@ Fixture prompts: `APPROVE` asks to write outside the workspace (an approval), `A
 - Runtime choice (2026-10-15), against a fixture Host with a TCP listener: `chat --runtime local` attached through the launcher (under a second) and, with no Host running in a fresh state directory, started one (about 23 s) that exited when idle afterwards; `--runtime fix` reached the TCP listener from `runtimes.json`, a wrong token was reported as refused and an unknown name as unknown. The window with no flags attached to `local`; its runtime menu opened (accessibility tree and screenshot) with `local (default)` and "Add a server…", and the add-server dialog rendered. The window with `--runtime fix` connected over TCP (the Host counted one client after earlier windows were killed), and with `--runtime bad` it showed the refusal and Reconnect.
 - The sidebar layout (2026-10-15, dark appearance, fixture Host): `--session` resumed a session with its user message, failed `write` card and reply; a plain launch showed the empty draft and created no session; a prompt delivered from outside showed the running dot, the header's "Working", the spinning `write` card, the approval card with its Chinese reason and Stop; "Allow once" (accessibility press) finished the turn with a checked card and the reply, and the list moved the session to the top.
 - Paging and reconnect (2026-10-15, a launcher-managed Host in an isolated state directory with the fixture model): with a page size of 2, `--session` opened a five-turn session showing only the last turn, and two presses of "Load earlier messages" prepended the earlier turns above it. `dscode host stop` under the open window: its retry went through the launcher, a new Host started, and the window attached again (`host status`: one client, one session) with the same session reloaded.
-- `cargo test`: transport framing (chunked decoding, request heads, token only on TCP), address parsing, result unwrapping, and the transcript fold.
+- Performance (2026-10-15, release build, fixture Host): scrolling a 600-turn session (1605 rows, 3 KB replies with code blocks and tables) up and back one row per frame took p50 2.0 ms, p95 6.2 ms, max 10.6 ms a frame, none over 16 ms. Streaming a 200 KB reply (16-byte deltas, about 4 KB/s) stayed at p50 about 4.5 ms and max 12.8 ms a frame from start to end, 11 s CPU and 140 MB resident. Before long replies were split into rows, the same stream grew to 145 ms a frame (about 3 fps) by its end, 59 s CPU and 300 MB: the whole reply was one list row, laid out again on every delta, and gpui-base's table of retained text layouts sweeps itself on every insert once it holds 4096 paragraphs. An app that is not frontmost was throttled to about 27 frames a second during the stream; the Host sent about 200 assistant-stream frames a second.
+- `cargo test`: transport framing (chunked decoding, request heads, token only on TCP), address parsing, result unwrapping, the transcript fold, and splitting long replies into rows (the cuts never move while a reply streams, and it commits as the rows it streamed).
 
 ## Known gaps and findings
 
-- **Redraw while hidden.** With the window behind another window, state kept updating but no new frame (and no new accessibility tree) was presented until the window came to the front. Whether a visible but unfocused window redraws is not yet checked.
+- **Redraw while hidden.** With the window behind another window, state kept updating but no new frame (and no new accessibility tree) was presented until the window came to the front. A visible window of an app that is not frontmost does redraw (throttled to about 27 frames a second while streaming).
+- **Long replies are split into rows** at Markdown block boundaries (a blank line outside a code fence, before a line in the first column, once a row holds 2 KB). A list split this way restarts (keeping its numbering), and a reference-style link whose definition is in another part does not resolve. Long user messages are still one plain-text row.
 - **Input methods.** Text was entered with synthesized key events, not through a real input method; Pinyin composition on macOS and fcitx/ibus on Linux remain untested.
 - **Not checked by hand yet:** picking another runtime from the menu and submitting the add-server dialog. Driving them failed because the window kept losing focus to other apps during automation (synthesized typing landed in the wrong field). Their file edits are the unit-tested `Runtimes::set_remote/remove/set_default/save`, and switching runs the same `connect` as startup.
 - **Not checked by hand yet:** the folder and model menus. Their triggers carry accessibility labels, but a gpui-kit dropdown trigger exposes no press action (so VoiceOver cannot open these menus either), and pixel clicks did not open them while other apps held focus. Switching models was not exercised (the fixture offers one model).

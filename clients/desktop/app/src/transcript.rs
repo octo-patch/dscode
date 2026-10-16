@@ -1,8 +1,14 @@
 //! The visible transcript, folded from committed session events plus the one
 //! live assistant message still streaming. Context the runtime injects into
 //! user messages (time marks, runtime context, skill lists) is not shown.
+//!
+//! A long assistant message is split into several rows at Markdown block
+//! boundaries (see [`Splitter`]). The virtual list then lays out only the
+//! parts on screen, and a streaming reply re-lays out only its last part:
+//! one row for a whole 200 KB reply cost over 100 ms a frame.
 
 use dscode_client_core::protocol::types::{self, ContentBlock, SessionEvent, SessionEventKnown};
+use gpui_kit::SharedString;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -19,35 +25,112 @@ pub enum ToolStatus {
     Failed,
 }
 
-/// One row. For a user or assistant message `text` is the message; for a
+/// A row of an assistant message is cut once it holds this many bytes, at
+/// the next block boundary.
+const PART: usize = 2048;
+
+/// One row. For a user message `text` is the message, for an assistant
+/// message one part of it (`continued` on every part but the first); for a
 /// tool call it is the tool's name, `detail` its most telling argument and
 /// `error` the first line of a failed result.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
     pub role: Role,
-    pub text: String,
+    pub text: SharedString,
+    pub continued: bool,
     pub detail: String,
     pub status: ToolStatus,
     pub error: Option<String>,
 }
 
 impl Entry {
-    fn message(role: Role, text: String) -> Self {
-        Entry { role, text, detail: String::new(), status: ToolStatus::Done, error: None }
+    fn message(role: Role, text: impl Into<SharedString>) -> Self {
+        Entry { role, text: text.into(), continued: false, detail: String::new(), status: ToolStatus::Done, error: None }
     }
+
+    fn part(text: &str, continued: bool) -> Self {
+        Entry { continued, ..Entry::message(Role::Assistant, text.to_owned()) }
+    }
+}
+
+/// Where a Markdown text splits into rows. A cut goes before a line that
+/// starts in the first column and follows a blank line outside a code
+/// fence, once the row since the last cut holds [`PART`] bytes, so every row
+/// is whole blocks (a list may restart, keeping its numbering). Fed the text
+/// as it grows; a cut, once made, never moves.
+#[derive(Default, Clone)]
+struct Splitter {
+    /// Byte offsets where rows after the first start.
+    cuts: Vec<usize>,
+    /// Start of the first line not yet complete.
+    line: usize,
+    after_blank: bool,
+    /// The open fence: its character and length.
+    fence: Option<(char, usize)>,
+}
+
+impl Splitter {
+    /// The rows of a whole text: the same as streaming it, so a committed
+    /// reply keeps the rows it streamed in (its last line never opens a row).
+    fn of(text: &str) -> Splitter {
+        let mut splitter = Splitter::default();
+        splitter.feed(text);
+        splitter
+    }
+
+    /// Look at the lines of `text` (the whole text so far) completed since the last call.
+    fn feed(&mut self, text: &str) {
+        while let Some(end) = text[self.line..].find('\n').map(|offset| self.line + offset) {
+            let line = &text[self.line..end];
+            let start = self.cuts.last().copied().unwrap_or(0);
+            let opens_column = line.chars().next().is_some_and(|c| !c.is_whitespace());
+            if self.after_blank && opens_column && self.fence.is_none() && self.line - start >= PART {
+                self.cuts.push(self.line);
+            }
+            self.fence = match (self.fence, fence_of(line)) {
+                (None, Some(fence)) => Some(fence),
+                (Some((c, n)), Some((d, m))) if c == d && m >= n && line.trim().chars().all(|x| x == c) => None,
+                (open, _) => open,
+            };
+            self.after_blank = line.trim().is_empty();
+            self.line = end + 1;
+        }
+    }
+
+    fn rows(&self) -> usize {
+        self.cuts.len() + 1
+    }
+
+    /// The text of row `index` of `text`.
+    fn row<'t>(&self, text: &'t str, index: usize) -> &'t str {
+        let start = if index == 0 { 0 } else { self.cuts[index - 1] };
+        let end = self.cuts.get(index).copied().unwrap_or(text.len()).min(text.len());
+        text[start..end].trim_end()
+    }
+}
+
+/// A code fence opening or closing on `line`: its character and length.
+fn fence_of(line: &str) -> Option<(char, usize)> {
+    let trimmed = line.trim_start_matches(' ');
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+    let c = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
+    let n = trimmed.chars().take_while(|x| *x == c).count();
+    (n >= 3).then_some((c, n))
 }
 
 #[derive(Default)]
 pub struct Transcript {
     entries: Vec<Entry>,
-    live: Option<String>,
+    live: Option<(String, Splitter)>,
     tools: HashMap<String, usize>,
 }
 
 impl Transcript {
-    /// Rows to render: committed entries, then the live message if one is streaming.
+    /// Rows to render: committed entries, then the rows of the live message if one is streaming.
     pub fn len(&self) -> usize {
-        self.entries.len() + usize::from(self.live.is_some())
+        self.entries.len() + self.live.as_ref().map_or(0, |(_, splitter)| splitter.rows())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -55,18 +138,24 @@ impl Transcript {
     }
 
     pub fn row(&self, index: usize) -> Entry {
-        match self.entries.get(index) {
-            Some(entry) => entry.clone(),
-            None => Entry::message(Role::Assistant, self.live.clone().unwrap_or_default()),
+        match (self.entries.get(index), &self.live) {
+            (Some(entry), _) => entry.clone(),
+            (None, Some((text, splitter))) => {
+                let part = index - self.entries.len();
+                Entry::part(splitter.row(text, part), part > 0)
+            }
+            (None, None) => Entry::message(Role::Assistant, ""),
         }
     }
 
     pub fn start_live(&mut self) {
-        self.live.get_or_insert_with(String::new);
+        self.live.get_or_insert_with(Default::default);
     }
 
     pub fn push_live(&mut self, text: &str) {
-        self.live.get_or_insert_with(String::new).push_str(text);
+        let (live, splitter) = self.live.get_or_insert_with(Default::default);
+        live.push_str(text);
+        splitter.feed(live);
     }
 
     pub fn fold(&mut self, event: &SessionEvent) {
@@ -81,12 +170,13 @@ impl Transcript {
                 self.live = None;
                 let text = text_of(&data.message.content);
                 if !text.trim().is_empty() {
-                    self.entries.push(Entry::message(Role::Assistant, text));
+                    let splitter = Splitter::of(&text);
+                    self.entries.extend((0..splitter.rows()).map(|part| Entry::part(splitter.row(&text, part), part > 0)));
                 }
             }
             SessionEventKnown::ToolCall { data, .. } => {
                 let detail = summarize_arguments(&data.arguments);
-                self.entries.push(Entry { role: Role::Tool, text: data.name.clone(), detail, status: ToolStatus::Running, error: None });
+                self.entries.push(Entry { role: Role::Tool, detail, status: ToolStatus::Running, ..Entry::message(Role::Tool, data.name.clone()) });
                 self.tools.insert(data.call_id.clone(), self.entries.len() - 1);
             }
             SessionEventKnown::ToolResult { data, .. } => {
@@ -212,6 +302,47 @@ mod tests {
             (Role::Tool, "write".into(), "/x".into(), ToolStatus::Failed, Some("Error: rejected".into())),
             (Role::Assistant, "Done.".into(), String::new(), ToolStatus::Done, None),
         ]);
+    }
+
+    #[test]
+    fn splits_long_replies_at_block_boundaries() {
+        let fence = format!("```\n{}\n\nstill code\n```\n", "x".repeat(PART));
+        let text = format!("# Title\n\n{}\n\n{fence}\nafter the fence\n\n  indented continuation\n\n- next block\n", "p".repeat(PART));
+        let whole = Splitter::of(&text);
+        let rows: Vec<_> = (0..whole.rows()).map(|i| whole.row(&text, i)).collect();
+        // No cut inside the fence or before an indented line; parts are whole blocks.
+        assert_eq!(rows.len(), 3, "{rows:#?}");
+        assert!(rows[0].ends_with('p'));
+        assert!(rows[1].starts_with("```") && rows[1].ends_with("```"));
+        assert!(rows[2].starts_with("after the fence") && rows[2].contains("indented continuation"));
+        // Fed a few bytes at a time, the cuts are the same and never move.
+        let mut live = Splitter::default();
+        let mut seen = Vec::new();
+        for end in (0..=text.len()).step_by(7).chain([text.len()]) {
+            live.feed(&text[..end]);
+            assert!(live.cuts.starts_with(&seen));
+            seen = live.cuts.clone();
+        }
+        assert_eq!(live.cuts, whole.cuts);
+        // A short reply is one row.
+        assert_eq!(Splitter::of("short\n\nreply").rows(), 1);
+    }
+
+    #[test]
+    fn a_long_reply_streams_and_commits_as_the_same_rows() {
+        let text = (0..40).map(|i| format!("Paragraph {i}: {}", "word ".repeat(30))).collect::<Vec<_>>().join("\n\n");
+        let mut t = Transcript::default();
+        t.fold(&user("hello", "user"));
+        t.start_live();
+        for piece in text.as_bytes().chunks(16) {
+            t.push_live(std::str::from_utf8(piece).unwrap());
+        }
+        let streamed: Vec<_> = (0..t.len()).map(|i| t.row(i)).collect();
+        assert!(streamed.len() > 3);
+        t.fold(&assistant(json!([{"type": "text", "text": text}])));
+        let committed: Vec<_> = (0..t.len()).map(|i| t.row(i)).collect();
+        assert_eq!(streamed, committed);
+        assert!(!committed[1].continued && committed[2].continued);
     }
 
     #[test]

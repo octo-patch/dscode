@@ -6,11 +6,15 @@
 mod client;
 mod error;
 mod http;
+pub mod launcher;
 pub mod protocol;
+pub mod runtimes;
 mod stream;
 mod target;
 
 pub use client::{Client, HostStatus};
 pub use error::{Error, Result};
+pub use launcher::{Launcher, Location};
+pub use runtimes::Runtimes;
 pub use stream::{Stream, StreamEvent, TypedStream};
 pub use target::Target;

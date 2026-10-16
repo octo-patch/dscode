@@ -17,9 +17,12 @@ The host exits by itself after ten minutes with no attached terminal and no runn
 | Command | Result |
 |---|---|
 | `dscode host status` | The running host's process ID, attached terminals, live sessions and running turns; exit code 3 when none runs |
-| `dscode host start` | Start a host if none answers, and wait until it is ready |
+| `dscode host start` | Start a host if none answers, and wait until it is ready; `--json` prints the socket, state directory and runtimes file as one JSON line |
 | `dscode host stop` | Ask the host to exit and wait until its process is gone |
 | `dscode host serve` | Run the host in the foreground (diagnostics) |
+| `dscode host locate` | Print the state directory, socket path, runtimes file, release and protocol as one JSON line, without starting anything |
+
+`host locate` and `host start --json` are for other clients, such as the desktop client, which ask the launcher where the host is instead of working out the paths themselves.
 
 Another installation that shares the state directory, such as the desktop app's runtime beside the terminal's, may have started the running host. The launcher attaches to it when it speaks a compatible protocol (the same major; see [Remote runtime](remote-runtime.md#versions)). It replaces an idle host that is incompatible or on an older minor. It refuses a busy host that is incompatible: exit that host's sessions, or run `dscode host stop`.
 

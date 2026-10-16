@@ -11,7 +11,8 @@ import { hostname, networkInterfaces } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { localOverlays, manifest, root, provision, runDsh, runtimeHome } from './harness.mjs';
-import { callDscode, protocolCompatibility } from '../plugins/local-carrier/client.mjs';
+import { PROTOCOL, callDscode, protocolCompatibility } from '../plugins/local-carrier/client.mjs';
+import { runtimesFile } from './runtimes.mjs';
 import { ensureSocketDirectory } from '../plugins/session-bridge/paths.mjs';
 
 /** Exit after this long with no attached terminal and no running turn. */
@@ -226,10 +227,22 @@ export async function server(argv, { home = runtimeHome } = {}) {
   return serve({ home, idleExitMs: 0, defaultCwd, tcp: { port: options.port, bind: options.bind, tokenFile: serverTokenFile(home) } });
 }
 
+/**
+ * Where this installation keeps its Host and runtimes, for clients other than
+ * the terminal (the desktop app) that drive the launcher instead of
+ * re-deriving its paths.
+ */
+export const location = (home = runtimeHome) => ({ home, socket: hostSocket(home), runtimes: runtimesFile(home), version: manifest.version, protocol: PROTOCOL });
+
 export async function main(argv = process.argv.slice(2)) {
   const [command = 'status', ...rest] = argv;
   if (command === 'serve') { process.exitCode = await serve({ args: rest }); return; }
-  if (command === 'start') { console.log(`DSCODE Host ready: ${await ensureHost()}`); return; }
+  if (command === 'start') {
+    const socket = await ensureHost();
+    console.log(rest.includes('--json') ? JSON.stringify({ ...location(), socket }) : `DSCODE Host ready: ${socket}`);
+    return;
+  }
+  if (command === 'locate') { console.log(JSON.stringify(location())); return; }
   if (command === 'stop') { console.log(await stop() ? 'DSCODE Host stopped' : 'no DSCODE Host is running'); return; }
   if (command === 'status') {
     const status = await hostStatus();
@@ -237,5 +250,5 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(JSON.stringify(status, null, 2));
     return;
   }
-  throw Error('Usage: dscode host [status|start|stop|serve]');
+  throw Error('Usage: dscode host [status|start [--json]|stop|serve|locate]');
 }

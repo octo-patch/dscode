@@ -10,6 +10,10 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+### Added
+
+- `dscode host locate` prints where this installation keeps its host socket, state and runtimes file as one JSON line, and `dscode host start --json` does the same after the host is ready, so other clients (the desktop client) can attach without re-deriving the paths. See [Background host](host.md#commands).
+
 ## [0.7.48] - 2026-10-15
 
 ### Added

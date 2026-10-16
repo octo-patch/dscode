@@ -5,8 +5,12 @@
 //!     cargo run --example chat -- --socket PATH [--cwd DIR] [--model PROVIDER/MODEL]
 //!         [--approve allow|reject] [--session-file FILE] MESSAGE...
 //!     cargo run --example chat -- --url http://host:port --token TOKEN ... MESSAGE...
+//!     cargo run --example chat -- --runtime NAME [--dscode PATH] ... MESSAGE...
+//!
+//! `--runtime` resolves a name from `runtimes.json` the way `dscode runtime NAME`
+//! does; `local` attaches to or starts the Host through the launcher.
 
-use dscode_client_core::{Client, Error, StreamEvent, Target};
+use dscode_client_core::{Client, Error, Launcher, Runtimes, StreamEvent, Target};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::process::ExitCode;
@@ -25,6 +29,7 @@ struct Options {
 fn parse() -> Result<Options, String> {
     let mut args = env::args().skip(1);
     let (mut socket, mut url, mut token, mut cwd, mut model, mut approve) = (None, None, String::new(), None, None, false);
+    let (mut runtime, mut launcher) = (None, None::<String>);
     let mut message = Vec::new();
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
@@ -39,14 +44,23 @@ fn parse() -> Result<Options, String> {
                 model = Some((provider.to_owned(), id.to_owned()));
             }
             "--approve" => approve = value()? == "allow",
+            "--runtime" => runtime = Some(value()?),
+            "--dscode" => launcher = Some(value()?),
             _ => message.push(arg),
         }
     }
-    let target = match (socket, url) {
-        (_, Some(url)) => Target::remote(&url, token).map_err(|e| e.to_string())?,
+    let target = match (runtime, socket, url) {
+        (Some(name), _, _) => {
+            let launcher = Launcher::find(launcher.as_deref().map(std::path::Path::new)).map_err(|e| e.to_string())?;
+            let runtimes = launcher.locate().and_then(|location| Runtimes::load(location.runtimes)).map_err(|e| e.to_string())?;
+            let (target, folder) = runtimes.resolve(&name, Some(&launcher)).map_err(|e| e.to_string())?;
+            cwd = cwd.or(folder);
+            target
+        }
+        (None, _, Some(url)) => Target::remote(&url, token).map_err(|e| e.to_string())?,
         #[cfg(unix)]
-        (Some(socket), None) => Target::Socket(socket.into()),
-        _ => return Err("pass --socket PATH or --url URL --token TOKEN".into()),
+        (None, Some(socket), None) => Target::Socket(socket.into()),
+        _ => return Err("pass --runtime NAME, --socket PATH or --url URL --token TOKEN".into()),
     };
     if message.is_empty() {
         return Err("no message".into());

@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import {
   applyConfig, listing, parseConfigArgs, readRuntimes, resolveRuntime, runtimeUrl, writeRuntimes,
 } from '../scripts/runtimes.mjs';
-import { parseServerArgs, runningHostDecision, serverToken, serverTokenFile } from '../scripts/host.mjs';
+import { location, parseServerArgs, runningHostDecision, serverToken, serverTokenFile } from '../scripts/host.mjs';
+import { PROTOCOL } from '../plugins/local-carrier/protocol.mjs';
 import { attachmentClient } from '../packages/tui/src/runtime/views.ts';
 import { resilient, retryable } from '../packages/tui/src/runtime/watch.ts';
 import { inspectFileFacts, inspectImageFacts, saveImageData } from '../packages/tui/src/attachments.ts';
@@ -18,6 +19,16 @@ const temp = t => {
 };
 const TOKEN = 'dsk_0123456789abcdefghij';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+test('host locate tells other clients where the Host and runtimes live', t => {
+  const home = temp(t);
+  const found = location(home);
+  assert.equal(found.home, home);
+  assert.equal(found.runtimes, join(home, 'runtimes.json'));
+  assert.match(found.socket, /\/host\.sock$/);
+  assert.deepEqual(found.protocol, PROTOCOL);
+  assert.equal(typeof found.version, 'string');
+});
 
 test('runtime addresses normalize to plain http://host:port', () => {
   assert.equal(runtimeUrl('1.1.1.1:8080'), 'http://1.1.1.1:8080');

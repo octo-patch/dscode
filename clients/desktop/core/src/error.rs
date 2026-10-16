@@ -12,11 +12,17 @@ pub enum Error {
     /// upstream `RemoteFailure` code). These are the operation's own failures and
     /// are never retried.
     Remote { code: String, message: String },
+    /// A local setting, file or the `dscode` launcher is wrong or missing.
+    Config(String),
 }
 
 impl Error {
     pub(crate) fn protocol(message: impl Into<String>) -> Self {
         Error::Protocol(message.into())
+    }
+
+    pub(crate) fn config(message: impl Into<String>) -> Self {
+        Error::Config(message.into())
     }
 
     /// Parse an `{code, message}` failure object.
@@ -48,6 +54,7 @@ impl fmt::Display for Error {
             Error::Io(error) => write!(f, "connection failed: {error}"),
             Error::Protocol(message) => write!(f, "protocol error: {message}"),
             Error::Remote { code, message } => write!(f, "{message} ({code})"),
+            Error::Config(message) => f.write_str(message),
         }
     }
 }

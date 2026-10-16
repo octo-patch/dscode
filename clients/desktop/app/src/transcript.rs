@@ -12,10 +12,29 @@ pub enum Role {
     Tool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ToolStatus {
+    Running,
+    Done,
+    Failed,
+}
+
+/// One row. For a user or assistant message `text` is the message; for a
+/// tool call it is the tool's name, `detail` its most telling argument and
+/// `error` the first line of a failed result.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
     pub role: Role,
     pub text: String,
-    pub failed: bool,
+    pub detail: String,
+    pub status: ToolStatus,
+    pub error: Option<String>,
+}
+
+impl Entry {
+    fn message(role: Role, text: String) -> Self {
+        Entry { role, text, detail: String::new(), status: ToolStatus::Done, error: None }
+    }
 }
 
 #[derive(Default)]
@@ -31,10 +50,14 @@ impl Transcript {
         self.entries.len() + usize::from(self.live.is_some())
     }
 
-    pub fn row(&self, index: usize) -> (Role, &str, bool) {
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn row(&self, index: usize) -> Entry {
         match self.entries.get(index) {
-            Some(entry) => (entry.role, &entry.text, entry.failed),
-            None => (Role::Assistant, self.live.as_deref().unwrap_or_default(), false),
+            Some(entry) => entry.clone(),
+            None => Entry::message(Role::Assistant, self.live.clone().unwrap_or_default()),
         }
     }
 
@@ -51,19 +74,19 @@ impl Transcript {
         let SessionEvent::Known(event) = event else { return };
         match event {
             SessionEventKnown::UserMessage { data, .. } if is_typed_by_user(&data.source) => {
-                self.push(Role::User, text_of(&data.content), false);
+                self.entries.push(Entry::message(Role::User, text_of(&data.content)));
             }
             SessionEventKnown::AssistantMessage { data, .. } => {
                 // The committed message replaces whatever streamed live for it.
                 self.live = None;
                 let text = text_of(&data.message.content);
                 if !text.trim().is_empty() {
-                    self.push(Role::Assistant, text, false);
+                    self.entries.push(Entry::message(Role::Assistant, text));
                 }
             }
             SessionEventKnown::ToolCall { data, .. } => {
-                let summary = summarize_arguments(&data.arguments);
-                self.push(Role::Tool, format!("{} {summary}", data.name).trim_end().to_owned(), false);
+                let detail = summarize_arguments(&data.arguments);
+                self.entries.push(Entry { role: Role::Tool, text: data.name.clone(), detail, status: ToolStatus::Running, error: None });
                 self.tools.insert(data.call_id.clone(), self.entries.len() - 1);
             }
             SessionEventKnown::ToolResult { data, .. } => {
@@ -71,10 +94,9 @@ impl Transcript {
                 let failed = message.is_error.unwrap_or(false);
                 let index = self.tools.get(&message.tool_call_id).copied();
                 if let Some(entry) = index.and_then(|index| self.entries.get_mut(index)) {
-                    entry.failed = failed;
+                    entry.status = if failed { ToolStatus::Failed } else { ToolStatus::Done };
                     if failed {
-                        let reason = text_of(&message.content);
-                        entry.text = format!("{}\n{}", entry.text, reason.lines().next().unwrap_or_default());
+                        entry.error = text_of(&message.content).lines().next().map(str::to_owned);
                     }
                 }
             }
@@ -82,8 +104,30 @@ impl Transcript {
         }
     }
 
-    fn push(&mut self, role: Role, text: String, failed: bool) {
-        self.entries.push(Entry { role, text, failed });
+    /// Put older history in front of what is held; returns how many rows it added.
+    /// A call whose result is in the newer part shows as done.
+    pub fn prepend(&mut self, events: &[SessionEvent]) -> usize {
+        let mut older = Transcript::default();
+        for event in events {
+            older.fold(event);
+        }
+        older.settle();
+        let added = older.entries.len();
+        for index in self.tools.values_mut() {
+            *index += added;
+        }
+        older.entries.append(&mut self.entries);
+        self.entries = older.entries;
+        added
+    }
+
+    /// Calls still waiting for a result end with the turn (interrupted or abandoned).
+    pub fn settle(&mut self) {
+        for entry in &mut self.entries {
+            if entry.status == ToolStatus::Running {
+                entry.status = ToolStatus::Done;
+            }
+        }
     }
 }
 
@@ -151,7 +195,7 @@ mod tests {
         t.start_live();
         t.push_live("Hi");
         assert_eq!(t.len(), 2);
-        assert_eq!(t.row(1).1, "Hi");
+        assert_eq!(t.row(1).text, "Hi");
         t.fold(&assistant(json!([{"type": "tool-call", "id": "c1", "name": "write", "arguments": "{}"}])));
         t.fold(&event("tool/call", 3, json!({"turn": 1, "step": 1, "callId": "c1", "name": "write", "arguments": "{\"file_path\":\"/x\"}"})));
         t.fold(&event(
@@ -162,11 +206,36 @@ mod tests {
         t.fold(&assistant(json!([{"type": "text", "text": "Done."}])));
         // A kind the contract does not know is skipped, not an error.
         t.fold(&serde_json::from_value(json!({"type": "made/up", "seq": 9, "time": 1, "data": {}})).unwrap());
-        let rows: Vec<_> = (0..t.len()).map(|i| t.row(i)).map(|(r, s, f)| (r, s.to_owned(), f)).collect();
+        let rows: Vec<_> = (0..t.len()).map(|i| t.row(i)).map(|e| (e.role, e.text, e.detail, e.status, e.error)).collect();
         assert_eq!(rows, vec![
-            (Role::User, "hello".into(), false),
-            (Role::Tool, "write /x\nError: rejected".into(), true),
-            (Role::Assistant, "Done.".into(), false),
+            (Role::User, "hello".into(), String::new(), ToolStatus::Done, None),
+            (Role::Tool, "write".into(), "/x".into(), ToolStatus::Failed, Some("Error: rejected".into())),
+            (Role::Assistant, "Done.".into(), String::new(), ToolStatus::Done, None),
+        ]);
+    }
+
+    #[test]
+    fn prepends_older_history() {
+        let mut t = Transcript::default();
+        t.fold(&user("newer", "user"));
+        t.fold(&event("tool/call", 5, json!({"turn": 2, "step": 1, "callId": "c2", "name": "read", "arguments": "{\"path\":\"/b\"}"})));
+        let older = [
+            user("older", "user"),
+            event("tool/call", 2, json!({"turn": 1, "step": 1, "callId": "c1", "name": "bash", "arguments": "{\"command\":\"ls\"}"})),
+        ];
+        assert_eq!(t.prepend(&older), 2);
+        // The newer call's result still finds its row after the shift.
+        t.fold(&event(
+            "tool/result",
+            6,
+            json!({"turn": 2, "step": 1, "message": {"role": "tool", "id": "r", "toolCallId": "c2", "isError": true, "source": {"kind": "tool", "callId": "c2"}, "content": [{"type": "text", "text": "no such file"}]}}),
+        ));
+        let rows: Vec<_> = (0..t.len()).map(|i| t.row(i)).map(|e| (e.text, e.status)).collect();
+        assert_eq!(rows, vec![
+            ("older".into(), ToolStatus::Done),
+            ("bash".into(), ToolStatus::Done),
+            ("newer".into(), ToolStatus::Done),
+            ("read".into(), ToolStatus::Failed),
         ]);
     }
 }

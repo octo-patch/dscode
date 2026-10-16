@@ -28,6 +28,8 @@ pub enum RuntimeEvent {
     Lost(String),
     /// An operation failed; the connection is still usable.
     Failed(String),
+    /// Something worth knowing that did not fail, such as a model pick that applies but was not saved.
+    Warning(String),
     Sessions(Vec<types::SessionRow>),
     DefaultModel(types::DshAgentModelSelection),
     Models(Vec<types::ModelRow>),
@@ -227,20 +229,21 @@ impl Connection {
         let client = self.client.clone();
         thread::spawn(move || {
             let selection = types::DshAgentModelSelection { provider: row.provider.clone(), model: row.model.clone(), reasoning_effort: None };
-            let result = (|| -> Result<Option<String>, Error> {
+            let result = (|| -> Result<types::ModelSaveResult, Error> {
                 client.invoke::<ops::ModelsEnsureRoute>(&types::ModelsEnsureRouteArgs { provider: row.provider.clone() })?;
                 if let Some(session_id) = session_id {
                     let request = types::SessionSelectModelRequest { model: row.model.clone(), provider: row.provider.clone(), reasoning_effort: None, session_id };
                     client.typert::<typert::SessionSelectModel>(&types::SessionSelectModelArgs { request })?;
                 }
-                let saved = client.invoke::<ops::ModelsSave>(&types::ModelsSaveArgs { selection: selection.clone() })?;
-                Ok(saved.rejected.map(|reason| format!("model selection rejected: {reason}")).or(saved.save_error.map(|e| format!("the model applies to this session but was not saved as the default: {e}"))))
+                client.invoke::<ops::ModelsSave>(&types::ModelsSaveArgs { selection: selection.clone() })
             })();
             match result {
-                Ok(problem) => {
+                Ok(saved) => {
                     events.send(RuntimeEvent::ModelSelected(selection));
-                    if let Some(problem) = problem {
-                        events.send(RuntimeEvent::Failed(problem));
+                    if let Some(reason) = saved.rejected {
+                        events.send(RuntimeEvent::Failed(format!("model selection rejected: {reason}")));
+                    } else if let Some(error) = saved.save_error {
+                        events.send(RuntimeEvent::Warning(format!("The model applies to this session but was not saved as the default: {error}")));
                     }
                 }
                 Err(error) => {

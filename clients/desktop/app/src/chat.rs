@@ -80,6 +80,8 @@ pub struct ChatView {
     running_sessions: HashSet<String>,
     form: Option<ServerForm>,
     error: Option<SharedString>,
+    /// A notice that something did not go fully as asked, shown until dismissed.
+    warning: Option<SharedString>,
     /// The connection is gone; the error bar offers to reconnect.
     lost: bool,
     /// An established connection broke: retry on a timer and reopen the shown session.
@@ -152,6 +154,7 @@ impl ChatView {
             running_sessions: HashSet::new(),
             form: None,
             error: None,
+            warning: None,
             lost: false,
             reconnecting: false,
             retries: 0,
@@ -209,6 +212,7 @@ impl ChatView {
         self.sessions.clear();
         self.running_sessions.clear();
         self.error = None;
+        self.warning = None;
         self.lost = false;
         runtime::connect(choice, self.catalog.clone().unwrap_or_default(), self.cwd.clone(), self.connection_reporter());
         cx.notify();
@@ -358,6 +362,7 @@ impl ChatView {
                 }
             }
             RuntimeEvent::Failed(message) => self.error = Some(message.into()),
+            RuntimeEvent::Warning(message) => self.warning = Some(message.into()),
             RuntimeEvent::Sessions(rows) => self.sessions = rows,
             RuntimeEvent::DefaultModel(model) | RuntimeEvent::ModelSelected(model) => self.model = Some(model),
             RuntimeEvent::Models(rows) => self.models = rows,
@@ -488,6 +493,7 @@ impl ChatView {
     }
 
     fn pick_model(&mut self, row: types::ModelRow, cx: &mut Context<Self>) {
+        self.warning = None;
         if let Some(connection) = &self.connection {
             let session = self.session.as_ref().map(|session| session.id().to_owned());
             connection.select_model(session, row, self.connection_reporter());
@@ -1054,7 +1060,7 @@ impl Render for ChatView {
         self.step_scroll_bench(window, cx);
         self.prepare_question(window, cx);
         let theme = cx.theme();
-        let (background, border, muted, danger) = (theme.background, theme.border, theme.muted_foreground, theme.danger);
+        let (background, border, muted, danger, warning) = (theme.background, theme.border, theme.muted_foreground, theme.danger, theme.warning);
         let transcript = self.transcript.clone();
         let current = self.session.as_ref().map(|session| session.id().to_owned());
         let title = current
@@ -1096,25 +1102,38 @@ impl Render for ChatView {
                 .into_any_element()
         };
 
-        let failure = self.error.clone().map(|error| {
+        let notice = |color: Hsla, icon: IconName, text: SharedString| {
             h_flex().w_full().justify_center().px_6().child(
                 h_flex()
                     .w_full()
                     .max_w(px(COLUMN))
+                    .items_start()
                     .gap_3()
                     .px_4()
                     .py_2()
                     .rounded_lg()
-                    .bg(danger.opacity(0.08))
+                    .bg(color.opacity(0.08))
                     .text_sm()
-                    .text_color(danger)
-                    .child(Icon::new(IconName::CircleAlert).small())
-                    .child(div().flex_1().child(error))
-                    .when(self.lost, |bar| {
-                        bar.child(Button::new("reconnect").label("Reconnect now").on_click(cx.listener(|this, _, _, cx| this.reconnect(cx))))
-                    }),
+                    .text_color(color)
+                    .child(div().pt(px(2.)).child(Icon::new(icon).small()))
+                    .child(div().flex_1().min_w_0().child(text)),
             )
+        };
+        let dismiss = |id: &'static str, clear: fn(&mut Self)| {
+            Button::new(id).ghost().xsmall().icon(IconName::Close).tooltip("Dismiss").on_click(cx.listener(move |this, _, _, cx| {
+                clear(this);
+                cx.notify();
+            }))
+        };
+        let failure = self.error.clone().map(|error| {
+            let bar = notice(danger, IconName::CircleAlert, error);
+            if self.lost {
+                bar.child(Button::new("reconnect").label("Reconnect now").on_click(cx.listener(|this, _, _, cx| this.reconnect(cx))))
+            } else {
+                bar.child(dismiss("dismiss-error", |this| this.error = None))
+            }
         });
+        let warning = self.warning.clone().map(|text| notice(warning, IconName::TriangleAlert, text).child(dismiss("dismiss-warning", |this| this.warning = None)));
 
         h_flex()
             .relative()
@@ -1129,6 +1148,7 @@ impl Render for ChatView {
                     .child(header)
                     .child(conversation)
                     .children(failure)
+                    .children(warning)
                     .child(self.render_composer(cx)),
             )
             .children(self.frames.as_ref().map(|frames| frames.probe(start)))

@@ -5,8 +5,9 @@
 // ASK calls ask_user_question; SLOW streams until the turn is cancelled;
 // INSTRUCTIONS reports which workspace instruction markers reached its system
 // prompt; LONG [KB] [FAST] streams a long Markdown reply (60 KB by default,
-// paced unless FAST); TOOL lists the workspace with glob. After a tool result
-// it reports that result.
+// paced unless FAST); TOOL lists the workspace with glob; ASKMANY asks three
+// questions (single choice, multi-select, free text); PLAN presents a plan
+// with exit_plan_mode (in plan mode). After a tool result it reports that result.
 import { LlmAdapter } from '@deepseek-ai/dsh-llm';
 export const name = 'fixture-model';
 export const inject = ['llm'];
@@ -51,7 +52,8 @@ export function apply(ctx) {
         yield { type: 'finish', reason: { kind: 'tool-calls' } };
       };
       if (options.purpose) return yield* text('Fixture title');
-      const last = options.messages.at(-1);
+      // Reminders the Host appends after a tool result are not a new prompt.
+      const last = options.messages.findLast(m => !(m.role === 'user' && injected.test(textOf(m).trimStart())));
       if (last?.role === 'tool') return yield* text(`Tool finished: ${(last.content ?? []).map(b => b.text ?? '').join(' ').slice(0, 160)}`);
       const prompt = lastUser(options.messages);
       if (prompt.includes('APPROVE')) {
@@ -90,6 +92,16 @@ export function apply(ctx) {
         return;
       }
       if (prompt.includes('TOOL')) return yield* call('glob', { pattern: '*' });
+      if (prompt.includes('ASKMANY')) {
+        return yield* call('ask_user_question', { questions: [
+          { id: 'color', header: 'Color', question: 'Which color should the fixture use?', options: [{ label: 'Blue (Recommended)', description: 'Matches the theme.' }, { label: 'Red', description: 'Stands out.' }] },
+          { id: 'checks', header: 'Checks', question: 'Which checks should run?', multi_select: true, options: [{ label: 'Lint' }, { label: 'Unit tests' }, { label: '集成测试' }] },
+          { id: 'name', question: 'What should the branch be called?' },
+        ] });
+      }
+      if (prompt.includes('PLAN')) {
+        return yield* call('exit_plan_mode', { plan: '# Fixture plan\n\n1. Read the code.\n2. Change `transcript.rs`.\n3. Run the tests.\n\n| Step | Risk |\n|---|---|\n| 1 | low |\n| 2 | medium |\n' });
+      }
       if (prompt.includes('ASK')) {
         return yield* call('ask_user_question', { questions: [{ id: 'color', question: 'Which color should the fixture use?', header: 'Color', options: [{ label: 'Blue' }, { label: 'Red' }] }] });
       }

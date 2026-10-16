@@ -34,6 +34,9 @@ pub enum RuntimeEvent {
     /// A pick took effect for the shown session (or the next one).
     ModelSelected(types::DshAgentModelSelection),
     Approval { session_id: String, event_id: String, payload: types::ApprovalRequestPayload },
+    /// `ask_user_question` (and plan reviews) waiting on the human.
+    Question { session_id: String, event_id: String, payload: types::UserQuestionsRequestPayload },
+    /// A pending approval or question was withdrawn (the turn stopped, or another client answered).
     Withdrawn(String),
     Running { session_id: String, running: bool },
 
@@ -309,13 +312,34 @@ impl Connection {
         Ok(())
     }
 
-    pub fn answer(&self, event_id: String, decision: <typert::ApprovalRequest as Waterfall>::Answer, events: Reporter) {
+    /// Answer a waterfall request of kind `W` this window took.
+    pub fn answer<W: Waterfall>(&self, event_id: String, answer: W::Answer, events: Reporter)
+    where
+        W::Answer: Send + 'static,
+    {
+        let value = serde_json::to_value(answer).ok();
+        self.settle(event_id, types::RemoteEventResultOutcome::Result { value }, events);
+    }
+
+    /// Dismiss a question without answering: `ASK_CANCELLED`, as the web
+    /// client's dismiss sends, which a plan review reads as "stop and wait for
+    /// the user's message".
+    pub fn dismiss_question(&self, event_id: String, events: Reporter) {
+        let error = types::RemoteEventRejection {
+            name: "UserQuestionError".into(),
+            message: "the user cancelled ask_user_question".into(),
+            code: Some("ASK_CANCELLED".into()),
+            details: None,
+        };
+        self.settle(event_id, types::RemoteEventResultOutcome::Rejected { error }, events);
+    }
+
+    fn settle(&self, event_id: String, outcome: types::RemoteEventResultOutcome, events: Reporter) {
         let (client, client_id) = (self.client.clone(), self.client_id.clone());
         thread::spawn(move || {
-            let value = serde_json::to_value(decision).ok();
-            let answer = types::RemoteEventResult { client_id, event_id, outcome: types::RemoteEventResultOutcome::Result { value } };
+            let answer = types::RemoteEventResult { client_id, event_id, outcome };
             if let Err(error) = client.typert::<typert::EventsResult>(&answer) {
-                events.send(RuntimeEvent::Failed(format!("answering the approval failed: {error}")));
+                events.send(RuntimeEvent::Failed(format!("answering failed: {error}")));
             }
         });
     }
@@ -468,21 +492,29 @@ fn attach(target: Target, cwd: Option<String>, events: &Reporter) -> Result<(), 
         });
     }
 
-    // $events: approvals go to the view, which knows the session it shows; other waterfalls are passed on.
+    // $events: approvals and questions go to the view, which knows the session it shows; other waterfalls are passed on.
     let events = events.clone();
     thread::spawn(move || {
         while let Some(frame) = connection.streams.attach.recv() {
             let event = match frame {
                 Ok(types::RemoteEventDownlinkFrame::InvocationFrame(invocation)) => {
-                    if invocation.event != typert::ApprovalRequest::EVENT {
-                        connection.pass_on(invocation.event_id);
-                        continue;
-                    }
-                    match serde_json::from_value::<types::ApprovalRequestPayload>(invocation.request.clone().into()) {
-                        Ok(payload) => RuntimeEvent::Approval { session_id: invocation.agent_id, event_id: invocation.event_id, payload },
+                    let (session_id, event_id) = (invocation.agent_id, invocation.event_id);
+                    let request = serde_json::Value::from(invocation.request);
+                    let read = match invocation.event.as_str() {
+                        typert::ApprovalRequest::EVENT => serde_json::from_value(request)
+                            .map(|payload| RuntimeEvent::Approval { session_id, event_id: event_id.clone(), payload }),
+                        typert::UserQuestionsRequest::EVENT => serde_json::from_value(request)
+                            .map(|payload| RuntimeEvent::Question { session_id, event_id: event_id.clone(), payload }),
+                        _ => {
+                            connection.pass_on(event_id);
+                            continue;
+                        }
+                    };
+                    match read {
+                        Ok(event) => event,
                         Err(error) => {
-                            eprintln!("dscode-desktop: unreadable approval request: {error}");
-                            connection.pass_on(invocation.event_id);
+                            eprintln!("dscode-desktop: unreadable {} request: {error}", invocation.event);
+                            connection.pass_on(event_id);
                             continue;
                         }
                     }

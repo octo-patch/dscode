@@ -1,7 +1,9 @@
+mod questions;
+
 use crate::bench::{Frames, ScrollBench};
 use crate::runtime::{self, Catalog, Choice, Connection, Live, Open, Page, Reporter, RuntimeEvent, Session};
 use crate::transcript::{Role, ToolStatus, Transcript};
-use dscode_client_core::protocol::types;
+use dscode_client_core::protocol::{typert, types};
 use dscode_client_core::runtimes::LOCAL;
 use gpui_kit::component::button::{Button, ButtonRounded, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
@@ -14,6 +16,7 @@ use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Disableable as _, Ic
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashSet;
+use questions::Question;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 /// The conversation column's width; wider windows center it.
@@ -83,6 +86,8 @@ pub struct ChatView {
     reconnecting: bool,
     retries: u32,
     approvals: Vec<Approval>,
+    /// Question requests of the shown session, oldest first.
+    questions: Vec<Question>,
     /// Where older history of the shown session continues, if it does.
     older: Option<Page>,
     loading_older: bool,
@@ -151,6 +156,7 @@ impl ChatView {
             reconnecting: false,
             retries: 0,
             approvals: Vec::new(),
+            questions: Vec::new(),
             older: None,
             loading_older: false,
             frames: Frames::from_env(),
@@ -251,6 +257,7 @@ impl ChatView {
         self.transcript.update(cx, |t, _| *t = Transcript::default());
         self.scroller.update(cx, |scroller, cx| scroller.reset(0, cx));
         self.approvals.clear();
+        self.questions.clear();
         self.opening = false;
         self.older = None;
         self.loading_older = false;
@@ -343,6 +350,7 @@ impl ChatView {
                 self.lost = true;
                 self.version = None;
                 self.approvals.clear();
+                self.questions.clear();
                 self.running_sessions.clear();
                 self.opening = false;
                 if self.reconnecting {
@@ -366,7 +374,18 @@ impl ChatView {
                     (None, false) => {}
                 }
             }
-            RuntimeEvent::Withdrawn(event_id) => self.approvals.retain(|a| a.event_id != event_id),
+            RuntimeEvent::Question { session_id, event_id, payload } => {
+                let ours = self.session.as_ref().is_some_and(|session| session.id() == session_id);
+                match (&self.connection, ours) {
+                    (_, true) => self.questions.push(Question::new(event_id, payload)),
+                    (Some(connection), false) => connection.pass_on(event_id),
+                    (None, false) => {}
+                }
+            }
+            RuntimeEvent::Withdrawn(event_id) => {
+                self.approvals.retain(|a| a.event_id != event_id);
+                self.questions.retain(|q| q.event_id != event_id);
+            }
             RuntimeEvent::Running { session_id, running } => {
                 let shown = self.session.as_ref().is_some_and(|session| session.id() == session_id);
                 if running {
@@ -518,7 +537,7 @@ impl ChatView {
         let approval = self.approvals.remove(0);
         if let Some(connection) = &self.connection {
             let decision = if allow { types::ApprovalOutcome::AllowedOnce } else { types::ApprovalOutcome::Rejected };
-            connection.answer(approval.event_id, decision, self.connection_reporter());
+            connection.answer::<typert::ApprovalRequest>(approval.event_id, decision, self.connection_reporter());
         }
         cx.notify();
     }
@@ -1001,7 +1020,7 @@ impl ChatView {
             .px_6()
             .pb_5()
             .pt_2()
-            .child(v_flex().w_full().max_w(px(COLUMN)).gap_2().children(approval).child(card))
+            .child(v_flex().w_full().max_w(px(COLUMN)).gap_2().children(approval).children(self.render_question(cx)).child(card))
     }
 }
 
@@ -1033,6 +1052,7 @@ impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let start = Instant::now();
         self.step_scroll_bench(window, cx);
+        self.prepare_question(window, cx);
         let theme = cx.theme();
         let (background, border, muted, danger) = (theme.background, theme.border, theme.muted_foreground, theme.danger);
         let transcript = self.transcript.clone();

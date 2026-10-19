@@ -167,9 +167,15 @@ export function environment(home = runtimeHome, cwd = process.cwd()) {
 // site repeating it.
 const quietNodeArgs = ['--disable-warning=ExperimentalWarning'];
 
-export function runDsh(args, { home = runtimeHome, cwd = root, stdio = 'inherit', env = {}, nodeArgs = [] } = {}) {
+/** The child's stdio: the given streams, the launcher's lease descriptors, then `extraFds`. */
+export function dshStdio(stdio = 'inherit', extraFds = []) {
+  const streams = runtimeStdio(stdio);
+  return extraFds.length === 0 ? streams : [...(Array.isArray(streams) ? streams : [streams, streams, streams]), ...extraFds];
+}
+
+export function runDsh(args, { home = runtimeHome, cwd = root, stdio = 'inherit', env = {}, nodeArgs = [], extraFds = [] } = {}) {
   return spawn(process.execPath, [...quietNodeArgs, ...nodeArgs, dshEntry, '--profile', profileName, ...args], {
-    cwd, env: { ...environment(home, cwd), ...env }, stdio: runtimeStdio(stdio),
+    cwd, env: { ...environment(home, cwd), ...env }, stdio: dshStdio(stdio, extraFds),
   });
 }
 

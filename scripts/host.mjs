@@ -10,7 +10,8 @@ import { randomBytes } from 'node:crypto';
 import { hostname, networkInterfaces } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
-import { localOverlays, root, provision, runDsh, runtimeHome } from './harness.mjs';
+import { tryLockExclusive } from '@deepseek-ai/node-addon-system/flock';
+import { dshStdio, localOverlays, root, provision, runDsh, runtimeHome } from './harness.mjs';
 import { callDscode } from '../plugins/local-carrier/client.mjs';
 import { ensureSocketDirectory } from '../plugins/session-bridge/paths.mjs';
 
@@ -57,13 +58,32 @@ export async function hostStatus(home = runtimeHome, timeoutMs = 2000) {
   } catch { return undefined; }
 }
 
-/** Run the Host in the foreground until it exits; resolves with its exit code. */
-export function serve({ home = runtimeHome, args = [], idleExitMs = idleMs(), tcp, defaultCwd } = {}) {
+/** Exit code of a `serve` that found another Host holding this state directory. */
+export const HOST_RUNNING_EXIT = 3;
+
+/**
+ * Run the Host in the foreground until it exits; resolves with its exit code.
+ * The Host lock is taken before the Harness boots and handed to it as an inherited
+ * descriptor (DSCODE_HOST_LOCK_FD), so the lock lives exactly as long as the Host. A
+ * Host that lost a concurrent start therefore exits at once instead of booting, and
+ * cannot take the lock over once the winner stops.
+ */
+export async function serve({ home = runtimeHome, args = [], idleExitMs = idleMs(), tcp, defaultCwd } = {}) {
   provision(home, { cwd: home });
+  const lock = openSync(join(ensureSocketDirectory(home), 'host.lock'), 'a', 0o600);
+  try { await tryLockExclusive(lock); } catch {
+    closeSync(lock);
+    console.error('another DSCODE Host already serves this state directory');
+    return HOST_RUNNING_EXIT;
+  }
   const overlay = hostOverlay(home, idleExitMs, { tcp, defaultCwd });
   // DSCODE_HOST_PATCH adds one trusted overlay after the Host's own (verification fixtures).
   const extra = process.env.DSCODE_HOST_PATCH ? ['--patch', process.env.DSCODE_HOST_PATCH] : [];
-  const child = runDsh([...localOverlays(), '--patch', overlay, ...extra, ...args], { home, cwd: home, env: { DSCODE_SESSION_WORKSPACES: '1' } });
+  const lockFd = dshStdio('inherit', [lock]).length - 1;
+  let child;
+  try {
+    child = runDsh([...localOverlays(), '--patch', overlay, ...extra, ...args], { home, cwd: home, extraFds: [lock], env: { DSCODE_SESSION_WORKSPACES: '1', DSCODE_HOST_LOCK_FD: String(lockFd) } });
+  } finally { closeSync(lock); }
   for (const signal of ['SIGTERM', 'SIGHUP', 'SIGINT']) process.on(signal, () => child.kill(signal));
   return new Promise(resolve => {
     child.on('error', error => { console.error(error.message); resolve(1); });

@@ -6,7 +6,7 @@
 // server's bearer token; that listener is not encrypted.
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { tryLockExclusive } from '@deepseek-ai/node-addon-system/flock';
 import { dirname, join } from 'node:path';
@@ -145,6 +145,15 @@ async function stream(ctx, peer, req, res, activity) {
   } finally { res.end(); }
 }
 
+/** The Host lock descriptor `dscode host serve` handed down, if this process has one. */
+function inheritedHostLock() {
+  const fd = Number(process.env.DSCODE_HOST_LOCK_FD);
+  // Processes the Host starts do not receive the descriptor, so they must not see its number.
+  delete process.env.DSCODE_HOST_LOCK_FD;
+  if (!Number.isSafeInteger(fd) || fd < 3) return undefined;
+  try { fstatSync(fd); return fd; } catch { return undefined; }
+}
+
 /** Acquire the Host lock beside the socket, or throw when another Host holds it. */
 async function lockHost(socketPath) {
   const fd = openSync(join(dirname(socketPath), 'host.lock'), 'a', 0o600);
@@ -161,8 +170,11 @@ export async function apply(ctx, config = {}) {
   const activity = { clients: 0, streams: 0, lastActivity: Date.now(), startedAt: Date.now() };
   mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
   chmodSync(dirname(socketPath), 0o700);
-  // The Host lock comes first: only its holder may replace a stale socket.
-  if (config.host) {
+  // The Host lock comes first: only its holder may replace a stale socket. `dscode host
+  // serve` takes it before the Harness boots and passes the locked descriptor down.
+  const inherited = config.host ? inheritedHostLock() : undefined;
+  if (inherited !== undefined) ctx.effect(() => () => closeSync(inherited), 'local carrier: inherited Host lock');
+  else if (config.host) {
     let unlock;
     try { unlock = await lockHost(socketPath); } catch (error) {
       // Another Host serves this state directory (or is still shutting down):

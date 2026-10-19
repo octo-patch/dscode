@@ -23,6 +23,7 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 - On OpenRouter, DeepSeek V4.1 Flash, the 1017 build and the dated V4 snapshots receive DeepSeek's own effort names (`low`, `max`) instead of the April V4 spelling, which sent `low` as `high` and Max and Ultra as `xhigh`.
 - Background memory consolidation no longer fails at a 12,000-token output limit that reasoning shares with its answer: extraction and consolidation get 24,000 and 64,000 tokens, the request timeout is 180 seconds, and `/memories status` shows why a run failed.
+- A background host start that loses a concurrent start exits before booting instead of taking the lock later and serving with its own settings: `dscode host serve` takes the lock first and hands it to the Harness.
 - Instructions above the project root, exported keys taking precedence over the stored ones, and the background host's event streams and API calls keep working on the new Harness.
 
 ## [0.7.48] - 2026-10-15

@@ -24,6 +24,7 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 - On OpenRouter, DeepSeek V4.1 Flash, the 1017 build and the dated V4 snapshots receive DeepSeek's own effort names (`low`, `max`) instead of the April V4 spelling, which sent `low` as `high` and Max and Ultra as `xhigh`.
 - Background memory consolidation no longer fails at a 12,000-token output limit that reasoning shares with its answer: extraction and consolidation get 24,000 and 64,000 tokens, the request timeout is 180 seconds, and `/memories status` shows why a run failed.
 - A background host start no longer leaves a stale launch that can take over once the winning host stops and serve with that start's settings: the start ends its own launches that are not the answering host, and `dscode host serve` takes the lock before the Harness boots.
+- Linux packages include the glibc build of `node-addon-require-builtin`, which npm skipped when cross-building after 0.1.9 began declaring its libc.
 - The reconnect test no longer fails on Node 22, whose test runner ended it inside the unref'd reconnect pause.
 - Instructions above the project root, exported keys taking precedence over the stored ones, and the background host's event streams and API calls keep working on the new Harness.
 

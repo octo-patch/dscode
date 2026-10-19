@@ -74,7 +74,10 @@ try {
   assert.match(run(join(app, 'runtime/bin/node'), ['--input-type=module', '-e', skillProbe], { env: { ...cleanEnv, DSCODE_STANDALONE_ROOT: app } }), /PRIVATE_SKILLS_OK/);
   // The local installer must also operate with only system shell tools.
   const destination = join(work, 'installed'), commands = join(work, 'commands');
-  run('/bin/sh', [join(app, 'install.sh')], { env: { ...env, DSCODE_INSTALL_DIR: destination, DSCODE_BIN_DIR: commands } });
+  // Copies and checks the whole package, as the updater below does. The Intel runner's whole
+  // qualification took three minutes at 0.7.48, and this step passed a minute once 0.2.1
+  // grew the package by a fifth.
+  run('/bin/sh', [join(app, 'install.sh')], { env: { ...env, DSCODE_INSTALL_DIR: destination, DSCODE_BIN_DIR: commands }, timeout: 180000 });
   assert.equal(run(join(commands, 'dscode'), ['--version']).trim(), version);
   assert.match(run(join(commands, 'dscode'), ['--dump-config']), /targetWords: 17/);
   // Exercise the real updater against the entire candidate archive. Small unit

@@ -149,12 +149,17 @@ test('long-lived streams reopen after a connection failure but not after an oper
   const controller = new AbortController();
   let opens = 0;
   const seen = [];
-  await resilient(() => (async function* () {
-    opens += 1;
-    if (opens === 1) { yield 'a'; throw Object.assign(Error('reset'), { code: 'ECONNRESET' }); }
-    yield 'b';
-    controller.abort();
-  })(), controller.signal, (item, reopened) => seen.push([item, reopened]));
+  // The reconnect pause is unref'd so a quitting terminal never waits on it; with nothing
+  // else pending, Node 22's runner would end the test inside that pause.
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    await resilient(() => (async function* () {
+      opens += 1;
+      if (opens === 1) { yield 'a'; throw Object.assign(Error('reset'), { code: 'ECONNRESET' }); }
+      yield 'b';
+      controller.abort();
+    })(), controller.signal, (item, reopened) => seen.push([item, reopened]));
+  } finally { clearInterval(keepAlive); }
   assert.deepEqual(seen, [['a', false], ['b', true]]);
   await assert.rejects(resilient(() => (async function* () { throw Object.assign(Error('gone'), { code: 'dscode/unknown-stream' }); })(), new AbortController().signal, () => {}), /gone/);
 });

@@ -241,7 +241,8 @@ export function apply(ctx, config = {}) {
     try {
       const result = await launching.run(launch, deliver);
       const value = result?.isError === true ? undefined : result?.value ?? result;
-      if (childName !== undefined && value?.kind === 'continuable' && typeof value.subagentId === 'string') {
+      // DSH 0.2.1 returns every start as an `activation`; Desktop's 0.2.0 still says `continuable`.
+      if (childName !== undefined && ['continuable', 'activation'].includes(value?.kind) && typeof value.subagentId === 'string') {
         if (!names.has(id)) names.set(id, new Map());
         names.get(id).set(childName, value.subagentId);
         board.launched(id, childName, value.subagentId, typeof value.worktree === 'string' ? value.worktree : undefined);

@@ -7,7 +7,7 @@ import { patchRuntime, patchAppBootPackage } from './patch-runtime.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
-export const upstreamPackages = ['dsh-code', ...['dsh-acp', 'dsh-tool-subagent', 'dsh-subagent', 'dsh-subagent-in-process-driver', 'dsh-subagent-spawn-in-process', 'dsh-subagent-fork-in-process', 'dsh-llm-deepseek', 'dsh-tool-bash', 'dsh-tool-bash-persistent', 'dsh-terminal-bash', 'dsh-compaction-basic', 'dsh-command-goal', 'dsh-app-boot'].map(name => '@deepseek-ai/' + name)];
+export const upstreamPackages = ['dsh-code', ...['dsh-acp', 'dsh-tool-subagent', 'dsh-subagent', 'dsh-subagent-spawn-in-process', 'dsh-subagent-fork-in-process', 'dsh-llm-deepseek', 'dsh-tool-bash', 'dsh-tool-bash-persistent', 'dsh-terminal-bash', 'dsh-compaction-basic', 'dsh-command-goal', 'dsh-app-boot', 'dsh-agent-instructions'].map(name => '@deepseek-ai/' + name)];
 // The macOS process inspector is patched inside a content-hashed runner chunk
 // rather than lib/index.js, so fixtures need it without joining the index-only list.
 export const fixturePackages = [...upstreamPackages, '@deepseek-ai/dsh-subprocess-local'];

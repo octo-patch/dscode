@@ -36,7 +36,7 @@ Go serves each model over the protocol of the lab that made it. This release spe
 
 | Family | Models | Reasoning efforts | Images |
 |---|---|---|---|
-| DeepSeek | `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v4.1-flash`, `deepseek-v4-flash-vision-exp` | high, max, Ultra | V4.1 Flash and Vision Exp |
+| DeepSeek | `deepseek-v4-pro`, `deepseek-v4.1-flash` | high, max, Ultra | V4.1 Flash |
 | GLM | `glm-5.3`, `glm-5.3-flash`, `glm-5.2`, `glm-5.1` | low, high, max, Ultra (thinking cannot be switched off) | `glm-5.3-flash` |
 | Kimi | `kimi-k3`, `kimi-k2.6` | off, low, high, max, Ultra | yes |
 | Kimi | `kimi-k2.7-code` | low, high, max, Ultra | yes |
@@ -46,7 +46,7 @@ Go serves each model over the protocol of the lab that made it. This release spe
 | Hy | `hy4-preview`, `hy3` | off, low, high, max, Ultra | no |
 | Space Bunny | `space-bunny-free` | low, high, max, Ultra | yes |
 
-The default is `kimi-k3` at high effort. Switching from DeepSeek or OpenRouter lands on the same model when Go serves it, and keeps the effort when that model offers it.
+The default is `kimi-k3` at high effort. Switching from DeepSeek or OpenRouter lands on the same model when Go serves it, and keeps the effort when that model offers it: DeepSeek's `deepseek-flash` lands on `deepseek-v4.1-flash` and switches back to it. Go no longer lists V4 Flash or V4 Flash Vision Exp, which DeepSeek has retired.
 
 **Not yet available**: Qwen and MiniMax (Go serves them over the Anthropic messages protocol) and Grok, GPT Luna and Muse Spark (the OpenAI responses protocol). Naming one of them, for example with `dscode exec --model`, fails before any request with a message saying so.
 

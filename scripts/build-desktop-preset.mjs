@@ -1,6 +1,6 @@
 // Migration fixture: stage the complete agent composition against a new Host.
 // This is not the complete DSCODE Host bundle or an installation command.
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
@@ -103,6 +103,11 @@ export function buildDesktopPreset(destination, runtimeDirectory, options = {}) 
     writeFileSync(path, replaceOnce(readFileSync(path, 'utf8'), from, to));
   }
   let preset = readFileSync(join(root, 'presets/dscode/agent.cordis.yml'), 'utf8');
+  // A runtime without the working-directory service still registers `{{cwd}}` and
+  // states the directory nowhere else, so the persona names it.
+  if (!existsSync(join(modules, '@deepseek-ai/dsh-working-directory'))) {
+    preset = replaceOnce(preset, "  name: '@deepseek-ai/dsh-persona'\n  config:\n", "  name: '@deepseek-ai/dsh-persona'\n  config:\n    suffix: Your working directory is {{cwd}}.\n");
+  }
   for (const [from, to] of [
     ["'@deepseek-ai/dsh-tool-bash'", `'${name}/bash'`],
     ["'@deepseek-ai/dsh-tool-bash-persistent'", `'${name}/persistent'`],

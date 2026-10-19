@@ -20,7 +20,7 @@ const IMAGE_POLICY = Object.freeze({ maxPixels: 2048 * 2048, maxBytes: 1024 * 10
  * session already on a trimmed model, `exec --model` and provider switches keep working.
  */
 export const LISTED_MODELS = Object.freeze([
-  'deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4.1-flash',
+  'deepseek/deepseek-v4-pro', 'deepseek/deepseek-v4.1-flash-1017', 'deepseek/deepseek-v4.1-flash',
   'z-ai/glm-5.3', 'z-ai/glm-5.3-flash', 'z-ai/glm-5.3-flashx',
   'moonshotai/kimi-k3', 'moonshotai/kimi-k2.7-code', 'moonshotai/kimi-k2.6',
   'qwen/qwen3.8-max-0902', 'qwen/qwen3.8-flash', 'qwen/qwen3.8-27b', 'qwen/qwen3.7-plus',

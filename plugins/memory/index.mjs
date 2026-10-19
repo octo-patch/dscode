@@ -5,6 +5,7 @@ import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { MemoryStore } from './store.mjs';
 import { defaults, runPipeline } from './pipeline.mjs';
+import { redact } from './content.mjs';
 import { chargeTo } from '../session-metrics/attribution.mjs';
 import { EFFORT_LEVELS, effortFor } from '../providers/effort.mjs';
 
@@ -44,7 +45,7 @@ function install(ctx, options, desktop = false) {
   const reading = session => !controller.signal.aborted && config.use && store.get('use', true) && session?.header.agentPreset === 'dscode' &&
     store.enabled(session.id) && (!session.header.parentSession || store.enabled(session.header.parentSession));
   const writing = () => !controller.signal.aborted && config.generate && store.get('generate', true);
-  const generate = async (system, input, route, effort, signal, chargeSession) => {
+  const generate = async (system, input, route, effort, signal, maxTokens, chargeSession) => {
     const deadline = AbortSignal.any([signal, AbortSignal.timeout(config.timeoutMs)]);
     const assembler = new BlockAssembler();
     let terminal = false, usage;
@@ -58,13 +59,14 @@ function install(ctx, options, desktop = false) {
         for await (const chunk of ctx.llm.stream({
           ...target, ...(reasoningEffort ? { reasoningEffort } : {}),
           system, messages: [createUserMessage({ content: [{ type: 'text', text: JSON.stringify(input) }], source: { kind: name } })],
-          maxTokens: 12000, signal: deadline,
+          maxTokens, signal: deadline,
         })) {
           deadline.throwIfAborted(); assembler.push(chunk);
           if (chunk.type === 'finish') terminal = true;
           if (chunk.type === 'usage') usage = chunk.usage;
         }
       });
+      if (terminal && assembler.finish.kind === 'max-tokens') throw Error(`Memory model response reached the ${maxTokens}-token output limit`);
       if (!terminal || assembler.finish.kind !== 'stop') throw Error('Incomplete memory model response');
       const blocks = assembler.blocks();
       if (blocks.some(b => !['text', 'reasoning'].includes(b.type))) throw Error('Memory model returned non-text output');
@@ -83,7 +85,7 @@ function install(ctx, options, desktop = false) {
     running = runPipeline({ store, persistence: ctx.sessionPersistence,
       generate: (...args) => generate(...args, chargeSession), route: routeForRun, config, signal: controller.signal })
       .then(result => { lastResult = result; })
-      .catch(() => { lastResult = { error: 'Background memory update failed; it will retry later.' }; })
+      .catch(error => { lastResult = { error: 'Background memory update failed; it will retry later.', reason: redact(String(error?.message ?? error)).slice(0, 300) }; })
       .finally(() => { running = undefined; });
   };
   const observe = session => {

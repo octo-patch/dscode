@@ -12,9 +12,13 @@ import { ultraRequest } from '../ultra/policy.mjs';
 export const PROVIDER = 'openrouter';
 /** `replayState.response.kind` for responses this adapter produced. */
 export const REPLAY_KIND = 'dscode-openrouter';
-// OpenRouter serves DeepSeek V4 thinking as none/high/xhigh; the route keeps the
-// official off/low/high/max detents (and Ultra on max) with the spelling it accepts.
+// OpenRouter serves the April V4 Flash and V4 Pro thinking as none/high/xhigh; the route
+// keeps the official off/low/high/max detents (and Ultra on max) with the spelling it
+// accepts. Every later V4.x build, V4.1 Flash 1017 included, takes DeepSeek's own
+// none/low/high/max, so those send the official names.
 const DEEPSEEK_WIRE = Object.freeze({ ...OPENROUTER_EFFORTS, ultra: OPENROUTER_EFFORTS.max });
+const DEEPSEEK_NATIVE_WIRE = Object.freeze({ off: 'none', low: 'low', high: 'high', max: 'max', ultra: 'max' });
+const DEEPSEEK_V4_XHIGH = /^deepseek\/deepseek-v4-(?:flash|pro)$/;
 const DEEPSEEK_V4 = /^deepseek\/deepseek-v4/;
 // Alibaba caches only at explicit breakpoints.
 const EXPLICIT_CACHE_MODELS = /^qwen\//;
@@ -34,7 +38,7 @@ export const ULTRA_DESCRIPTION = 'DSCODE: max reasoning plus deliberate subagent
  *   spelling, or undefined when the model has no reasoning control.
  */
 export function modelReasoning(model, entry) {
-  if (DEEPSEEK_V4.test(model)) return { levels: ['off', 'low', 'high', 'max', 'ultra'], defaultEffort: 'high', wire: DEEPSEEK_WIRE };
+  if (DEEPSEEK_V4.test(model)) return { levels: ['off', 'low', 'high', 'max', 'ultra'], defaultEffort: 'high', wire: DEEPSEEK_V4_XHIGH.test(model) ? DEEPSEEK_WIRE : DEEPSEEK_NATIVE_WIRE };
   const reasoning = entry?.reasoning;
   if (!reasoning) return undefined;
   // No allowlist means OpenRouter maps any standard level; offer the common three.

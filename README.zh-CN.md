@@ -11,7 +11,7 @@
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?logo=apple&logoColor=white)
 ![Linux glibc](https://img.shields.io/badge/Linux-glibc%20x64%20%7C%20arm64-111827?logo=linux&logoColor=white)
 ![Bundled Node.js](https://img.shields.io/badge/Node.js-bundled-43853D?logo=node.js&logoColor=white)
-![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2-2563EB)
+![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.2-2563EB)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![Release](https://img.shields.io/github/v/release/qiz029/dscode?color=111827&label=release)](https://github.com/qiz029/dscode/releases)
 [![Stars](https://img.shields.io/github/stars/qiz029/dscode?color=111827)](https://github.com/qiz029/dscode/stargazers)
@@ -56,6 +56,8 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | **[Agent 邮件](docs/email.md)** | 所有 session 共用的本地 `[ToAgent]` 收件箱：Enter 把邮件作为用户选择的上下文 steer 进当前会话；配置 Gmail 后 agent 可走同一审批流程发信。 |
 
 ## 🆕 最新变化
+
+**0.7.49** — 终端升级到 Harness `0.2.1-rc.2`，这是 DeepSeek 为 DeepSeek-V4.1-Flash-1017 推荐的版本；Desktop 组合包仍为 `0.2.0-rc.2`。子 agent 现在一律在后台启动，结束后再向父 agent 汇报。在 OpenRouter 和 OpenCode Go 上，`deepseek-flash` 会切到 V4.1 Flash，而不是已退役的 V4 Flash。后台记忆不再因自身的输出上限而失败。详见[发布说明](docs/releases/0.7.49.md)。
 
 **0.7.48** — [远程 Runtime](docs/remote-runtime.md)：`dscode server --port PORT` 通过 TCP 并以 token 认证对外提供本机运行时，另一台机器上用 `dscode config --runtime` / `dscode runtime <别名>` 连接终端。粘贴的文件会上传，`/diff`、`/review` 和 `/export` 在服务器上的目录中执行，连接断开后终端会自动重连。连接不加密。`/reload` 无需重启运行时即可应用 MCP 与配置修改、祖先 skill 和指令。详见[发布说明](docs/releases/0.7.48.md)。
 
@@ -240,7 +242,7 @@ node scripts/verify-standalone.mjs # 验证本机平台的完整发布包
 
 `make release` 运行版本校验、完整检查、单包构建、本机安装验证及候选包归档。CI 另外在 Intel runner 上验证 x64 包。`make publish` 将终端包上传至 GitHub Release；Desktop 继续独立构建、验证和发布。`node scripts/homebrew-formula.mjs` 根据同一批包及其 SHA-256 生成配方；配方仍需同步到 tap。
 
-DSH 固定为 `0.2.0-rc.2`，内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-code@1.2.0`，Computer Use 为 `0.3.3`。运行时补丁在构建阶段应用。当前流程见[分发说明](docs/distribution.md)；旧 npm/Hub 构建流程保留在[旧分发指南](docs/hub-distribution.md)。上下文压缩评测位于 [`eval/`](eval/README.md)。
+DSH 固定为 `0.2.1-rc.2`（Desktop 组合包仍为 `0.2.0-rc.2`，即官方 Desktop 应用的运行时），内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-code@1.2.0`，Computer Use 为 `0.3.4`。运行时补丁在构建阶段应用。当前流程见[分发说明](docs/distribution.md)；旧 npm/Hub 构建流程保留在[旧分发指南](docs/hub-distribution.md)。上下文压缩评测位于 [`eval/`](eval/README.md)。
 
 ## 📚 文档
 

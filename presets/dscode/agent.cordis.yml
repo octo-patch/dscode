@@ -20,11 +20,12 @@
 # ── identity ────────────────────────────────────────────────────────────────
 
 # The preset's own persona, shadowing the deployment default for this agent.
-# `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
+# `{{model}}` resolves from the agent's own route. DSH 0.2.1 states the working
+# directory as runtime context and retired `{{cwd}}`; the Desktop build restores
+# the suffix for runtimes without that context.
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    suffix: Your working directory is {{cwd}}.
     prefix: >-
       You are a coding agent powered by the {{model}} model, working through a persistent shell.
       Reply in the language the user writes in.

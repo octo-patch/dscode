@@ -6,7 +6,7 @@
 export const PROVIDERS = Object.freeze([
   { id: 'deepseek-official', name: 'DeepSeek', aliases: ['deepseek', 'deepseek-official', 'official'], credentialRef: 'DEEPSEEK_API_KEY', defaultModel: 'deepseek-flash' },
   // The optional management key reads account data only; it cannot call models.
-  { id: 'openrouter', name: 'OpenRouter', aliases: ['openrouter', 'open-router'], credentialRef: 'OPENROUTER_API_KEY', managementRef: 'OPENROUTER_MANAGEMENT_KEY', defaultModel: 'deepseek/deepseek-v4-flash' },
+  { id: 'openrouter', name: 'OpenRouter', aliases: ['openrouter', 'open-router'], credentialRef: 'OPENROUTER_API_KEY', managementRef: 'OPENROUTER_MANAGEMENT_KEY', defaultModel: 'deepseek/deepseek-v4.1-flash-1017' },
   // The Grok subscription rail: the token is the local 'grok login', read-only (plugins/grok).
   { id: 'grok', name: 'Grok', aliases: ['grok', 'xai', 'x-ai'], credentialRef: 'GROK_CLI_TOKEN', defaultModel: 'grok-4.6' },
   // The OpenCode Go subscription: its chat-completions models, authorised only by an OpenCode
@@ -19,15 +19,22 @@ export const PROVIDERS = Object.freeze([
 // The pi-ai adapter served OpenRouter until 0.7.6, from this settings section.
 const PI_AI_NS = 'llm-pi-ai';
 
-// OpenRouter serves DeepSeek V4 thinking as none/high/xhigh. DeepSeek itself
+// OpenRouter serves the April DeepSeek V4 Flash and Pro thinking as none/high/xhigh. DeepSeek itself
 // answers `low` as high and `max` as xhigh, so the route offers the official
 // low/high/max detents (and Ultra on top of max) with the wire spelling OpenRouter
 // accepts; session cards and delegated children that ask for `low` keep working.
 export const OPENROUTER_EFFORTS = Object.freeze({ off: 'none', low: 'high', high: 'high', max: 'xhigh' });
 
-/** The DeepSeek models the OpenRouter route serves, with their official-route counterparts. */
+/**
+ * The DeepSeek models the OpenRouter route serves, with their official-route counterparts.
+ * Official `deepseek-flash` is V4.1 Flash 1017 (2026-10-17); OpenRouter lists that build
+ * under its own id and still serves the retired V4 Flash and the September V4.1 build, whose
+ * sessions switch back to `deepseek-flash`. The first entry naming an official id wins.
+ */
 export const OPENROUTER_MODELS = Object.freeze([
-  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', official: ['deepseek-flash', 'deepseek-v4-flash'] },
+  { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash 1017', official: ['deepseek-flash', 'deepseek-v4-flash'] },
+  { id: 'deepseek/deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', official: ['deepseek-flash'] },
+  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', official: ['deepseek-flash'] },
   { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro', official: ['deepseek-v4-pro'] },
   { id: 'deepseek/deepseek-v4-flash-vision-exp', name: 'DeepSeek V4 Flash Vision Exp', official: ['deepseek-v4-flash-vision-exp'] },
 ]);
@@ -91,8 +98,10 @@ export function providerOfHeader(header) {
   return typeof header === 'string' ? header.match(/^([^\s:/]+): /)?.[1] : undefined;
 }
 
-// OpenCode Go names DeepSeek models by the official ids, without OpenRouter's vendor segment.
-const OPENCODE_GO_OFFICIAL = Object.freeze({ 'deepseek-flash': 'deepseek-v4-flash' });
+// OpenCode Go names DeepSeek models by versioned ids, without OpenRouter's vendor segment;
+// it retired V4 Flash and serves V4.1 Flash, which the official route calls deepseek-flash.
+const OPENCODE_GO_OFFICIAL = Object.freeze({ 'deepseek-flash': 'deepseek-v4.1-flash' });
+const OFFICIAL_OPENCODE_GO = Object.freeze({ 'deepseek-v4.1-flash': 'deepseek-flash', 'deepseek-v4-flash': 'deepseek-flash' });
 
 function counterpart(from, model, to) {
   from = canonicalProvider(from);
@@ -101,7 +110,7 @@ function counterpart(from, model, to) {
   if (from === 'deepseek-official' && to === 'openrouter') return OPENROUTER_MODELS.find(entry => entry.official.includes(model))?.id;
   if (from === 'openrouter' && to === 'deepseek-official') return OPENROUTER_MODELS.find(entry => entry.id === model)?.official[0];
   if (from === 'deepseek-official' && to === 'opencode-go') return OPENCODE_GO_OFFICIAL[model] ?? model;
-  if (from === 'opencode-go' && to === 'deepseek-official') return model;
+  if (from === 'opencode-go' && to === 'deepseek-official') return OFFICIAL_OPENCODE_GO[model] ?? model;
   // OpenRouter's `vendor/model` ids mostly end in Go's own id.
   if (from === 'openrouter' && to === 'opencode-go') return model.slice(model.indexOf('/') + 1);
   return undefined;

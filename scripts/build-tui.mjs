@@ -70,7 +70,6 @@ export function stageTuiForPack(directory, { quiet = true } = {}) {
     './client': { default: './lib/client.mjs' },
     './startup': { default: './lib/startup.mjs' },
     './session-query': { default: './lib/session-query.mjs' },
-    './invariant': { default: './lib/invariant.mjs' },
     './cordis.patch.yml': './cordis.patch.yml',
     './package.json': './package.json',
   };

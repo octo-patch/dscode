@@ -13,6 +13,9 @@ const SHARED = new Set(PROVIDERS.flatMap(provider => [provider.credentialRef, pr
 // Credentials a login command writes (the OpenCode Go account login): described as read-only
 // so no key form is offered, while the owning plugin still stores them through `set`.
 const LOGINS = new Set(PROVIDERS.filter(provider => provider.login).map(provider => provider.credentialRef));
+// An exported variable wins over every store and is read-only, as DSCODE documents. DSH 0.2.1
+// put its managed file above the environment; this provider keeps the documented order.
+const ENV_READ_ONLY = ref => `credentials: ${ref} is set by the environment and is read-only; unset the variable to store a key`;
 
 // Use the native locked, watched, owner-only store. Keep this independent of
 // the installed profile so upgrades and different projects share credentials.
@@ -35,7 +38,14 @@ export default class DscodeCredentials extends LocalCredentialProvider {
     this.shared = sharedContext.credentials;
     yield* super[Service.init]();
   }
+  /** The launching process's value for a reference, or undefined when empty or unset. */
+  inherited(ref) {
+    const entry = launchEnvironmentOf(this.ctx).getFrom(ref, ['process']);
+    return entry !== undefined && entry.value.length > 0 ? entry.value : undefined;
+  }
   async resolve(ref) {
+    const env = ref === GROK_TOKEN_REF ? undefined : this.inherited(ref);
+    if (env !== undefined) return { value: env, source: 'env' };
     if (this.desktop) {
       const native = await super.resolve(ref);
       if (native) return native;
@@ -60,6 +70,7 @@ export default class DscodeCredentials extends LocalCredentialProvider {
         if (state.mode === 'chatgpt') return { configured: state.configured, source: 'account', writable: false };
       }
     }
+    if (ref !== GROK_TOKEN_REF && this.inherited(ref) !== undefined) return { configured: true, source: 'env', writable: false };
     if (this.desktop) {
       const native = await super.describe(ref);
       if (native.configured) return LOGINS.has(ref) ? { ...native, source: 'account', writable: false } : native;
@@ -77,9 +88,10 @@ export default class DscodeCredentials extends LocalCredentialProvider {
     }
     return super.describe(ref);
   }
-  set(ref, value) {
+  async set(ref, value) {
     // The CLI file is not a DSCODE store: saving here would go somewhere nothing reads.
     if (ref === GROK_TOKEN_REF) throw new Error('GROK_CLI_TOKEN comes from ~/.grok/auth.json; run grok login instead');
+    if (this.inherited(ref) !== undefined) throw new Error(ENV_READ_ONLY(ref));
     if (this.desktop) return super.set(ref, value);
     return (SHARED.has(ref) || isCustomKey(ref)) ? this.shared.set(ref, value) : super.set(ref, value);
   }

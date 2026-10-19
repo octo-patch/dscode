@@ -69,15 +69,29 @@ export async function probeDscode(ctx) {
     const result = await ctx.tools.execute({ name, arguments: args, agent, callId: `probe-${randomUUID()}`, signal });
     return JSON.stringify(result);
   };
+  // Every delegation starts a managed child and returns at once (DSH 0.2.1); settle
+  // waits for that child and for any parent turn its completion notice wakes.
+  const started = (text, name) => JSON.parse(text).content.map(block => block.text ?? '').join('').match(new RegExp(`started subagent /${name} \\(([^\\s)]+)\\)`))?.[1];
+  const settle = async () => {
+    for (let round = 0; round < 50; round++) {
+      await agent.whenIdle();
+      const children = ctx.agents.list().filter(child => child.session.header.parentSession === sessionId && child.status === 'running');
+      if (children.length === 0 && agent.status !== 'running') return;
+      await Promise.all(children.map(child => child.whenIdle()));
+    }
+    throw Error('Delegated children did not settle');
+  };
   const beforeWorktree = seen.length;
-  const isolated = JSON.parse(await run('subagent', { name: 'wt_child', description: 'Verify child worktree', prompt: 'Run the child workspace fixture and finish.', worktree: true, run_in_background: false }));
-  assert(!isolated.isError, JSON.stringify(isolated));
+  const isolatedText = await run('subagent', { name: 'wt_child', description: 'Verify child worktree', prompt: 'Run the child workspace fixture and finish.', worktree: true });
+  const isolated = JSON.parse(isolatedText);
+  assert(!isolated.isError && started(isolatedText, 'wt_child'), isolatedText);
+  await settle();
   const childPath = isolated.content.map(block => block.text ?? '').join('').match(/Worktree: ([^\n]+)/)?.[1];
   assert(childPath?.startsWith(join(realpathSync(cwd), '.dscode-worktrees/')), JSON.stringify(isolated));
   assert(seen.slice(beforeWorktree).some(o => JSON.stringify(o.messages).includes(`CHILD_PWD=${childPath}`)), 'Child shell did not start in its worktree');
   assert.equal(await discardCleanChildWorktree({ cwd: childPath, parentCwd: cwd }), true);
   const beforeForkWorktree = seen.length;
-  const isolatedFork = JSON.parse(await run('subagent_fork', { name: 'wt_fork', description: 'Verify fork worktree', prompt: 'Run the child workspace fixture and finish.', worktree: true, run_in_background: true }));
+  const isolatedFork = JSON.parse(await run('subagent_fork', { name: 'wt_fork', description: 'Verify fork worktree', prompt: 'Run the child workspace fixture and finish.', worktree: true }));
   assert(!isolatedFork.isError, JSON.stringify(isolatedFork));
   const forkText = isolatedFork.content.map(block => block.text ?? '').join('');
   const forkPath = forkText.match(/Worktree: ([^\n]+)/)?.[1];
@@ -95,7 +109,7 @@ export async function probeDscode(ctx) {
   assert(bang.includes('BANG_OK') && !bang.includes('timed out'), bang);
   const patched = await run('bash', { command: "apply_patch <<'PATCH'\ndiff --git a/sample.txt b/sample.txt\n--- a/sample.txt\n+++ b/sample.txt\n@@ -1 +1 @@\n-before\n\\ No newline at end of file\n+after\n\\ No newline at end of file\nPATCH" });
   assert.equal(readFileSync(join(cwd, 'nested/sample.txt'), 'utf8'), 'after', patched);
-  const dirtyWorktree = await run('subagent', { name: 'stale', description: 'Reject stale worktree', prompt: 'Must not execute.', worktree: true, run_in_background: false });
+  const dirtyWorktree = await run('subagent', { name: 'stale', description: 'Reject stale worktree', prompt: 'Must not execute.', worktree: true });
   assert(dirtyWorktree.includes('uncommitted changes'), dirtyWorktree);
   const fresh = await run('shell_retry', { command: 'printf "%s\\n" "$PWD" "${DSCODE_FIXTURE_VAR-unset}"', workdir: cwd, description: 'Verify fresh retry shell state' });
   assert(fresh.includes('unset'), fresh);
@@ -135,17 +149,18 @@ export async function probeDscode(ctx) {
   assert.equal(agent.session.requestHeader().config.reasoningEffort, 'ultra');
   assert.equal(seen.at(-1).reasoningEffort, 'ultra');
   await run('bash', { command: 'export DSCODE_FIXTURE_VAR=parent_only' });
-  nextTool = { name: 'subagent', args: { name: 'iso_child', description: 'Verify isolated child shell', prompt: 'Run the isolated shell fixture and finish.', run_in_background: false } };
+  nextTool = { name: 'subagent', args: { name: 'iso_child', description: 'Verify isolated child shell', prompt: 'Run the isolated shell fixture and finish.' } };
   agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Delegate the isolated child fixture.' }], source: { kind: 'user' } }));
-  await agent.whenIdle();
+  await settle();
   assert(childShells.size > 0, 'No real child agent ran');
   assert(seen.some(o => o.sessionId !== sessionId && JSON.stringify(o.messages).includes('CHILD_ENV=unset')), 'Child inherited parent shell state');
   assert(seen.filter(o => childShells.has(o.sessionId) && !o.purpose).every(o => o.reasoningEffort === 'ultra'), 'Child lost ultra selection');
   assert(seen.filter(o => childShells.has(o.sessionId) && !o.purpose).every(o => !o.tools?.some(t => ['subagent', 'subagent_fork', 'workflow', 'ralph'].includes(t.name))), 'Child was offered delegation tools');
   for (const [tool, effort] of [['subagent', 'low'], ['subagent_fork', 'high']]) {
     const before = seen.length;
-    const result = await run(tool, { name: 'eff_' + effort, description: 'Verify child effort', prompt: 'Finish the local fixture.', reasoning_effort: effort, run_in_background: false });
-    assert(!result.includes('"isError":true'), result);
+    const result = await run(tool, { name: 'eff_' + effort, description: 'Verify child effort', prompt: 'Finish the local fixture.', reasoning_effort: effort });
+    assert(!result.includes('"isError":true') && started(result, 'eff_' + effort), result);
+    await settle();
     const calls = seen.slice(before).filter(o => childShells.has(o.sessionId) && !o.purpose);
     assert(calls.length > 0, 'Missing child call');
     assert(calls.every(o => o.reasoningEffort === effort), 'Child did not use requested effort');
@@ -153,7 +168,7 @@ export async function probeDscode(ctx) {
     assert.equal(agent.session.requestHeader().config.reasoningEffort, 'ultra');
   }
   const beforeInvalid = childShells.size;
-  const invalid = await run('subagent', { name: 'bad_eff', description: 'Reject invalid effort', prompt: 'Must not execute.', reasoning_effort: 'invalid-effort', run_in_background: false });
+  const invalid = await run('subagent', { name: 'bad_eff', description: 'Reject invalid effort', prompt: 'Must not execute.', reasoning_effort: 'invalid-effort' });
   assert(invalid.includes('isError') || invalid.includes('unsupported'), invalid);
   assert.equal(childShells.size, beforeInvalid);
 

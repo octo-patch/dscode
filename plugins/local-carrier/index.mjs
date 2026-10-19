@@ -94,13 +94,13 @@ export async function* ndjson(source) {
   if (buffer.trim()) yield JSON.parse(buffer);
 }
 
-async function unary(handler, req, res) {
+async function unary(handler, peer, req, res) {
   const chunks = [];
   for await (const chunk of req) chunks.push(chunk);
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) if (typeof value === 'string') headers.set(key, value);
   const body = ['GET', 'HEAD'].includes(req.method) ? undefined : Buffer.concat(chunks);
-  const response = await handler.fetch(new Request(`http://localhost${req.url}`, { method: req.method, headers, body }));
+  const response = await handler.fetch(new Request(`http://localhost${req.url}`, { method: req.method, headers, body }), peer);
   res.writeHead(response.status, Object.fromEntries(response.headers));
   if (response.body) for await (const chunk of Readable.fromWeb(response.body)) res.write(chunk);
   res.end();
@@ -109,7 +109,7 @@ async function unary(handler, req, res) {
 // One HTTP exchange per logical stream: the request body carries the opening
 // {endpoint, payload} line and then uplink items; the response carries
 // {item} lines and ends with exactly one {end} or {error}.
-async function stream(ctx, req, res, activity) {
+async function stream(ctx, peer, req, res, activity) {
   const control = new AbortController();
   res.on('close', () => control.abort());
   let counted = false;
@@ -136,7 +136,7 @@ async function stream(ctx, req, res, activity) {
       if (registry === undefined) throw Object.assign(Error('DSCODE operations are not mounted on this Host'), { name: 'RemoteFailure', code: 'dscode/unavailable' });
       for await (const item of registry.open(endpoint.slice(DSCODE_STREAM_PREFIX.length), payload?.args ?? {}, uplink, control.signal)) send({ item });
     } else {
-      const items = await ctx.typertGateway.wireStream.open(endpoint, payload, uplink, ctx.connection.operator, control.signal);
+      const items = await ctx.typertGateway.wireStream.open(endpoint, payload, uplink, peer, control.signal);
       for await (const item of items) send({ item });
     }
     send({ end: true });
@@ -155,6 +155,9 @@ async function lockHost(socketPath) {
 export async function apply(ctx, config = {}) {
   const socketPath = config.socketPath || defaultSocketPath();
   const handler = ctx.connection.createSharedFetchHandler('/api');
+  // Whoever reaches the socket (owner-only) or presents the server token speaks for the
+  // owner, as the browser's shared Peer does. DSH 0.2.0 named this party `operator`.
+  const peer = ctx.connection.createPeer?.({ principal: { kind: 'owner' } }) ?? ctx.connection.operator;
   const activity = { clients: 0, streams: 0, lastActivity: Date.now(), startedAt: Date.now() };
   mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
   chmodSync(dirname(socketPath), 0o700);
@@ -173,9 +176,9 @@ export async function apply(ctx, config = {}) {
   const route = (req, res) => {
     // A status probe (a launcher checking for a Host) must not keep an idle Host alive.
     if (req.url !== `${DSCODE_PREFIX}host%2Fstatus`) activity.lastActivity = Date.now();
-    const handled = req.url === STREAM_PATH && req.method === 'POST' ? stream(ctx, req, res, activity)
+    const handled = req.url === STREAM_PATH && req.method === 'POST' ? stream(ctx, peer, req, res, activity)
       : req.url.startsWith(DSCODE_PREFIX) && req.method === 'POST' ? dscodeUnary(ctx, req, res)
-        : unary(handler, req, res);
+        : unary(handler, peer, req, res);
     handled.catch(error => {
       ctx.logger?.warn?.(`local carrier: ${error.message}`);
       if (!res.headersSent) res.writeHead(500);

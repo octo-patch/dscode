@@ -64,11 +64,14 @@ try {
       for (const plugin of customPlugins) assert.equal(pkg.exports['./' + plugin], `./plugins/${plugin}/index.mjs`, `the bundle must export the ${plugin} plugin`);
       assert.match(readFileSync(join(destination, 'cordis.patch.yml'), 'utf8'), /name: '@toddzheng024\/dscode-bundle\/code-review'/);
       assert.match(readFileSync(join(destination, 'vendor/tui/lib/app.mjs'), 'utf8'), /dispatch\(text\)/, 'the terminal routes /review through the shared service');
-      assert.match(readFileSync(join(destination, 'vendor/subagent/index.js'), 'utf8'), /dscode-child-worktree-v3/);
+      assert.match(readFileSync(join(destination, 'vendor/subagent/index.js'), 'utf8'), /dscode-child-activation-v1/);
+      assert.match(readFileSync(join(destination, 'vendor/subagent/index.js'), 'utf8'), /from "\.\.\/\.\.\/plugins\/worktree-subagent\/worktree\.mjs"/, 'the vendored subagent tool reaches the bundled worktree helper');
+      assert.match(readFileSync(join(destination, 'vendor/agent-instructions/index.js'), 'utf8'), /dscode-instruction-home-v1/, 'the vendored instructions honour the session instruction home');
+      assert.match(readFileSync(join(destination, 'plugins/desktop-workspace/index.mjs'), 'utf8'), /from '\.\.\/\.\.\/vendor\/agent-instructions\/index\.js'/);
+      assert.match(readFileSync(join(destination, 'cordis.patch.yml'), 'utf8'), /name: '@toddzheng024\/dscode-bundle\/agent-instructions'/);
       assert.match(readFileSync(join(destination, 'vendor/command-goal/index.js'), 'utf8'), /dscode-goal-cap-v1/, 'the vendored goal command carries the [N] round-cap patch');
       assert.match(readFileSync(join(destination, 'cordis.patch.yml'), 'utf8'), /dscode-bundle\/command-goal/);
       assert.match(readFileSync(join(destination, 'vendor/subagent-core/index.js'), 'utf8'), /workspaceCwd/);
-      assert.match(readFileSync(join(destination, 'vendor/subagent-driver/index.js'), 'utf8'), /request\.workspaceCwd/);
       assert.match(readFileSync(join(destination, 'cordis.patch.yml'), 'utf8'), /name: '@toddzheng024\/dscode-bundle\/subagent-core'/);
       assert(!existsSync(join(destination, 'vendor/pi-ai')), 'OpenRouter no longer runs through a vendored pi-ai adapter');
       assert.equal(pkg.exports['./openrouter'], './plugins/openrouter/index.mjs');

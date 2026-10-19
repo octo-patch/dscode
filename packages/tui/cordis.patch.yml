@@ -13,7 +13,7 @@
 - id: system-prompt
   config:
     personaPrefix: >-
-      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+      You are a coding agent powered by the {{model}} model.
 
 # The shared module-reload HMR row stays off; the launcher's watch-only
 # fallback still keeps the user patch layers live until the app exits.
@@ -85,8 +85,6 @@
 - id: workflow-ptc
   disabled: true
 - id: tool-workflow
-  disabled: true
-- id: tool-ralph
   disabled: true
 - id: agent-instructions
   disabled: true

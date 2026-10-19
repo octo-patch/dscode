@@ -7,7 +7,6 @@ import { probeSchedule } from './schedule-probe.mjs';
 import { writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { serviceForAgent } from '@deepseek-ai/dsh-agent-preset-registry';
 import { LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { auditStore } from '../plugins/auto-review/audit.mjs';
@@ -160,7 +159,8 @@ async function probe(ctx) {
   assert(outcomes.some(event => JSON.stringify(event.data).includes('HARNESS_SHELL_OK')), 'Shell did not execute');
   const activatedTools = ctx.tools.schemas(agent).map(tool => tool.name);
   if (MACOS) assert(activatedTools.includes('computer_observe'), 'Loading skill did not expose Computer Use execution tools');
-  const compact = serviceForAgent(ctx, agent, 'compaction');
+  // DSH 0.2.1 moved the isolated-realm lookup onto the registry service.
+  const compact = ctx.agentPresets.serviceFor(agent, 'compaction');
   assert(compact, 'Agent-scoped compaction provider missing');
   await ctx.sessions.flush(agent.session);
   const eventCount = agent.session.seq;
@@ -173,7 +173,7 @@ async function probe(ctx) {
   assert(resumed.agent.session.seq >= eventCount, 'Durable session lost events');
   assert(resumed.agent.session.snapshotEvents().some(event => event.type === 'assistant/message' && JSON.stringify(event.data).includes('HARNESS_FIXTURE_COMPLETE')), 'Assistant response did not survive resume');
   // Computer Use restores its execution tools on resume by reading the durable log for the
-  // loaded skill, and `@anionex/dsh-computer-use` 0.3.3 still looks for the pre-0.1.7 shape
+  // loaded skill, and `@anionex/dsh-computer-use` 0.3.4 still looks for the pre-0.1.7 shape
   // (a `tool-result` content block carrying `toolCallId`/`isError`), which session format v4
   // moved onto the message. Live activation is unaffected — the listener reads the execution
   // result — so a resumed session regains the tools as soon as the skill is loaded again, and
@@ -182,7 +182,7 @@ async function probe(ctx) {
   if (MACOS) {
     const resumedTools = ctx.tools.schemas(resumed.agent).map(tool => tool.name);
     assert(resumedTools.includes('computer_use_activate'), 'Computer Use bootstrap tool missing after resume');
-    if (!resumedTools.includes('computer_observe')) console.log('HARNESS_PROBE_NOTE: Computer Use execution tools need the skill loaded again after resume; @anionex/dsh-computer-use 0.3.3 reads the pre-0.1.7 tool-result shape');
+    if (!resumedTools.includes('computer_observe')) console.log('HARNESS_PROBE_NOTE: Computer Use execution tools need the skill loaded again after resume; @anionex/dsh-computer-use 0.3.4 reads the pre-0.1.7 tool-result shape');
   }
   await resumed.dispose();
   ctx.llm.registerAdapter(['harness-denial-fixture'], new FixtureAdapter(fixtureFile));

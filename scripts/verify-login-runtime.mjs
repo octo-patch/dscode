@@ -37,12 +37,12 @@ export function apply(ctx) {
     assert.equal(await ensureProviderRoute(ctx.settings, 'openrouter'), false, 'the OpenRouter route needs no declaration');
     const directory = await waitForModels(() => loadModelDirectory(ctx), 'openrouter');
     const models = directory.rows.filter(row => row.provider === 'openrouter');
-    assert.deepEqual(models.map(row => row.model), ['deepseek/deepseek-v4-flash', 'z-ai/glm-5.3-flash', 'moonshotai/kimi-k2.6', 'qwen/qwen3.7-plus', 'xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro-ultraspeed', 'anthropic/claude-opus-5'], 'every listed model that can drive an agent');
-    const deepseek = models.find(row => row.model === 'deepseek/deepseek-v4-flash');
+    assert.deepEqual(models.map(row => row.model), ['deepseek/deepseek-v4.1-flash-1017', 'z-ai/glm-5.3-flash', 'moonshotai/kimi-k2.6', 'qwen/qwen3.7-plus', 'xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro-ultraspeed', 'anthropic/claude-opus-5'], 'every listed model that can drive an agent');
+    const deepseek = models.find(row => row.model === 'deepseek/deepseek-v4.1-flash-1017');
     assert.deepEqual([deepseek.reasoning.defaultEffort, ...deepseek.reasoning.efforts.map(effort => effort.id)], ['high', 'off', 'low', 'high', 'max', 'ultra']);
     const glm = models.find(row => row.model === 'z-ai/glm-5.3-flash').reasoning.efforts.map(effort => effort.id);
     assert.deepEqual(glm, ['low', 'high', 'max', 'ultra'], 'other models keep their own levels: ' + glm.join(','));
-    assert.equal(pickModel(directory.rows, 'openrouter', 'deepseek-official/deepseek-flash', 'ultra').row.model, 'deepseek/deepseek-v4-flash');
+    assert.equal(pickModel(directory.rows, 'openrouter', 'deepseek-official/deepseek-flash', 'ultra').row.model, 'deepseek/deepseek-v4.1-flash-1017');
     const openrouter = await row(ctx, 'openrouter');
     // /provider grok: the CLI-login rail. It must name its own credential reference,
     // because the terminal reads apiKeyEnv off the resolved provider profile and a

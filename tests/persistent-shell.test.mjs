@@ -13,6 +13,7 @@ function fixture({ timeoutMs = 1000, waits = false } = {}) {
   const owner = { session: { header: { cwd: '/fixture' } }, ctx: { effect() {} } };
   apply({
     effect() {}, tools: { register: value => { tool = value; } },
+    workingDirectory: { ensure: async agent => agent.session.header.cwd },
     terminals: {
       list: () => [...live].map(sessionId => ({ sessionId, status: { kind: 'running' } })),
       spawn: async () => { const sessionId = `shell-${++submissions}`; live.add(sessionId); return { sessionId }; },

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryStore } from '../plugins/memory/store.mjs';
 import { rollout, extraction, consolidation, redact } from '../plugins/memory/content.mjs';
-import { runPipeline, defaults } from '../plugins/memory/pipeline.mjs';
+import { runPipeline, defaults, OUTPUT_TOKENS } from '../plugins/memory/pipeline.mjs';
 import { apply, applyDesktop, resolveConfig } from '../plugins/memory/index.mjs';
 import { currentCharge } from '../plugins/session-metrics/attribution.mjs';
 
@@ -243,4 +243,34 @@ test('Desktop mounts memory in existing and new DSCODE agents and withdraws ever
     assert.equal(f.store.db.prepare('SELECT count(*) AS count FROM leases').get().count, 0);
     await events.get('agent/created')({ agent: existing.agent }); assert.equal(existing.tools.size, 0);
   } finally { await later.dispose(); }
+});
+
+test('each memory stage gets its own output limit, and a truncated consolidation reports why it failed', async t => {
+  const f = fixture(t), handlers = new Map(), commands = new Map(), limits = [];
+  const session = { id: 'session-a', header: { agentPreset: 'dscode' }, requestHeader: () => ({ config: { provider: 'fixture', model: 'fixture' } }) };
+  const ctx = { sessions: { list: () => [session] }, sessionPersistence: f.args.persistence,
+    on: (event, callback) => handlers.set(event, callback), effect: callback => handlers.set('dispose', callback()),
+    systemPrompt: { section() {} }, tools: { register() {} }, commands: { register: c => commands.set(c.name, c) },
+    llm: { async *stream(options) {
+      limits.push(options.maxTokens);
+      const input = JSON.parse(options.messages[0].content[0].text);
+      const value = await f.args.generate('', input, {}, options.reasoningEffort);
+      yield { type: 'block-start', index: 0, blockType: 'text' };
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: JSON.stringify(value).slice(0, input.messages ? undefined : 20) } };
+      yield { type: 'finish', reason: { kind: input.messages ? 'stop' : 'max-tokens' } };
+    } },
+  };
+  apply(ctx, { root: f.root });
+  const status = async () => (await commands.get('memories').handler({ agent: { session }, rawInput: 'status' })).text;
+  try {
+    handlers.get('session/event')(session, { type: 'request/header', data: { header: session.requestHeader() } });
+    const deadline = Date.now() + 3000;
+    while (!(await status()).includes('"reason"')) {
+      assert(Date.now() < deadline, 'Memory worker did not report the failure');
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.deepEqual(limits, [OUTPUT_TOKENS.extract, OUTPUT_TOKENS.consolidate]);
+    assert.match(await status(), new RegExp(`reached the ${OUTPUT_TOKENS.consolidate}-token output limit`));
+    assert.equal(f.store.get('snapshot'), null);
+  } finally { await handlers.get('dispose')(); }
 });

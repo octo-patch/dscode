@@ -73,6 +73,11 @@ test('a first model lookup waits for the listing, at most once per retry window,
 test('each model offers its own effort levels, DeepSeek V4 keeps the official detents, and Ultra rides on max', () => {
   assert.deepEqual(modelReasoning('deepseek/deepseek-v4-flash', MODELS['deepseek/deepseek-v4-flash']),
     { levels: ['off', 'low', 'high', 'max', 'ultra'], defaultEffort: 'high', wire: { off: 'none', low: 'high', high: 'high', max: 'xhigh', ultra: 'xhigh' } });
+  // Later V4.x builds take DeepSeek's own names; OpenRouter lists none/low/high/max for them.
+  for (const model of ['deepseek/deepseek-v4.1-flash-1017', 'deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4-pro-0813']) {
+    assert.deepEqual(modelReasoning(model, MODELS[model]),
+      { levels: ['off', 'low', 'high', 'max', 'ultra'], defaultEffort: 'high', wire: { off: 'none', low: 'low', high: 'high', max: 'max', ultra: 'max' } }, model);
+  }
   const glm = modelReasoning('z-ai/glm-5.3-flash', MODELS['z-ai/glm-5.3-flash']);
   assert.deepEqual(glm.levels, ['low', 'high', 'max', 'ultra'], 'mandatory reasoning cannot be turned off');
   assert.equal(glm.defaultEffort, 'high', 'requests default to high like the official route');
@@ -242,7 +247,7 @@ test('the adapter resolves models from the listing and sends OpenRouter headers 
   const unknown = await route.resolveModel('openrouter', 'vendor/new-model');
   assert.deepEqual(unknown.context, { contextWindow: 262144 });
   assert.equal(unknown.reasoning, undefined);
-  assert.deepEqual((await route.listModels('openrouter')).map(model => model.id), ['deepseek/deepseek-v4-flash', 'z-ai/glm-5.3-flash', 'moonshotai/kimi-k2.6', 'qwen/qwen3.7-plus', 'xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro-ultraspeed', 'anthropic/claude-opus-5'], 'the picker lists the curated models that can drive an agent');
+  assert.deepEqual((await route.listModels('openrouter')).map(model => model.id), ['deepseek/deepseek-v4.1-flash-1017', 'z-ai/glm-5.3-flash', 'moonshotai/kimi-k2.6', 'qwen/qwen3.7-plus', 'xiaomi/mimo-v2.6-pro', 'xiaomi/mimo-v2.6-flash', 'xiaomi/mimo-v2.6-pro-ultraspeed', 'anthropic/claude-opus-5'], 'the picker lists the curated models that can drive an agent');
   assert.equal((await route.resolveModel('openrouter', 'openai/gpt-4o')).name, 'OpenAI: GPT-4o', 'a model off the list still resolves, so an existing session keeps running');
   const out = await collect(route.stream({ provider: 'openrouter', model: 'moonshotai/kimi-k2.6', reasoningEffort: 'medium', messages: conversation, sessionId: 's-9' }));
   assert.equal(out.at(-1).replayState.response.cost, 0.000001);

@@ -11,7 +11,7 @@
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111827?logo=apple&logoColor=white)
 ![Linux glibc](https://img.shields.io/badge/Linux-glibc%20x64%20%7C%20arm64-111827?logo=linux&logoColor=white)
 ![Bundled Node.js](https://img.shields.io/badge/Node.js-bundled-43853D?logo=node.js&logoColor=white)
-![DSH](https://img.shields.io/badge/DSH-0.2.0--rc.2-2563EB)
+![DSH](https://img.shields.io/badge/DSH-0.2.1--rc.2-2563EB)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![Release](https://img.shields.io/github/v/release/qiz029/dscode?color=111827&label=release)](https://github.com/qiz029/dscode/releases)
 [![Stars](https://img.shields.io/github/stars/qiz029/dscode?color=111827)](https://github.com/qiz029/dscode/stargazers)
@@ -56,6 +56,8 @@ The [demo guide](docs/demo.md) summarizes DSCODE features, outlines a five-minut
 | **[Agent email](docs/email.md)** | A local `[ToAgent]` inbox shared by all sessions: Enter steers a message into the live session as user-selected context, and with Gmail configured the agent can send mail through the same approval flow. |
 
 ## 🆕 What's new
+
+**0.7.49** — The terminal moves to Harness `0.2.1-rc.2`, which DeepSeek recommends for DeepSeek-V4.1-Flash-1017; the Desktop package stays on `0.2.0-rc.2`. Child agents now always start in the background and report back when they settle. On OpenRouter and OpenCode Go, `deepseek-flash` switches to V4.1 Flash instead of the retired V4 Flash. Background memory no longer fails on its own output limit. See the [release notes](docs/releases/0.7.49.md).
 
 **0.7.48** — [Remote runtime](docs/remote-runtime.md): `dscode server --port PORT` serves a machine's runtime over TCP with a token, and `dscode config --runtime` / `dscode runtime <alias>` attach a terminal on another machine to it. Pasted files are uploaded, `/diff`, `/review` and `/export` work in the server's folder, and terminals reconnect after a dropped connection. The connection is not encrypted. `/reload` applies MCP and configuration edits, ancestor skills and instructions without restarting the runtime. See the [release notes](docs/releases/0.7.48.md).
 
@@ -241,7 +243,7 @@ node scripts/verify-standalone.mjs # qualify the package for this machine
 
 `make release` runs version validation, the full checks, package builds, local installation verification and candidate archiving. CI also qualifies the x64 package on an Intel runner. `make publish` attaches terminal packages to the GitHub Release; Desktop retains independent build, verification and publication. `node scripts/homebrew-formula.mjs` generates a formula from the same archives and SHA-256 hashes; the formula still needs synchronization to the tap.
 
-DSH is pinned to `0.2.0-rc.2`, bundled Node to `24.21.0`, the TUI is based on `dsh-code@1.2.0`, and Computer Use is `0.3.3`. Runtime patches are applied during the build. See [Distribution](docs/distribution.md) for the current flow and [Legacy Hub distribution](docs/hub-distribution.md) for retained npm/Hub tooling. Compaction evaluation lives under [`eval/`](eval/README.md).
+DSH is pinned to `0.2.1-rc.2` (the Desktop package stays on `0.2.0-rc.2`, the official Desktop app's runtime), bundled Node to `24.21.0`, the TUI is based on `dsh-code@1.2.0`, and Computer Use is `0.3.4`. Runtime patches are applied during the build. See [Distribution](docs/distribution.md) for the current flow and [Legacy Hub distribution](docs/hub-distribution.md) for retained npm/Hub tooling. Compaction evaluation lives under [`eval/`](eval/README.md).
 
 ## 📚 Documentation
 

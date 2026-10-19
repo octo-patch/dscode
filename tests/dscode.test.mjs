@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { patchDeepSeek, patchBash, patchPersistent, patchSubagent, patchSubagentCore, patchSubagentDriver, patchTerminalBash, patchGoalCommand, patchAppBoot, patchMacStdinPackage, RUNTIME_VERSION } from '../scripts/patch-runtime.mjs';
+import { patchDeepSeek, patchBash, patchPersistent, patchSubagent, patchSubagentCore, patchAgentInstructions, patchTerminalBash, patchGoalCommand, patchAppBoot, patchMacStdinPackage, RUNTIME_VERSION } from '../scripts/patch-runtime.mjs';
 import { patchMacStdin, MAC_INSPECTOR_ANCHOR } from '../scripts/patch-mac-stdin.mjs';
 import { createTestRuntime } from '../scripts/test-runtime.mjs';
 import { pathToFileURL } from 'node:url';
@@ -136,7 +136,7 @@ test('the macOS stdin inspector is patched, reported unchanged, or refused loudl
 });
 
 test('pinned runtime patches are idempotent and reject unknown upstream code', () => {
-  for (const [name, patch] of [['dsh-tool-subagent', patchSubagent], ['dsh-subagent', patchSubagentCore], ['dsh-subagent-in-process-driver', patchSubagentDriver], ['dsh-llm-deepseek', patchDeepSeek], ['dsh-tool-bash', patchBash], ['dsh-tool-bash-persistent', patchPersistent], ['dsh-terminal-bash', patchTerminalBash], ['dsh-command-goal', patchGoalCommand], ['dsh-app-boot', patchAppBoot]]) {
+  for (const [name, patch] of [['dsh-tool-subagent', patchSubagent], ['dsh-subagent', patchSubagentCore], ['dsh-agent-instructions', patchAgentInstructions], ['dsh-llm-deepseek', patchDeepSeek], ['dsh-tool-bash', patchBash], ['dsh-tool-bash-persistent', patchPersistent], ['dsh-terminal-bash', patchTerminalBash], ['dsh-command-goal', patchGoalCommand], ['dsh-app-boot', patchAppBoot]]) {
     const text = readFileSync(`${root}/node_modules/@deepseek-ai/${name}/lib/index.js`, 'utf8');
     assert.equal(patch(text), text);
     assert.throws(() => patch('unknown upstream'));
@@ -197,9 +197,10 @@ test('the concurrent child cap is five below ultra and twenty at ultra', async (
 
 test('subagent tool requires a parent-chosen child name and shows it as /name', () => {
   const text = readFileSync(`${root}/node_modules/@deepseek-ai/dsh-tool-subagent/lib/index.js`, 'utf8');
-  assert(text.includes('// dscode-child-name-v1'));
+  // DSH 0.2.1 starts every child through one activation path, so one label site remains.
+  assert(text.includes('// dscode-child-activation-v1'));
   assert.match(text, /name: \{\n\t+type: "string",\n\t+required: true,\n\t+description: "Unique name you give this child/);
-  assert.equal(text.split('label: "/" + args.name + " \u00b7 " + args.description').length, 4, 'every spawn path carries the /name label');
+  assert.equal(text.split('label: "/" + args.name + " \u00b7 " + args.description').length, 2, 'the activation path carries the /name label');
   assert(text.includes('started subagent /${_args.name} (${value.subagentId})'));
   assert(text.includes('if (typeof args.name !== "string" || !/^[A-Za-z](?:[A-Za-z0-9_]{0,8}[A-Za-z])?$/.test(args.name)) throw new Error('));
   for (const valid of ['a', 'ab', 'read_code', 'Read_1st_c', 'x9y']) assert(CHILD_NAME.test(valid), valid);
@@ -232,6 +233,10 @@ test('children are addressed by /name and the parent by /', async () => {
   assert.deepEqual(await start('reader', 'child-3'), { kind: 'continuable', subagentId: 'child-3' }, 'a name is free again once its child is gone');
   assert.equal(await exec('send_message', '/reader'), 'ok');
   assert.equal(seen.at(-1), 'child-3');
+  // DSH 0.2.1 reports every start as an activation; its name routes the same way.
+  assert.deepEqual(await execute({ name: 'subagent', arguments: { name: 'tester', description: 'test it', prompt: 'go' }, agent: owner }, () => { live.set('child-4', { status: 'running', session: { id: 'child-4', header: { origin: 'subagent', parentSession: 'root' } } }); return { kind: 'activation', subagentId: 'child-4' }; }), { kind: 'activation', subagentId: 'child-4' });
+  assert.equal(await exec('send_message', '/tester'), 'ok');
+  assert.equal(seen.at(-1), 'child-4');
 });
 
 test('native control receives resolved targets without modifying frozen calls and releases routing after failure', async () => {

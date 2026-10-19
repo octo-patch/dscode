@@ -65,18 +65,22 @@ Task completion guidance keeps scope and acceptance checks stable. Once requeste
 Child aliases such as `/reader` are scoped to their parent session. Names of
 continuable children survive a Host restart: sending to the alias resumes the
 same child, and the name stays reserved while that child is cold. Looking up a
-name does not start a turn. Finished foreground children cannot be resumed by
-name; reopen their tasks with an available name to launch new work. A child's
+name does not start a turn. In the terminal every child is continuable. On the
+Desktop package, finished foreground children cannot be resumed by name; reopen
+their tasks with an available name to launch new work. A child's
 `send_message` to `/` addresses its parent. Waiting indicators change only after
 successful delivery, so a failed reply keeps the outstanding question visible.
 Edits rejected by validation leave the task unchanged, including its child, worktree,
 verification evidence and priority. Reopening a completed task must use a child
 name that is not already planned for another open task.
 
-Both foreground and background named child runs enter the task board when the
-runtime accepts their launch. A foreground call waits for its child and releases
-that one-shot agent before returning; the task then remains in Verifying with
-its recorded worktree path. Cancellation or failure after launch also leaves the
+Named child runs enter the task board when the runtime accepts their launch. In
+the terminal (Harness 0.2.1) every `subagent` and `subagent_fork` call starts the
+child in the background and returns its id at once; the runtime notifies the
+parent when the child settles, and there is no call that waits for the result.
+The Desktop package, which still runs on Harness 0.2.0, keeps foreground calls:
+one waits for its child and releases that one-shot agent before returning, and
+the task then remains in Verifying with its recorded worktree path. Cancellation or failure after launch also leaves the
 task for review. The coordinator must inspect the outcome and explicitly
 complete, reopen or drop it. A task is never marked complete solely because the
 child stopped. Starting a child unsuccessfully before launch leaves it Pending.

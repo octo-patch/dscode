@@ -10,6 +10,21 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.49] - 2026-10-18
+
+### Changed
+
+- The terminal runs on Harness `0.2.1-rc.2`, the release DeepSeek recommends for DeepSeek-V4.1-Flash-1017, with cordis `4.0.5`, schemastery `3.18.5` and Computer Use `0.3.4`. The Desktop package stays on `0.2.0-rc.2`.
+- `subagent` and `subagent_fork` start every child in the background and return its id at once; the runtime notifies the parent when it settles. `run_in_background` is gone. Child names, child efforts and `worktree: true` carry over; the Desktop package keeps foreground calls.
+- OpenRouter switches `deepseek-flash` to `deepseek/deepseek-v4.1-flash-1017`, which is also the route's default and replaces the retired V4 Flash in `/model`. OpenCode Go switches it to `deepseek-v4.1-flash` and drops the V4 Flash and V4 Flash Vision Exp rows Go no longer lists.
+- The working directory reaches the model as runtime context instead of a sentence in the persona.
+
+### Fixed
+
+- On OpenRouter, DeepSeek V4.1 Flash, the 1017 build and the dated V4 snapshots receive DeepSeek's own effort names (`low`, `max`) instead of the April V4 spelling, which sent `low` as `high` and Max and Ultra as `xhigh`.
+- Background memory consolidation no longer fails at a 12,000-token output limit that reasoning shares with its answer: extraction and consolidation get 24,000 and 64,000 tokens, the request timeout is 180 seconds, and `/memories status` shows why a run failed.
+- Instructions above the project root, exported keys taking precedence over the stored ones, and the background host's event streams and API calls keep working on the new Harness.
+
 ## [0.7.48] - 2026-10-15
 
 ### Added

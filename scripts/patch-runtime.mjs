@@ -30,10 +30,12 @@ export function patchDeepSeek(text) {
   text = replaceOnce(text, 'const REASONING_EFFORTS = [', 'const REASONING_EFFORTS = [\n\t{ id: ReasoningEffortId("ultra"), name: "Ultra", description: "DSCODE: max reasoning plus deliberate subagent collaboration; higher total token use." },');
   // `effort` is validated against DeepSeek's own four levels below this line and
   // then sent as `output_config.effort`: Ultra is DSCODE's, and rides on max.
+  // DSH 0.2.1 dropped the adapter's session-title override: the title provider
+  // now selects that request's effort itself.
   text = replaceOnce(
     text,
-    '\tconst effort = options.purpose === "session-title" ? "off" : options.reasoningEffort ?? connection.defaults.reasoningEffort ?? (connection.defaults.thinking === "disabled" ? "off" : "high");',
-    '\tconst requestedEffort = options.purpose === "session-title" ? "off" : options.reasoningEffort ?? connection.defaults.reasoningEffort ?? (connection.defaults.thinking === "disabled" ? "off" : "high");\n\tconst effort = requestedEffort === "ultra" ? "max" : requestedEffort;',
+    '\tconst effort = options.reasoningEffort ?? connection.defaults.reasoningEffort ?? (connection.defaults.thinking === "disabled" ? "off" : "high");',
+    '\tconst requestedEffort = options.reasoningEffort ?? connection.defaults.reasoningEffort ?? (connection.defaults.thinking === "disabled" ? "off" : "high");\n\tconst effort = requestedEffort === "ultra" ? "max" : requestedEffort;',
   );
   text = replaceOnce(
     text,
@@ -145,17 +147,90 @@ function patchChildName(text) {
   return text;
 }
 
+/**
+ * DSH 0.2.1 rewrote the tool around managed activations: every call starts a child,
+ * returns its id at once and takes a native `cwd`, so there is no foreground run and
+ * no background mode left to patch. Child effort, worktrees and names are carried
+ * onto that shape; the 0.2.0 functions above remain for the Desktop runtime.
+ */
+function patchSubagentActivation(text) {
+  if (text.includes('// dscode-child-activation-v1')) return text;
+  const worktreeAvailable = '(subagentProvider.prepareContinuable !== void 0 && (config.provider === "spawn" || config.provider === "fork"))';
+  text = replaceOnce(text, 'import z from "@deepseek-ai/schemastery";', 'import { createChildWorktree, discardCleanChildWorktree } from "../../../../plugins/worktree-subagent/worktree.mjs";\nimport z from "@deepseek-ai/schemastery";');
+  text = replaceOnce(text, 'const choiceDescription = !modelSelectionEnabled ? "" :', 'const choiceDescription = !modelSelectionEnabled ? (subagentProvider.capabilities.agentOptions ? "' + CHILD_EFFORT_CHOICE + '" : "") :');
+  text = replaceOnce(text, '+ choiceDescription,', `+ choiceDescription + (${worktreeAvailable} ? " Set worktree: true for an isolated Git checkout when agents edit in parallel. It starts at HEAD and refuses a dirty parent workspace; omit for read-only tasks or when the child needs uncommitted parent edits. You must inspect and integrate its changes; the worktree remains after completion." : ""),`);
+  text = replaceOnce(text, 'parameters: {\n\t\t\t\t\tcwd: {', `parameters: {
+\t\t\t\t\tname: {
+\t\t\t\t\t\ttype: "string",
+\t\t\t\t\t\trequired: true,
+\t\t\t\t\t\tdescription: "Unique name you give this child: 1-10 characters, letters, digits and underscores only, starting and ending with a letter (for example read_code). Address the child as /name in send_message and interrupt_agent."
+\t\t\t\t\t},
+\t\t\t\t\tcwd: {`);
+  text = replaceOnce(text, '...presets.choices === void 0 ? {} : { agent_preset: {', `...${worktreeAvailable} ? { worktree: {
+\t\t\t\t\t\ttype: "boolean",
+\t\t\t\t\t\tdescription: "Create an isolated Git worktree for this child at clean HEAD. Choose for parallel editing; omit or set false for read-only work or tasks requiring uncommitted parent changes. Parent must integrate the result."
+\t\t\t\t\t} } : {},
+\t\t\t\t\t...presets.choices === void 0 ? {} : { agent_preset: {`);
+  text = replaceOnce(text, '...modelSelectionEnabled ? {\n\t\t\t\t\t\tprovider: {', `...!modelSelectionEnabled && subagentProvider.capabilities.agentOptions ? { reasoning_effort: {
+\t\t\t\t\t\ttype: "string",
+\t\t\t\t\t\tdescription: "${CHILD_EFFORT_PARAMETER}"
+\t\t\t\t\t} } : {},
+\t\t\t\t\t...modelSelectionEnabled ? {\n\t\t\t\t\t\tprovider: {`);
+  text = replaceOnce(text, '} : config.agentOptions, modelRequest, modelSelectionEnabled);', '} : config.agentOptions, modelRequest, modelSelectionEnabled || subagentProvider.capabilities.agentOptions && modelRequest.provider === void 0 && modelRequest.model === void 0);');
+  text = replaceOnce(text, 'assertAllowedModelSelection(modelSelectionPolicy, parentOptions, requestedChildAgentOptions, modelRequest);', 'if (modelRequest.provider !== void 0 || modelRequest.model !== void 0) assertAllowedModelSelection(modelSelectionPolicy, parentOptions, requestedChildAgentOptions, modelRequest);');
+  text = replaceOnce(text, 'subagentId: {\n', 'worktree: { type: "string" },\n\t\t\t\t\t\t\tsubagentId: {\n');
+  text = replaceOnce(text, 'text: `started subagent ${value.subagentId}`', 'text: `started subagent /${_args.name} (${value.subagentId})` + (value.worktree ? `\\nWorktree: ${value.worktree}\\nInspect and integrate its changes before removing it.` : "")');
+  text = replaceOnce(text, 'if (!parent) throw new Error("subagent tool requires a calling agent (exec.agent was undefined)");', 'if (!parent) throw new Error("subagent tool requires a calling agent (exec.agent was undefined)");\n\t\t\t\t\tif (typeof args.name !== "string" || !/^[A-Za-z](?:[A-Za-z0-9_]{0,8}[A-Za-z])?$/.test(args.name)) throw new Error("name must be 1-10 characters of letters, digits or underscores, starting and ending with a letter");');
+  text = replaceOnce(text, 'const maxDepth = runtimeCtx.subagents.resolveMaxDepth(config.maxDepth);\n\t\t\t\t\tconst request = {', `if (args.worktree === true && !${worktreeAvailable}) throw new Error("worktree is unavailable for this subagent provider");
+\t\t\t\t\tif (args.worktree === true && args.cwd !== void 0) throw new Error("worktree and cwd cannot be combined: the worktree is the child's directory");
+\t\t\t\t\tconst childWorktree = args.worktree === true ? await createChildWorktree(parent.session.header.cwd, exec.signal) : void 0;
+\t\t\t\t\tconst maxDepth = runtimeCtx.subagents.resolveMaxDepth(config.maxDepth);
+\t\t\t\t\tconst request = {`);
+  text = replaceOnce(text, '...args.cwd === void 0 ? {} : { cwd: args.cwd },', '...childWorktree ? { cwd: childWorktree.cwd } : args.cwd === void 0 ? {} : { cwd: args.cwd },');
+  text = replaceOnce(text, 'label: args.description,', 'label: "/" + args.name + " \u00b7 " + args.description,');
+  text = replaceOnce(text, 'return {\n\t\t\t\t\t\tkind: "activation",', 'try {\n\t\t\t\t\treturn {\n\t\t\t\t\t\tkind: "activation",\n\t\t\t\t\t\t...childWorktree ? { worktree: childWorktree.cwd } : {},');
+  text = replaceOnce(text, '})).childId\n\t\t\t\t\t};', `})).childId
+\t\t\t\t\t};
+\t\t\t\t\t} catch (error) {
+\t\t\t\t\t\tif (childWorktree && !await discardCleanChildWorktree(childWorktree)) throw new Error(\`\${String(error)}; child worktree retained at \${childWorktree.cwd}\`, { cause: error });
+\t\t\t\t\t\tthrow error;
+\t\t\t\t\t}`);
+  return '// dscode-child-activation-v1\n' + text;
+}
+
 export function patchSubagent(text) {
+  if (text.includes('// dscode-child-activation-v1') || text.includes('kind: "activation"')) return patchSubagentActivation(text);
   return patchChildName(patchSubagentBase(text));
 }
 
 export function patchSubagentCore(text) {
   if (text.includes('// dscode-child-cwd-v1')) return text;
+  // DSH 0.2.1 resolves the child's directory itself (`request.cwd`) but still
+  // records the parent's in the header, which the delegate board reads.
+  if (text.includes('function childSessionMeta(parent, childDepth, isSeeded, selectedPreset) {')) {
+    text = replaceOnce(text, 'function childSessionMeta(parent, childDepth, isSeeded, selectedPreset) {', 'function childSessionMeta(parent, childDepth, isSeeded, selectedPreset, workspaceCwd) {');
+    text = replaceOnce(text, '...parentHeader.cwd !== void 0 ? { cwd: parentHeader.cwd } : {},', '...workspaceCwd !== void 0 ? { cwd: workspaceCwd } : parentHeader.cwd !== void 0 ? { cwd: parentHeader.cwd } : {},');
+    text = replaceOnce(text, 'meta: childSessionMeta(parent, childDepth, prepared.seed !== void 0, request.agentPreset),', 'meta: childSessionMeta(parent, childDepth, prepared.seed !== void 0, request.agentPreset, cwd),');
+    text = replaceOnce(text, 'The parent shares your workspace but does not automatically receive your transcript', 'The parent may use a different workspace and does not automatically receive your transcript');
+    return '// dscode-child-cwd-v1\n' + text;
+  }
   text = replaceOnce(text, 'function childSessionMeta(parent, childDepth, isSeeded) {', 'function childSessionMeta(parent, childDepth, isSeeded, workspaceCwd) {');
   text = replaceOnce(text, '...parentHeader.cwd !== void 0 ? { cwd: parentHeader.cwd } : {},', '...workspaceCwd !== void 0 ? { cwd: workspaceCwd } : parentHeader.cwd !== void 0 ? { cwd: parentHeader.cwd } : {},');
   text = replaceOnce(text, 'meta: childSessionMeta(parent, childDepth, prepared.seed !== void 0),', 'meta: childSessionMeta(parent, childDepth, prepared.seed !== void 0, request.workspaceCwd),');
   text = replaceOnce(text, 'The parent shares your workspace but does not automatically receive your transcript', 'The parent may use a different workspace and does not automatically receive your transcript');
   return '// dscode-child-cwd-v1\n' + text;
+}
+/**
+ * DSH 0.2.1 reads the user-global instruction file only from the process `DSH_HOME`.
+ * DSCODE points the row's `dshHome` at a directory holding that file plus the
+ * instructions above the project root (plugins/tui-tools/workspace-discovery.mjs),
+ * one per session on a shared Host, so the row value is honoured again.
+ */
+export function patchAgentInstructions(text) {
+  const marker = '// dscode-instruction-home-v1';
+  if (text.includes(marker)) return text;
+  text = replaceOnce(text, 'function resolveConfig(config) {\n\treturn {\n\t\t...resolveDiscoveryConfig({\n', 'function resolveConfig(config) {\n\treturn {\n\t\t...resolveDiscoveryConfig({\n\t\t\t...config.dshHome === void 0 ? {} : { dshHome: config.dshHome },\n');
+  return marker + '\n' + text;
 }
 export function patchSubagentDriver(text) {
   if (text.includes('// dscode-child-cwd-v1')) return text;
@@ -182,7 +257,7 @@ export function patchAppBoot(text) {
  * package cannot carry its own copy of that package.
  */
 /** The upstream DSH release every runtime patch in this file was validated against. */
-export const RUNTIME_VERSION = '0.2.0-rc.2';
+export const RUNTIME_VERSION = '0.2.1-rc.2';
 
 /**
  * dscode: the round cap is a goal field the model-facing tools can set, and the
@@ -213,7 +288,7 @@ export function patchGoalCommand(text) {
 }
 
 export function patchRuntime(root, { requireMacStdin = true } = {}) {
-  for (const [pkg, patch] of [['dsh-acp', text => patchAcpStatus(patchAcpErrors(text))], ['dsh-tool-subagent', patchSubagent], ['dsh-subagent', patchSubagentCore], ['dsh-subagent-in-process-driver', patchSubagentDriver], ['dsh-llm-deepseek', patchDeepSeek], ['dsh-tool-bash', patchBash], ['dsh-tool-bash-persistent', patchPersistent], ['dsh-terminal-bash', patchTerminalBash], ['dsh-command-goal', patchGoalCommand]]) {
+  for (const [pkg, patch] of [['dsh-acp', text => patchAcpStatus(patchAcpErrors(text))], ['dsh-tool-subagent', patchSubagent], ['dsh-subagent', patchSubagentCore], ['dsh-llm-deepseek', patchDeepSeek], ['dsh-tool-bash', patchBash], ['dsh-tool-bash-persistent', patchPersistent], ['dsh-terminal-bash', patchTerminalBash], ['dsh-command-goal', patchGoalCommand], ['dsh-agent-instructions', patchAgentInstructions]]) {
     const dir = join(root, 'node_modules/@deepseek-ai', pkg);
     if (JSON.parse(readFileSync(join(dir, 'package.json'))).version !== RUNTIME_VERSION) throw new Error('Revalidate runtime patches before upgrading ' + pkg);
     const path = join(dir, 'lib/index.js');

@@ -140,7 +140,7 @@ test('the plugin registers the route, and a provider switch lands on a Go model'
     error => error.code === 'MISSING_CREDENTIAL' && /run \/opencode login/.test(error.message), 'signed out, a request names the login command');
   const rows = [...GO_MODELS].map(([model, entry]) => ({ provider: 'opencode-go', model, reasoning: { efforts: modelReasoning(entry).levels.map(id => ({ id })) } }));
   const pick = (label, effort) => { const result = pickModel(rows, 'opencode-go', label, effort); return `${result.row.model}@${result.effort}`; };
-  assert.equal(pick('deepseek-official/deepseek-flash', 'max'), 'deepseek-v4-flash@max');
+  assert.equal(pick('deepseek-official/deepseek-flash', 'max'), 'deepseek-v4.1-flash@max');
   assert.equal(pick('openrouter/z-ai/glm-5.3', 'off'), 'glm-5.3@undefined', 'an effort the target refuses falls back to its default');
   assert.equal(pick('openrouter/moonshotai/kimi-k2.6', 'low'), 'kimi-k2.6@low');
   assert.equal(pick('grok/grok-4.6', 'high'), 'kimi-k3@high', 'no counterpart lands on the default');

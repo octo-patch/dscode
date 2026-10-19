@@ -11,6 +11,8 @@ export const PRICE_VERSION = 'deepseek-2026-09-11';
 export const OPENROUTER_PRICE_VERSION = 'openrouter-pi-ai-0.85.1';
 const OPENROUTER_PRICES = {
   'deepseek/deepseek-v4-flash': [0.017052, 0.08526, 0.17052],
+  // Listed 2026-10-17 at DeepSeek's own peak rate; the listing's off-peak windows are not modelled here.
+  'deepseek/deepseek-v4.1-flash-1017': [0.006, 0.3, 1.2],
   'deepseek/deepseek-v4-pro': [0.074196, 0.890358, 1.780716],
   'deepseek/deepseek-v4-flash-vision-exp': [0.007, 0.22, 0.66],
 };

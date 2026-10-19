@@ -3,7 +3,12 @@ import { digest, redact, rollout, extraction, consolidation, EXTRACT_PROMPT, CON
 
 export const defaults = Object.freeze({ generate: true, use: true, minIdleHours: 6, maxAgeDays: 30,
   maxPerRun: 16, maxCandidates: 32, maxUnusedDays: 30, maxInputChars: 48000,
-  maxConsolidationChars: 100000, timeoutMs: 90000, extractEffort: 'low', consolidationEffort: 'high' });
+  maxConsolidationChars: 100000, timeoutMs: 180000, extractEffort: 'low', consolidationEffort: 'high' });
+
+// Output tokens per request. Reasoning shares this budget with the answer, and the
+// answer contracts (content.mjs) allow 16000 characters for an extraction and 60000
+// for a consolidation, which in CJK text approach one token per character.
+export const OUTPUT_TOKENS = Object.freeze({ extract: 24000, consolidate: 64000 });
 
 export async function runPipeline({ store, persistence, generate, route, config, signal }) {
   const owner = randomUUID();
@@ -42,7 +47,7 @@ export async function runPipeline({ store, persistence, generate, route, config,
         if (latest > now - config.minIdleHours * 3600000) continue;
         const input = rollout(item.header, events, config.maxInputChars);
         if (!input.messages.some(m => m.role === 'user')) continue;
-        const value = extraction(await generate(EXTRACT_PROMPT, input, route, config.extractEffort, combined), input);
+        const value = extraction(await generate(EXTRACT_PROMPT, input, route, config.extractEffort, combined, OUTPUT_TOKENS.extract), input);
         check();
         // A resumed/changed or disabled session must not commit a stale result.
         const current = (await persistence.list({ signal: combined })).find(s => s.header.id === id);
@@ -68,7 +73,7 @@ export async function runPipeline({ store, persistence, generate, route, config,
     if (fingerprint === store.get('fingerprint')) { store.materialize(); return { extracted, failures, unchanged: true }; }
     let result = { summary: '', entries: [], skills: [] };
     if (candidates.length || notes.length) result = consolidation(
-      await generate(CONSOLIDATE_PROMPT, input, route, config.consolidationEffort, combined),
+      await generate(CONSOLIDATE_PROMPT, input, route, config.consolidationEffort, combined, OUTPUT_TOKENS.consolidate),
       new Set([...candidates, ...notes].map(c => c.id)));
     check();
     // User changes during the model call invalidate the whole publication.

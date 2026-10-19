@@ -20,9 +20,8 @@ const model = (id, name, contextWindow, efforts, image = false) => [id, Object.f
 /** Chat-completions models in picker order. */
 export const GO_MODELS = new Map([
   model('deepseek-v4-pro', 'DeepSeek V4 Pro', 1048576, DEEPSEEK),
-  model('deepseek-v4-flash', 'DeepSeek V4 Flash', 1048576, DEEPSEEK),
+  // Go's listing dropped V4 Flash and V4 Flash Vision Exp (2026-10), which DeepSeek retired.
   model('deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', 1048576, DEEPSEEK, true),
-  model('deepseek-v4-flash-vision-exp', 'DeepSeek V4 Flash Vision Exp', 1048576, DEEPSEEK, true),
   // GLM is thinking-only: `none` is refused.
   model('glm-5.3', 'GLM-5.3', 1048576, MANDATORY),
   model('glm-5.3-flash', 'GLM-5.3-Flash', 1048576, MANDATORY, true),

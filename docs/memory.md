@@ -89,13 +89,13 @@ A source install overrides the existing plugin configuration in `config/harness.
     maxUnusedDays: 30
     extractEffort: low
     consolidationEffort: high
-    timeoutMs: 90000
+    timeoutMs: 180000
     # optional, and both are required together; otherwise the triggering session's provider/model is used.
     # provider: deepseek-official
     # model: deepseek-flash
 ```
 
-Extraction and consolidation efforts are set independently, and neither inherits ultra. Each run does at most 16 per-session requests and 1 consolidation request, executed in order; input and output are both length-bounded, and a single model request has a 90-second default timeout. A missing usable provider, an unsupported configured effort or a network failure never affects the foreground; the background keeps the failure state and retries.
+Extraction and consolidation efforts are set independently, and neither inherits ultra. Each run does at most 16 per-session requests and 1 consolidation request, executed in order; input and output are both length-bounded, and a single model request has a 180-second default timeout. Reasoning shares the output limit with the answer, so an extraction may produce up to 24,000 output tokens and a consolidation up to 64,000. A missing usable provider, an unsupported configured effort, a network failure or a response cut off at the output limit never affects the foreground; the background keeps the failure state, `/memories` shows its reason, and the next run retries.
 
 Background generation incurs extra API usage. `/memories` reports its aggregate
 usage, and the initiating session's cost ledger records each call with purpose

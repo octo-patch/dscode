@@ -143,7 +143,10 @@ test('home-directory launches exclude global DSH hooks and native skill roots wh
   const patched = standaloneSkillsSource(original);
   assert.equal(standaloneSkillsSource(patched), patched);
   assert.throws(() => standaloneSkillsSource('upstream changed'), /drift/);
-  put(join(code, 'skills.mjs'), patched.replace('../../../../plugins/tui-tools/workspace-discovery.mjs', new URL('../plugins/tui-tools/workspace-discovery.mjs', import.meta.url).href));
+  // The copy leaves its package, so dependencies the package nests (chokidar since DSH 0.2.1) resolve from there.
+  const { createRequire } = await import('node:module');
+  const chokidar = pathToFileURL(createRequire(new URL('../node_modules/@deepseek-ai/dsh-skill-filesystem/lib/index.js', import.meta.url)).resolve('chokidar')).href;
+  put(join(code, 'skills.mjs'), patched.replace('../../../../plugins/tui-tools/workspace-discovery.mjs', new URL('../plugins/tui-tools/workspace-discovery.mjs', import.meta.url).href).replace('from "chokidar"', `from ${JSON.stringify(chokidar)}`));
   const entry = `import {FileSystemSkillProvider} from './skills.mjs';
     const provider = new FileSystemSkillProvider({get(){}}, {signal: new AbortController().signal, invalidate(){}}, {dshHome: process.env.DSCODE_HOME, agentsHome: process.env.DSCODE_HOME+'/agents', watch:false});
     console.log(JSON.stringify({home:await provider.roots(process.env.HOME), project:await provider.roots(process.env.HOME+'/project')}));

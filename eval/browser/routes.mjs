@@ -12,6 +12,8 @@ export const EVAL_PROVIDER = 'browser-eval';
 export const EVAL_KEY_ENV = 'DSCODE_BROWSER_EVAL_KEY';
 
 export async function readCredential(ref, env, path = join(homedir(), '.dscode', 'credentials.yaml')) {
+  // An exported key wins, as in DSCODE's own provider; DSH 0.2.1's store ranks its file first.
+  if (env[ref]?.length > 0) return env[ref];
   const ctx = new Context();
   try {
     ctx.provide('launchEnvironment', createLaunchEnvironmentSnapshot([{ source: 'process', values: env }]));

@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -40,8 +40,16 @@ const tick = ms => new Promise(r => setTimeout(r, ms));
 const until = async (label, predicate, ms = 30000) => {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) { const value = await predicate(); if (value) return value; await tick(100); }
-  throw Error(`timed out waiting for ${label}`);
+  throw Error(`timed out waiting for ${label}${await diagnose()}`);
 };
+/** What a lifecycle failure leaves behind: the answering Host, this home's processes and the Host log. */
+async function diagnose() {
+  const status = await hostStatus(home, 2000).catch(() => undefined);
+  const processes = spawnSync('ps', ['-axo', 'pid,ppid,etime,command'], { encoding: 'utf8' }).stdout.split('\n').filter(line => line.includes(home)).join('\n');
+  let log = '';
+  try { log = readFileSync(join(home, 'run', 'host.log'), 'utf8').split('\n').slice(-60).join('\n'); } catch { /* no log yet */ }
+  return `\nHost status: ${JSON.stringify(status)}\nProcesses:\n${processes || '(none)'}\nHost log tail:\n${log || '(empty)'}`;
+}
 const value = result => { assert.equal(result?.ok, true, JSON.stringify(result)); return result.value; };
 
 /** Start a separate terminal client with the probe; resolves its handle and output. */
@@ -191,6 +199,9 @@ try {
   report.reload = true;
 
   console.log('HOST_VERIFIED ' + JSON.stringify(report));
+} catch (error) {
+  if (!String(error?.message).includes('Host status:')) console.error(`verify-host failed after ${JSON.stringify(report)}${await diagnose()}`);
+  throw error;
 } finally {
   await stop().catch(() => {});
   if (!process.env.KEEP) rmSync(home, { recursive: true, force: true });

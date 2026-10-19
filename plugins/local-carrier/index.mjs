@@ -225,11 +225,13 @@ export async function apply(ctx, config = {}) {
   }
   if (!config.host) return;
   const running = () => (ctx.get('agents')?.list() ?? []).filter(agent => agent.status === 'running').length;
+  // Which start launched this Host (scripts/host.mjs ensureHost), so that start can end its stale launches.
+  const launchId = process.env.DSCODE_HOST_LAUNCH_ID;
   const exit = code => setTimeout(() => ctx.get('appExit')?.(code), 50);
   ctx.inject(['dscodeRemote'], scoped => scoped.effect(() => {
     const offs = [
       scoped.dscodeRemote.method('host/status', () => ({
-        version: VERSION, pid: process.pid, startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
+        version: VERSION, pid: process.pid, ...(launchId ? { launchId } : {}), startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
         sessions: (ctx.get('agents')?.list() ?? []).length, running: running(), idleExitMs: config.idleExitMs ?? 0,
         defaultCwd: config.defaultCwd || homedir(),
         ...(config.tcp?.port ? { tcp: { port: config.tcp.port, bind: config.tcp.bind } } : {}),

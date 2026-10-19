@@ -6,7 +6,7 @@
 // server` runs the same Host in the foreground with a TCP listener for remote
 // clients (docs/remote-runtime.md).
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { hostname, networkInterfaces } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -107,27 +107,43 @@ function serveCommand() {
 export async function ensureHost({ home = runtimeHome } = {}) {
   if (await hostStatus(home) !== undefined) return hostSocket(home);
   mkdirSync(hostDirectory(home), { recursive: true, mode: 0o700 });
+  const launches = [];
   const launch = () => {
     const log = openSync(hostLog(home), 'a', 0o600);
     const [command, args] = serveCommand();
-    const state = { exited: false };
+    // The Host reports this id in host/status, so the starter can tell its own launch apart.
+    const state = { exited: false, id: randomUUID(), pid: undefined };
     try {
-      const child = spawn(command, args, { cwd: home, detached: true, stdio: ['ignore', log, log], env: process.env });
+      const child = spawn(command, args, { cwd: home, detached: true, stdio: ['ignore', log, log], env: { ...process.env, DSCODE_HOST_LAUNCH_ID: state.id } });
+      state.pid = child.pid;
       child.on('exit', () => { state.exited = true; });
       child.unref();
     } finally { closeSync(log); }
+    launches.push(state);
     return state;
+  };
+  // Once a Host answers, a launch of ours that is not that Host is stale: if it outlived
+  // the answering Host it would take the lock and serve with this start's settings. The
+  // answering Host holds the lock, so a stale launch cannot be serving; end its process group.
+  const ready = status => {
+    for (const state of launches) {
+      if (state.exited || state.id === status.launchId || state.pid === undefined) continue;
+      try { process.kill(-state.pid, 'SIGTERM'); } catch { /* already gone */ }
+    }
+    return hostSocket(home);
   };
   let current = launch();
   const deadline = Date.now() + READY_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (await hostStatus(home) !== undefined) return hostSocket(home);
+    const status = await hostStatus(home);
+    if (status !== undefined) return ready(status);
     // A Host that lost the lock race (to a concurrent start, or to one still
     // shutting down) exits at once; start again unless someone else answers.
     if (current.exited) { await new Promise(resolve => setTimeout(resolve, 300)); if (await hostStatus(home) === undefined) current = launch(); }
     await new Promise(resolve => setTimeout(resolve, 200));
   }
-  if (await hostStatus(home) !== undefined) return hostSocket(home);
+  const status = await hostStatus(home);
+  if (status !== undefined) return ready(status);
   const tail = existsSync(hostLog(home)) ? readFileSync(hostLog(home), 'utf8').split('\n').slice(-20).join('\n') : '';
   throw Error(`the DSCODE Host did not start (log: ${hostLog(home)})${tail ? `\n${tail}` : ''}`);
 }

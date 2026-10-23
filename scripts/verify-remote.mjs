@@ -68,11 +68,11 @@ async function startServer() {
 /** Run the launcher as the terminal machine; resolves its exit code and output. */
 function launch(args, scenario, { onOutput } = {}) {
   const child = spawn(process.execPath, [join(root, 'bin/dscode.mjs'), ...args], { cwd: clientFolder, env: { ...clientEnv, ...(scenario ? { TUI_PROBE_SCENARIO: scenario } : {}) }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const state = { output: '' };
+  const state = { output: '', stdout: '' };
   const feed = b => { state.output += b; onOutput?.(state.output); };
-  child.stdout.on('data', feed); child.stderr.on('data', feed);
+  child.stdout.on('data', b => { state.stdout += b; feed(b); }); child.stderr.on('data', feed);
   const timer = setTimeout(() => child.kill('SIGKILL'), 240000);
-  return new Promise(resolveRun => child.once('exit', code => { clearTimeout(timer); resolveRun({ code, output: state.output }); }));
+  return new Promise(resolveRun => child.once('close', code => { clearTimeout(timer); resolveRun({ code, ...state }); }));
 }
 
 const report = {};
@@ -103,10 +103,11 @@ try {
 
   const inspected = await launch(['runtime', 'status', 'probe-server', '--json']);
   assert.equal(inspected.code, 0, inspected.output);
-  assert.equal(JSON.parse(inspected.output).status.version, version);
+  // Node 22 emits SQLite's experimental warning on stderr; JSON belongs to stdout.
+  assert.equal(JSON.parse(inspected.stdout).status.version, version);
   const diagnosed = await launch(['runtime', 'doctor', 'probe-server', '--json']);
   assert.equal(diagnosed.code, 0, diagnosed.output);
-  assert(JSON.parse(diagnosed.output).checks.some(check => check.name === 'workspace' && check.ok));
+  assert(JSON.parse(diagnosed.stdout).checks.some(check => check.name === 'workspace' && check.ok));
   assert(!diagnosed.output.includes(server.target.token));
   const edited = await launch(['config', '--alias', 'probe-server', '--cwd', serverWorkspace]);
   assert.equal(edited.code, 0, edited.output);

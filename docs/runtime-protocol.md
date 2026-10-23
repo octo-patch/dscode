@@ -1,6 +1,6 @@
 # Client and runtime protocol
 
-> **Developer reference, not a usage guide.** It specifies how a terminal client talks to the DSCODE runtime, for anyone writing or debugging a client. Status: describes the protocol as implemented in 0.7.48; the code is authoritative where the two differ. Why it is shaped this way is in [Runtime and client separation](runtime-client-design.md); the user-facing behaviour is in [Background host](host.md) and [Remote runtime](remote-runtime.md).
+> **Developer reference, not a usage guide.** It specifies how a terminal client talks to the DSCODE runtime, for anyone writing or debugging a client. Status: describes the current source, including unreleased remote diagnostics, service management, compatibility negotiation and session hardening after 0.7.49; the code is authoritative where the two differ. Why it is shaped this way is in [Runtime and client separation](runtime-client-design.md); the user-facing behaviour is in [Background host](host.md) and [Remote runtime](remote-runtime.md).
 
 ## Roles
 
@@ -88,16 +88,18 @@ One logical stream is one `POST /stream` exchange with `content-type: applicatio
 
 | Operation | Form | Result |
 |---|---|---|
-| `host/status` | DSCODE unary | `{version, pid, startedAt, socketPath, clients, streams, sessions, running, idleExitMs, defaultCwd, tcp?}`; `defaultCwd` is the folder a remote client uses when it names none, `tcp` is `{port, bind}` on a server |
+| `host/status` | DSCODE unary | `{version, protocol, pid, startedAt, launchId, serviceId?, socketPath, clients, streams, sessions, running, idleExitMs, defaultCwd, tcp?}`; `defaultCwd` is the folder a remote client uses when it names none, `tcp` is `{port, bind}` on a server |
 | `host/shutdown` | DSCODE unary | `{stopping: true}`; the Host exits about 50 ms later |
 
 A launcher finds the Host by calling `host/status` with a 2-second timeout. If nothing answers, `ensureHost` (`scripts/host.mjs`) spawns `dscode host serve` detached, with output appended to `run/host.log` in the state directory, and polls `host/status` for up to 90 seconds. A started Host that exits early (it lost the lock race) is relaunched unless another Host has started answering. The launcher then starts the client with `DSCODE_RUNTIME_SOCKET` set to the socket path; the client refuses to start without it.
 
 **Idle accounting.** `clients` counts open `$events` streams, one per attached client; `streams` counts all open streams. Every request except `host/status` refreshes the activity clock, so status probes never keep a Host alive. With `idleExitMs > 0` (default 600000, from `DSCODE_HOST_IDLE_MS`), the Host exits once `clients`, `streams` and running agents have all been zero for that long.
 
-**Remote launch.** For a remote runtime (`dscode runtime <alias>`, or a default other than `local`), the launcher starts no local Host. It calls `host/status` over TCP and refuses to continue if the server does not answer, rejects the token, or reports a different `version`. It then starts the client with `DSCODE_RUNTIME_URL`, `DSCODE_RUNTIME_TOKEN`, `DSCODE_RUNTIME_CWD` (the session folder on the server: `--cwd`, else the alias's folder, else the server's `defaultCwd`) and `DSCODE_RUNTIME_ALIAS`. There is no fallback to this machine.
+**Remote launch.** For a remote runtime (`dscode runtime <alias>`, or a default other than `local`), the launcher starts no local Host. It calls `host/status` over TCP and refuses to continue if the server does not answer, rejects the token, or reports an incompatible protocol contract. It then starts the client with `DSCODE_RUNTIME_URL`, `DSCODE_RUNTIME_TOKEN`, `DSCODE_RUNTIME_CWD` (the session folder on the server: `--cwd`, else the alias's folder, else the server's `defaultCwd`) and `DSCODE_RUNTIME_ALIAS`. There is no fallback to this machine.
 
-**Versioning.** There is no protocol version number; client and Host must run the same DSCODE release. For a remote runtime the launcher compares `host/status.version` with its own before starting the client, and the client compares again after every reconnect and reports a mismatch. For the local Host, the launcher always starts its own package's Host, and `dscode update` stops an idle Host before replacing the package and refuses while a client is attached.
+**Versioning.** `host/status.protocol` is `{revision: 2, upstream: <exact @deepseek-ai/dsh pin>, capabilities: ['host/diagnostics', 'session/deliver-idempotency', 'session/interrupt-turn']}`. The shared contract in `plugins/local-carrier/protocol.mjs` requires the same revision and upstream pin, allowing different application versions. A server without `protocol` uses the legacy exact `version` check; an explicitly incompatible or malformed declaration never falls back to it. Increment the revision for incompatible DSCODE methods, stream envelopes or semantics; advertise additive optional operations through capabilities. This contract does not promise cross-Harness session-storage compatibility. Both the launcher and the remote protocol client use this check, including on every event-stream `ready` before recovery or approval replay. Incompatibility aborts streams and blocks requests until restart. Local same-process carriers have no Host management methods and do not require the remote handshake. The standalone updater pauses an idle managed server before package replacement, resumes it after success or failure, and refuses attached clients or running turns. `serviceId` identifies the user service for the current state directory; `launchId` distinguishes individual Host starts.
+
+**Diagnostics.** `host/diagnostics` accepts `{cwd?}` (an absolute server-side path; defaults to the Host's default folder) and returns `{checks: [{name, ok, detail}]}`. Checks inspect the directory, registered provider-adapter count, tool service and session-persistence service. They create no sessions and make no model or tool calls. Service presence does not prove provider authentication or per-session tool readiness. The CLI's `runtime status` uses `host/status`; `runtime doctor` adds `host/diagnostics` only after the compatibility check passes and, on declared protocols, the capability is advertised.
 
 ## Client lifecycle
 
@@ -122,7 +124,7 @@ This stream is also how the Host counts the client as attached.
 - `session/selectModel` with `{request: {sessionId, provider, model, reasoningEffort?}}`.
 - DSCODE `permissions/select` with `{sessionId, id}` for a permission preset chosen before the session existed.
 
-**Resume.** No call is needed: opening `session/follow` on a persisted session makes the Host resume it. To turn user input (an id or an id prefix) into a session id, call DSCODE `sessions/resolveResume` with `{wanted, currentId?, allowLive: true}`. `allowLive: true` means "attach to the live session"; without it, a session that is live elsewhere is refused with `dscode/live-elsewhere` (the single-process rule). Subagent sessions are refused with `dscode/read-only`.
+**Resume.** Opening `session/follow` on a persisted session reads its history without activating an Agent. DSCODE `session/deliver` and `session/updateQueued` resolve a cold ordinary Agent through the upstream Session Controller before mutating it; concurrent callers share that recovery. Upstream explicit commands such as `session/selectModel` also activate an Agent. To turn user input (an id or an id prefix) into a session id, call DSCODE `sessions/resolveResume` with `{wanted, currentId?, allowLive: true}`. `allowLive: true` means "attach to the live session"; without it, a session that is live elsewhere is refused with `dscode/live-elsewhere` (the single-process rule). Subagent sessions are refused with `dscode/read-only`.
 
 **Fork.** Typert `session/fork` with `{request: {sessionId, atSeq?}}` returns `{sessionId}` of the fork, which is then opened like a resume.
 
@@ -142,7 +144,7 @@ Open stream `session/follow`:
 | `event` | `event`: one committed session event, in sequence order |
 | `assistant-stream` | `frame`: one live, uncommitted assistant presentation frame (text deltas and the like) |
 
-**Older history.** While `hasMore` is true, call Typert `session/page` with `{request: {address, throughSeq: cursor, beforeSeq: <seq of the oldest event held>, maxMessages}}`. It returns `{records, hasMore}`; prepend the records. The terminal pages back to the start because it folds the whole log (transcript, fork points, history search).
+**Older history.** While `hasMore` is true, call Typert `session/page` with `{request: {address, throughSeq: cursor, beforeSeq: <seq of the oldest event held>, maxMessages}}`. It returns `{records, hasMore}`; prepend the records. The terminal pages back to the start because it folds the whole log (transcript, fork points, history search). It validates contiguous sequence numbers, the requested page boundary and `hasMore`, and rejects non-progressing, incomplete or regressed history with `dscode/history-invalid`. Failed initial pagination closes the follow stream. Session cancellation also aborts pending history requests.
 
 **Running state.** Running state changes arrive as `turn/start` and `turn/end` events and as `api-session/status` emits. A client attaching mid-turn reads it once from Typert `session/list` (`{_request: {}}` returns `{items: [{sessionId, running, …}]}`), so it can show and interrupt the turn it joined.
 
@@ -190,7 +192,7 @@ Abort the follow, children and watch streams. The session stays on the Host, and
 
 A stream that fails with a connection error, or ends without being aborted, is reopened with backoff (250 ms, 500 ms, 1 s, 2 s, then every 5 s). A failure that carries a Remote or `dscode/*` code is the operation's own and is not retried.
 
-- **`$events`.** A reopened stream gets a new `ready` with a new `clientId`. Prompts still open from the old connection are withdrawn, because the Host replays every waterfall that is still pending. An answer that could not be delivered is kept and sent when its `eventId` is replayed. The terminal shows the drop and the recovery as notices, and the session streams below retry at once instead of finishing their backoff.
+- **`$events`.** A reopened stream gets a new `ready` with a new `clientId`; over TCP, an authenticated `host/status` check must confirm protocol compatibility before recovery is announced or waterfalls are dispatched. Prompts from the old connection are withdrawn as soon as the drop is detected. An answer that could not be delivered is kept and sent when its `eventId` is replayed. The terminal shows the drop and the recovery as notices and persistent footer state, and the session streams below retry at once instead of finishing their backoff. Token refusal and incompatible versions abort the client's transports and reject future calls, rather than retrying. Other operation failures terminate the affected stream and are reported.
 - **`session/follow`.** The reopened stream opens with a fresh `snapshot`. The client keeps what it has folded, takes the snapshot's events newer than the last `seq` it saw, and pages back with `session/page` (`throughSeq` = the new `cursor`, `beforeSeq` = the oldest new record) until it reaches that `seq`. It then emits the missed events in order and re-reads the running state from `session/list`. Live assistant frames from the gap are not recovered; the committed message carries the text.
 - **Watches and feeds** (`commands/watch`, `models/defaults`, `skills/watch`, `status/watch`, `notices/watch`, `sessions/children`, revision streams) reopen the same way. A revision stream's first item after a reopen counts as a change. Child events committed during the gap are not replayed.
 - Unary calls made while disconnected fail and are reported. Opening a session or delivering a message is not retried automatically.
@@ -210,7 +212,7 @@ Unary methods are `POST /dscode/<name>`; streams are endpoint `dscode/<name>`. A
 
 | Group | Methods | Streams | Source |
 |---|---|---|---|
-| Host | `host/status`, `host/shutdown` | | `plugins/local-carrier/index.mjs` |
+| Host | `host/status`, `host/shutdown`, `host/diagnostics` | | `plugins/local-carrier/index.mjs` |
 | Delivery | `session/deliver`, `session/updateQueued`, `session/interrupt` | | `delivery.ts` |
 | Commands | `commands/execute` | `commands/watch` `{sessionId?}` | `commands.ts` |
 | Sessions | `sessions/list`, `sessions/subagents`, `sessions/delete`, `sessions/transcript`, `sessions/search`, `sessions/usage`, `sessions/rename`, `sessions/resolveResume` | | `sessions.ts` |
@@ -231,6 +233,18 @@ Unary methods are `POST /dscode/<name>`; streams are endpoint `dscode/<name>`. A
 
 `models/subagentOverride` sets one Host-wide override shared by every client: `/subagent` in one terminal changes delegated agents' models for all sessions on that Host.
 
+### Session mutation guarantees
+
+Protocol revision 2 makes DSCODE session validation and mutation failures structured. Invalid arguments return `dscode/invalid-arguments` before work starts; deletion and rename failures use error envelopes rather than success strings. Their successful human-readable results are retained. Upstream Typert keeps its own schemas and error vocabulary. Session-domain errors from either layer are permanent operation failures, not network retries.
+
+`session/deliver` accepts optional `requestId` alongside `{sessionId, content, mode, context?}`. Reuse the same ID and identical payload after a lost response. The Host records a receipt in the ordinary user message's source, including durable inbox insertions, and waits for the session flush before acknowledging when persistence is mounted. The receipt binds the session, content, mode and optional context. Changing any of those under the same ID returns `dscode/idempotency-conflict`; changing JSON object key order does not. Canceled or edited queue messages still retain their original receipt in the event log, so retrying does not resurrect them. Forks have separate receipt namespaces. A partial context injection is recognized on retry as well.
+
+The terminal supplies a fresh ID for each submission. It does not automatically replay failed writes, and entering the same text again is a new submission. Callers without an ID retain legacy behavior. An acknowledgment means accepted and flushed, not that the turn finished. If storage fails, the prompt may already be accepted: retry with the original ID. Without persistence the receipt lasts only as long as the in-memory session; this is not an exactly-once guarantee across storage loss or external rollback. Older servers without the advertised capability do not promise deduplication.
+
+`session/interrupt` accepts optional `expectedTurnSeq`, the sequence number of the observed `turn/start`. An active different turn returns `dscode/conflict`; an idle session returns `{cancelled: false, preserved: 0}`. The terminal supplies this guard. A successful interrupt still preserves next-turn queued messages. Queue edits address message IDs, and editing creates a replacement message identity; stale edits cannot overwrite that replacement. A failed queue-to-steer promotion restores the pending message. Successful queue mutations, interrupts and renames also wait for the mounted session flush before acknowledgment.
+
+`sessions/delete` plans the observed subtree, then acquires the JSONL backend's write handles for every member before removing any logs. A competing writer or restore fails with `dscode/conflict`; acquired handles are released on failure or cancellation. Deletion preserves each `session.lock` inode. Cancellation is honored before removal starts; once it starts, caller disconnection does not interrupt the removal loop. An I/O failure can still leave a partially deleted subtree and reports progress in `dscode/delete-failed`; this is not an atomic multi-session storage transaction or a global lock against independently created forks. Other storage backends remain unsupported.
+
 ### Stream conventions
 
 - **Value watches** (`commands/watch`, `models/defaults`, `skills/watch`) send the current value first, then a new value on every change, skipping values that serialize identically to the previous one.
@@ -248,6 +262,11 @@ DSCODE failures carry a stable `code`; anything that is not a deliberate failure
 | `dscode/unauthorized` | A TCP request without the server's token |
 | `dscode/unavailable` | The Host has no DSCODE registry mounted |
 | `dscode/unknown-method`, `dscode/unknown-stream` | No such operation |
+| `dscode/invalid-arguments` | Malformed DSCODE session arguments; rejected before mutation |
+| `dscode/conflict`, `dscode/idempotency-conflict` | Stale turn, competing writer, or changed payload under an existing request ID |
+| `dscode/history-invalid` | History pages or live sequences violate the contiguous log contract |
+| `dscode/delete-failed`, `dscode/rename-failed` | Mutation failed; deletion reports completed subtree members |
+| `dscode/unsupported`, `dscode/resume-failed` | Unsupported deletion backend or failed Agent recovery |
 | `dscode/session-not-live` | The session has no live agent on this Host |
 | `dscode/not-found`, `dscode/ambiguous`, `dscode/usage` | `sessions/resolveResume` could not resolve the input |
 | `dscode/read-only` | A subagent session cannot be resumed as a root |
@@ -299,7 +318,7 @@ The socket path of a running Host is the `socketPath` field of `dscode host stat
 ## Verification
 
 - `scripts/verify-local-carrier.mjs` drives a headless Host from a separate process with upstream methods only: create, select model, prompt, follow with live frames, and an approval rejected through `$events/result`.
-- `scripts/verify-host.mjs` covers two clients on one session, a client killed mid-turn and reattached through paged history, concurrent Host starts, and idle exit.
+- `scripts/verify-host.mjs` covers two clients on one session, a client killed mid-turn and reattached through paged history, concurrent Host starts, concurrent explicit-ID creation and cold recovery, durable delivery retries after restart, and idle exit.
 - `scripts/verify-tui-runner.mjs` runs the real terminal in single-process, same-process protocol and separate-Host modes.
 - `scripts/verify-remote.mjs` runs a real `dscode server` and a terminal with separate state directories: token refusal on every route, `dscode config`, the full terminal scenario over TCP, `/export` and the git branch in the server's folder, a server restart mid-session with the terminal reconnecting, content attachments, and refused launches.
 - `tests/local-carrier.test.mjs` covers the envelopes, socket permissions, uplink, failure mapping, client abort, bearer-token checks on every TCP route and the version refusal. `tests/remote-runtime.test.mjs` covers the runtime configuration, the server token, content-attachment routing and limits, and stream reopening.

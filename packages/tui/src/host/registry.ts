@@ -8,6 +8,8 @@
  * @module dsh-code/host/registry
  */
 
+import { sessionArgumentError } from './session-arguments.ts'
+
 /** Per-invocation facts. */
 export interface RemoteCall {
   readonly signal: AbortSignal
@@ -24,8 +26,8 @@ export type RemoteStream = (args: any, call: RemoteStreamCall) => AsyncIterable<
 /** A failure that crosses the carrier with a stable code. */
 export class RemoteFailure extends Error {
   readonly code: string
-  constructor(code: string, message: string) {
-    super(message)
+  constructor(code: string, message: string, options?: ErrorOptions) {
+    super(message, options)
     this.name = 'RemoteFailure'
     this.code = code
   }
@@ -60,15 +62,21 @@ export class DscodeRemoteRegistry {
 
   /** Invoke one method with JSON-normalized arguments and result. */
   async invoke(name: string, args: unknown, signal: AbortSignal = new AbortController().signal): Promise<unknown> {
+    signal.throwIfAborted()
     const fn = this.methods.get(name)
     if (fn === undefined) throw new RemoteFailure('dscode/unknown-method', `unknown DSCODE method ${name}`)
+    const invalid = sessionArgumentError(name, args)
+    if (invalid !== undefined) throw new RemoteFailure('dscode/invalid-arguments', invalid)
     return json(await fn(json(args) ?? {}, { signal }))
   }
 
   /** Open one stream with JSON-normalized arguments, uplink and items. */
   async *open(name: string, args: unknown, uplink: AsyncIterable<unknown>, signal: AbortSignal): AsyncIterable<unknown> {
+    signal.throwIfAborted()
     const fn = this.streams.get(name)
     if (fn === undefined) throw new RemoteFailure('dscode/unknown-stream', `unknown DSCODE stream ${name}`)
+    const invalid = sessionArgumentError(name, args)
+    if (invalid !== undefined) throw new RemoteFailure('dscode/invalid-arguments', invalid)
     const normalizedUplink = (async function* () { for await (const item of uplink) yield json(item) })()
     for await (const item of fn(json(args) ?? {}, { signal, uplink: normalizedUplink })) yield json(item)
   }

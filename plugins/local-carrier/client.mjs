@@ -40,6 +40,7 @@ export function targetFromEnv(env = process.env) {
 /** Fetch-shaped unary transport over the Unix socket or TCP. */
 export function socketFetch(target) {
   return (input, init = {}) => new Promise((resolve, reject) => {
+    if (init.signal?.aborted) { reject(init.signal.reason); return; }
     const url = new URL(String(input), 'http://localhost');
     const req = request(requestOptions(target, url.pathname + url.search, init.method ?? 'GET', Object.fromEntries(new Headers(init.headers))), res => {
       const chunks = [];
@@ -48,7 +49,9 @@ export function socketFetch(target) {
       res.on('error', reject);
     });
     req.on('error', reject);
-    init.signal?.addEventListener('abort', () => req.destroy(init.signal.reason), { once: true });
+    const abort = () => req.destroy(init.signal.reason);
+    init.signal?.addEventListener('abort', abort, { once: true });
+    req.once('close', () => init.signal?.removeEventListener('abort', abort));
     req.end(init.body === undefined ? undefined : typeof init.body === 'string' ? init.body : Buffer.from(init.body));
   });
 }
@@ -82,6 +85,7 @@ export function openDscodeStream(target, name, args = {}, signal, uplink) {
 
 /** Gateway stream opener: yields decoded items, throws the Remote failure on {error}. */
 export async function* openStream(target, endpoint, payload, signal, uplink) {
+  signal?.throwIfAborted();
   const options = requestOptions(target, STREAM_PATH, 'POST', { 'content-type': 'application/x-ndjson' });
   // A stream owns its connection for its lifetime, so it never enters the pool;
   // keepalive probes still guard an idle one against NAT timeouts.

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { acquireLock, activeRuns, registerRun } from '../packages/launcher/locks.mjs';
@@ -33,6 +33,59 @@ test('normal launcher release keeps an inherited runtime lease discoverable', as
   assert.equal((await activeRuns(home)).length, 0);
 });
 
+test('standalone update resumes services after releasing gates and preserves update/restart failures', async t => {
+  const work = realpathSync(mkdtempSync(join(tmpdir(), 'dscode-update-service-')));
+  const root = join(work, 'app'), home = join(work, 'user'), state = join(home, 'state');
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  const put = (path, value) => { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, value); };
+  put(join(root, 'package.json'), '{"version":"1.0.0","type":"module"}');
+  put(join(root, MARKER), JSON.stringify({ format: 1, version: '1.0.0', platform: `${process.platform}-${process.arch}`, node: process.versions.node }));
+  mkdirSync(join(root, 'runtime/bin'), { recursive: true });
+  symlinkSync(process.execPath, join(root, 'runtime/bin/node'));
+  symlinkSync(new URL('../node_modules', import.meta.url), join(root, 'node_modules'));
+  for (const name of ['scripts/standalone.mjs', 'scripts/standalone-layout.mjs', 'packages/launcher/locks.mjs']) {
+    mkdirSync(join(root, name, '..'), { recursive: true }); cpSync(new URL(`../${name}`, import.meta.url), join(root, name));
+  }
+  cpSync(new URL('../packages/standalone/dscode', import.meta.url), join(root, 'dscode')); chmodSync(join(root, 'dscode'), 0o755);
+  put(join(root, 'bin/dscode.mjs'), '');
+  put(join(root, 'scripts/host.mjs'), 'export async function hostStatus() {}');
+  put(join(root, 'scripts/server-service.mjs'), `
+    import { appendFileSync } from 'node:fs';
+    import { acquireLock } from '../packages/launcher/locks.mjs';
+    import { installationLockHome } from './standalone-layout.mjs';
+    export async function pauseServerForUpdate({ home }) {
+      if (process.env.UPDATE_SCENARIO === 'busy') throw Error('service busy');
+      appendFileSync(home + '/trace', 'pause\\n');
+      return async () => {
+        for (const path of [installationLockHome(process.env.DSCODE_STANDALONE_ROOT), home]) {
+          const unlock = await acquireLock(path); unlock();
+        }
+        appendFileSync(home + '/trace', 'resume\\n');
+        if (process.env.UPDATE_SCENARIO === 'both-fail') throw Error('restart failed');
+      };
+    }
+  `);
+  put(join(root, 'scripts/standalone-update.mjs'), `
+    import { appendFileSync } from 'node:fs';
+    export async function updateStandalone(args, { env }) {
+      appendFileSync(env.DSCODE_HOME + '/trace', 'update\\n');
+      if (process.env.UPDATE_SCENARIO !== 'success') throw Error('download failed');
+    }
+  `);
+  for (const scenario of ['success', 'download-fail', 'both-fail', 'busy']) {
+    mkdirSync(state, { recursive: true }); writeFileSync(join(state, 'trace'), '');
+    const record = start(join(root, 'dscode'), ['update'], { HOME: home, PATH: '/usr/bin:/bin', DSCODE_HOME: state, UPDATE_SCENARIO: scenario });
+    const timer = setTimeout(() => record.child.kill('SIGKILL'), 15000);
+    let code;
+    try { code = await record.done; } finally { clearTimeout(timer); }
+    assert.equal(code, scenario === 'success' ? 0 : 1, record.error);
+    assert.equal(readFileSync(join(state, 'trace'), 'utf8'), scenario === 'busy' ? '' : 'pause\nupdate\nresume\n');
+    if (scenario === 'download-fail' || scenario === 'both-fail') assert.match(record.error, /download failed/);
+    if (scenario === 'both-fail') assert.match(record.error, /restart failed/);
+    if (scenario === 'busy') assert.match(record.error, /service busy/);
+  }
+});
+
 test('standalone uses private Node, preserves exit status, admits parallel sessions and protects orphaned Hosts', async t => {
   const work = realpathSync(mkdtempSync(join(tmpdir(), 'dscode-private-launch-')));
   const root = join(work, 'app with spaces'), home = join(work, 'user'), state = join(home, 'state');
@@ -45,6 +98,7 @@ test('standalone uses private Node, preserves exit status, admits parallel sessi
   for (const name of ['standalone.mjs', 'standalone-layout.mjs']) {
     mkdirSync(join(root, 'scripts'), { recursive: true }); cpSync(new URL(`../scripts/${name}`, import.meta.url), join(root, 'scripts', name));
   }
+  put(join(root, 'scripts/server-service.mjs'), 'export async function pauseServerForUpdate() {}');
   mkdirSync(join(root, 'packages/launcher'), { recursive: true });
   cpSync(new URL('../packages/launcher/locks.mjs', import.meta.url), join(root, 'packages/launcher/locks.mjs'));
   cpSync(new URL('../packages/standalone/dscode', import.meta.url), join(root, 'dscode')); chmodSync(join(root, 'dscode'), 0o755);

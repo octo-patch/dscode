@@ -81,6 +81,7 @@ export function runProbe(fail) {
       await waitFor('joined turn interrupted', text => text.includes('turn cancelled'));
     } else if (scenario === 'remote') {
       // A remote runtime: the session's folder and its files are on the server.
+      await waitFor('persistent remote identity', text => text.includes('remote probe-server'));
       await enter('hello');
       await waitFor('streamed reply', text => text.includes(`${REPLY} (fixture)`));
       await enter('/export remote-export.md');

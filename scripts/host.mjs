@@ -11,7 +11,7 @@ import { hostname, networkInterfaces } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { tryLockExclusive } from '@deepseek-ai/node-addon-system/flock';
-import { dshStdio, localOverlays, root, provision, runDsh, runtimeHome } from './harness.mjs';
+import { dshStdio, loadLocalEnvironment, localOverlays, root, provision, runDsh, runtimeHome } from './harness.mjs';
 import { callDscode } from '../plugins/local-carrier/client.mjs';
 import { ensureSocketDirectory } from '../plugins/session-bridge/paths.mjs';
 
@@ -68,7 +68,7 @@ export const HOST_RUNNING_EXIT = 3;
  * Host that lost a concurrent start therefore exits at once instead of booting, and
  * cannot take the lock over once the winner stops.
  */
-export async function serve({ home = runtimeHome, args = [], idleExitMs = idleMs(), tcp, defaultCwd } = {}) {
+export async function serve({ home = runtimeHome, args = [], idleExitMs = idleMs(), tcp, defaultCwd, onReady } = {}) {
   provision(home, { cwd: home });
   const lock = openSync(join(ensureSocketDirectory(home), 'host.lock'), 'a', 0o600);
   try { await tryLockExclusive(lock); } catch {
@@ -81,14 +81,38 @@ export async function serve({ home = runtimeHome, args = [], idleExitMs = idleMs
   const extra = process.env.DSCODE_HOST_PATCH ? ['--patch', process.env.DSCODE_HOST_PATCH] : [];
   const lockFd = dshStdio('inherit', [lock]).length - 1;
   let child;
+  const launchId = process.env.DSCODE_HOST_LAUNCH_ID || randomUUID();
   try {
-    child = runDsh([...localOverlays(), '--patch', overlay, ...extra, ...args], { home, cwd: home, extraFds: [lock], env: { DSCODE_SESSION_WORKSPACES: '1', DSCODE_HOST_LOCK_FD: String(lockFd) } });
+    child = runDsh([...localOverlays(), '--patch', overlay, ...extra, ...args], { home, cwd: home, extraFds: [lock], env: { DSCODE_SESSION_WORKSPACES: '1', DSCODE_HOST_LOCK_FD: String(lockFd), DSCODE_HOST_LAUNCH_ID: launchId } });
   } finally { closeSync(lock); }
   for (const signal of ['SIGTERM', 'SIGHUP', 'SIGINT']) process.on(signal, () => child.kill(signal));
-  return new Promise(resolve => {
-    child.on('error', error => { console.error(error.message); resolve(1); });
-    child.on('exit', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  let finished = false;
+  const exited = new Promise(resolve => {
+    child.on('error', error => { finished = true; console.error(error.message); resolve(1); });
+    child.on('exit', (code, signal) => { finished = true; resolve(code ?? (signal ? 1 : 0)); });
   });
+  if (onReady) {
+    const deadline = Date.now() + READY_TIMEOUT_MS;
+    let ready = false;
+    while (!finished && Date.now() < deadline) {
+      const status = await hostStatus(home);
+      if (status?.launchId === launchId) {
+        const address = ['0.0.0.0', '::'].includes(tcp.bind) ? (tcp.bind === '::' ? '[::1]' : '127.0.0.1') : tcp.bind.includes(':') ? `[${tcp.bind}]` : tcp.bind;
+        try {
+          const remote = await callDscode({ url: `http://${address}:${tcp.port}`, token: readFileSync(tcp.tokenFile, 'utf8').trim() }, 'host/status', {}, AbortSignal.timeout(1000));
+          if (remote.launchId === launchId) { onReady(remote); ready = true; break; }
+        } catch { /* the local socket can appear before the TCP listener */ }
+      }
+      await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 100))]);
+    }
+    if (!ready) {
+      console.error('server exited or timed out before becoming ready');
+      if (!finished) child.kill('SIGTERM');
+      await exited;
+      return 1;
+    }
+  }
+  return exited;
 }
 
 /** The command that launches `dscode host serve` the same way the user launches dscode. */
@@ -220,6 +244,11 @@ function reachableAddresses(bind) {
 
 /** `dscode server`: the Host in the foreground, serving remote clients over TCP until stopped. */
 export async function server(argv, { home = runtimeHome } = {}) {
+  if (['install', 'start', 'stop', 'restart', 'status', 'logs', 'uninstall', 'connect', '--help', '-h'].includes(argv[0])) {
+    const { serverService } = await import('./server-service.mjs');
+    return serverService(argv, { home });
+  }
+  loadLocalEnvironment();
   const options = parseServerArgs(argv);
   if (options.help) { console.log(SERVER_USAGE); return 0; }
   const running = await hostStatus(home);
@@ -231,14 +260,16 @@ export async function server(argv, { home = runtimeHome } = {}) {
   const token = serverToken(home, { wanted: options.token, rotate: options.rotate });
   const defaultCwd = options.cwd ?? process.cwd();
   const alias = hostname().split('.')[0].toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'server';
-  console.log([
+  const banner = () => console.log([
     `DSCODE server on ${options.bind}:${options.port} (default folder ${defaultCwd})`,
     'Traffic is NOT encrypted: use it on a trusted network (VPN, Tailscale, LAN) or through an SSH tunnel.',
-    'Connect a client with:',
-    ...reachableAddresses(options.bind).map(address => `  dscode config --runtime ${address}:${options.port} --token ${token} --alias ${alias} --set-default`),
-    `The token is stored in ${serverTokenFile(home)}; --new-token replaces it.`,
+    ...(process.env.DSCODE_SERVER_SERVICE_ID ? ['Use `dscode server connect` to print the client configuration command.'] : [
+      'Connect a client with:',
+      ...reachableAddresses(options.bind).map(address => `  dscode config --runtime ${address.includes(':') ? `[${address}]` : address}:${options.port} --token ${token} --alias ${alias} --set-default`),
+      `The token is stored in ${serverTokenFile(home)}; --new-token replaces it.`,
+    ]),
   ].join('\n'));
-  return serve({ home, idleExitMs: 0, defaultCwd, tcp: { port: options.port, bind: options.bind, tokenFile: serverTokenFile(home) } });
+  return serve({ home, idleExitMs: 0, defaultCwd, tcp: { port: options.port, bind: options.bind, tokenFile: serverTokenFile(home) }, onReady: banner });
 }
 
 export async function main(argv = process.argv.slice(2)) {

@@ -412,6 +412,8 @@ export interface AppProps {
   effort?: string
   /** Working-directory basename the session serves. */
   cwd: string
+  /** Remote machine and connection state, independent of /statusline items. */
+  runtimeConnection?: StatusFacts['runtimeConnection']
   /** Absolute working directory used by session filters and references. */
   workspaceRoot: string
   /** Git branch name, empty outside a repository. */
@@ -8008,6 +8010,8 @@ export function App(props: AppProps): ReactElement {
           effort: effortLabel ?? (modelLabel === view.model ? view.stats.reasoningEffort : undefined),
           mode: props.mode,
           cwd: props.cwd,
+          runtimeConnection: props.runtimeConnection,
+          remoteCwd: props.runtimeConnection === undefined ? undefined : props.workspaceRoot,
           branch: props.branch,
           sessionId: props.sessionId,
           title: view.title,

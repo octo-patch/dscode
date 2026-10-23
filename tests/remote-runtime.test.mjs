@@ -33,14 +33,32 @@ test('dscode config validates one action and its options', () => {
   assert.deepEqual(parseConfigArgs(['--runtime', '1.1.1.1:8080', '--alias', 'server1', '--token', TOKEN, '--set-default']),
     { runtime: '1.1.1.1:8080', alias: 'server1', token: TOKEN, setDefault: true, url: 'http://1.1.1.1:8080' });
   assert.throws(() => parseConfigArgs(['--runtime', '1.1.1.1:8080', '--token', TOKEN]), /needs --alias/);
-  assert.throws(() => parseConfigArgs(['--runtime', '1.1.1.1:8080', '--alias', 'x']), /needs --token/);
+  assert.throws(() => applyConfig({ default: 'local', runtimes: {} }, parseConfigArgs(['--runtime', '1.1.1.1:8080', '--alias', 'x'])), /new runtime needs/);
   assert.throws(() => parseConfigArgs(['--runtime', '1.1.1.1:8080', '--alias', 'local', '--token', TOKEN]), /reserved/);
   assert.throws(() => parseConfigArgs(['--runtime', '1.1.1.1:8080', '--alias', 'a b', '--token', TOKEN]), /alias is letters/);
   assert.throws(() => parseConfigArgs(['--runtime', '1.1.1.1:8080', '--alias', 'x', '--token', TOKEN, '--cwd', 'relative']), /absolute path on the server/);
-  assert.throws(() => parseConfigArgs(['--alias', 'x']), /belong to --runtime/);
+  assert.throws(() => parseConfigArgs(['--cwd', '/srv/app']), /need --alias/);
   assert.throws(() => parseConfigArgs(['--default', 'a', '--remove', 'b']), /one of/);
   assert.deepEqual(parseConfigArgs(['--help']), { help: true });
   assert.deepEqual(parseConfigArgs([]), {});
+});
+
+test('editing an alias preserves omitted fields and only clears cwd explicitly', () => {
+  const initial = { default: 'box', runtimes: { box: { url: 'http://box:8080', token: TOKEN, cwd: '/srv/app' } } };
+  let config = applyConfig(initial, parseConfigArgs(['--runtime', 'box:8080', '--alias', 'box', '--cwd', '/srv/other'])).config;
+  assert.equal(config.runtimes.box.token, TOKEN);
+  config = applyConfig(config, parseConfigArgs(['--alias', 'box', '--token', 'replacement-token-123456'])).config;
+  assert.deepEqual(config.runtimes.box, { url: 'http://box:8080', token: 'replacement-token-123456', cwd: '/srv/other' });
+  config = applyConfig(config, parseConfigArgs(['--alias', 'box', '--runtime', 'new-box:8081'])).config;
+  assert.equal(config.runtimes.box.cwd, '/srv/other');
+  config = applyConfig(config, parseConfigArgs(['--alias', 'box', '--clear-cwd'])).config;
+  assert.equal(config.runtimes.box.cwd, undefined);
+  assert.equal(config.default, 'box');
+  assert.equal(initial.runtimes.box.cwd, '/srv/app');
+  assert.throws(() => applyConfig(config, parseConfigArgs(['--alias', 'unknown', '--cwd', '/srv/app'])), /new runtime needs/);
+  assert.throws(() => applyConfig(config, parseConfigArgs(['--alias', 'constructor', '--cwd', '/srv/app'])), /new runtime needs/);
+  assert.throws(() => parseConfigArgs(['--alias', 'box', '--default', 'local']), /one of/);
+  assert.throws(() => parseConfigArgs(['--alias', 'box', '--cwd', '/srv/app', '--clear-cwd']), /not both/);
 });
 
 test('adding, defaulting and removing runtimes; the listing never shows a token', () => {

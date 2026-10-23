@@ -7,6 +7,12 @@
  */
 
 export const en = {
+  'runtime.connection.connecting': 'connecting',
+  'runtime.connection.connected': 'remote',
+  'runtime.connection.reconnecting': 'reconnecting',
+  'runtime.connection.unauthorized': 'token refused',
+  'runtime.connection.incompatible': 'version mismatch',
+  'runtime.connection.failed': 'connection failed',
   // Shared panel chrome
   'panel.close': 'esc/q close',
   'panel.moveEnterSelect': '↑↓ move · enter select · esc close',

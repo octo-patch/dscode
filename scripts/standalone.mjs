@@ -13,7 +13,7 @@ async function stopIdleHost() {
   const { hostStatus, stop } = host;
   const status = await hostStatus();
   if (status === undefined) return;
-  if (status.clients > 0) throw Error('Exit the DSCODE terminals attached to the background Host before updating.');
+  if (status.clients > 0 || status.running > 0) throw Error('Exit attached DSCODE terminals and wait for running turns before updating.');
   await stop();
 }
 
@@ -33,7 +33,7 @@ export async function standaloneMain(args = process.argv.slice(2)) {
   Object.assign(process.env, env);
   if (['--version', '-v'].includes(args[0])) { console.log(metadata.version); return; }
   if (['--help', '-h'].includes(args[0])) {
-    console.log(`DSCODE ${metadata.version}\n\n  dscode [--cwd PATH]           Start the coding terminal\n  dscode exec [options] PROMPT  Run a prompt headless\n  dscode acp                    Serve ACP over stdio\n  dscode resume [SESSION_ID]    Resume a session\n  dscode server --port PORT     Serve this machine's runtime to remote terminals\n  dscode config --runtime ...   Record a remote runtime (see dscode config --help)\n  dscode runtime [ALIAS]        Start the terminal on a recorded runtime, or list them\n  dscode update [VERSION]       Replace the complete application package\n  dscode doctor [--local]       Inspect runtime diagnostics\n  dscode --check                Check bundled modules without starting a session\n  dscode --installation         Show program and data locations\n\nState: ${env.DSCODE_HOME}\nLocal configuration: ${join(env.DSCODE_HOME, 'config')}\nExisting dsh installations are not used or modified.`);
+    console.log(`DSCODE ${metadata.version}\n\n  dscode [--cwd PATH]           Start the coding terminal\n  dscode exec [options] PROMPT  Run a prompt headless\n  dscode acp                    Serve ACP over stdio\n  dscode resume [SESSION_ID]    Resume a session\n  dscode server --port PORT     Serve this machine's runtime to remote terminals\n  dscode server install/start   Install and start a user service (server --help)\n  dscode server status/logs     Inspect the local server service\n  dscode config --runtime ...   Record a remote runtime (see dscode config --help)\n  dscode runtime [ALIAS]        Start the terminal on a recorded runtime, or list them\n  dscode runtime status ALIAS   Inspect a remote runtime (--json supported)\n  dscode runtime doctor ALIAS   Check remote configuration without model calls\n  dscode update [VERSION]       Replace the complete application package\n  dscode doctor [--local]       Inspect runtime diagnostics\n  dscode --check                Check bundled modules without starting a session\n  dscode --installation         Show program and data locations\n\nState: ${env.DSCODE_HOME}\nLocal configuration: ${join(env.DSCODE_HOME, 'config')}\nExisting dsh installations are not used or modified.`);
     return;
   }
   if (args[0] === '--installation') { console.log(JSON.stringify({ ...metadata, root, home: env.DSCODE_HOME, node: process.execPath })); return; }
@@ -49,6 +49,8 @@ export async function standaloneMain(args = process.argv.slice(2)) {
   const { acquireLock, activeRuns, registerRun } = await import('../packages/launcher/locks.mjs');
   const homes = [...new Set([installationLockHome(root), env.DSCODE_HOME])].sort();
   const gates = [], leases = [];
+  let resumeServer;
+  let failure;
   try {
     for (const home of homes) gates.push(await acquireLock(home));
     if (args[0] === 'update') {
@@ -56,8 +58,16 @@ export async function standaloneMain(args = process.argv.slice(2)) {
       // The shared Host holds a run lease while it waits for terminals; with
       // none attached it is stopped so the package can be replaced.
       gates.splice(0).reverse().forEach(unlock => unlock());
+      const { pauseServerForUpdate } = await import('./server-service.mjs');
+      resumeServer = await pauseServerForUpdate({ home: env.DSCODE_HOME });
       await stopIdleHost();
       for (const home of homes) gates.push(await acquireLock(home));
+      // The manager can finish unloading just before the wrapper releases its
+      // inherited leases. Admission is closed while those finalizers settle.
+      if (resumeServer) {
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline && (await Promise.all(homes.map(activeRuns))).some(runs => runs.length > 0)) await new Promise(resolve => setTimeout(resolve, 100));
+      }
       for (const home of homes) if ((await activeRuns(home)).length) throw Error('Exit running DSCODE sessions (and attached terminals of `dscode host`) before updating.');
       const { updateStandalone } = await import('./standalone-update.mjs');
       await updateStandalone(args.slice(1), { root, env });
@@ -83,9 +93,20 @@ export async function standaloneMain(args = process.argv.slice(2)) {
         child.once('error', fail); child.once('exit', (code, signal) => done(code ?? (signal ? 128 : 1)));
       });
     } finally { handlers.forEach(([signal, handler]) => process.off(signal, handler)); }
-  } finally {
+  } catch (error) { failure = error; throw error; }
+  finally {
     leases.reverse().forEach(lease => lease.release());
     gates.reverse().forEach(unlock => unlock());
+    if (resumeServer) await resumeAfterUpdate(resumeServer, failure);
+  }
+}
+
+async function resumeAfterUpdate(resume, failure) {
+  try { await resume(); console.log('Server service restarted and ready.'); }
+  catch (error) {
+    const restart = Error(`The server did not restart after the update attempt: ${error.message}. Run dscode server status and dscode server logs.`, { cause: error });
+    if (failure) throw new AggregateError([failure, restart], `${failure.message}\n${restart.message}`, { cause: error });
+    throw restart;
   }
 }
 

@@ -9,6 +9,12 @@
 import type { MessageCatalog } from './en.ts'
 
 export const zh: MessageCatalog = {
+  'runtime.connection.connecting': '连接中',
+  'runtime.connection.connected': '远端',
+  'runtime.connection.reconnecting': '重连中',
+  'runtime.connection.unauthorized': '认证失效',
+  'runtime.connection.incompatible': '版本不兼容',
+  'runtime.connection.failed': '连接失败',
   // Shared panel chrome
   'panel.close': 'esc/q 关闭',
   'panel.moveEnterSelect': '↑↓ 移动 · 回车 选择 · esc 关闭',

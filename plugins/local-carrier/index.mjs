@@ -5,6 +5,8 @@
 // listener carrying the same routes, where every request must present the
 // server's bearer token; that listener is not encrypted.
 import { createServer } from 'node:http';
+import { RUNTIME_PROTOCOL } from './protocol.mjs';
+import { isAbsolute } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { chmodSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -30,6 +32,25 @@ export const Config = z.object({
 
 /** The package version a Host reports, so a client can refuse a different release. */
 export const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+
+/** Inspect mounted services and a folder without creating a session or calling a provider. */
+export function hostDiagnostics(ctx, cwd) {
+  if (typeof cwd !== 'string' || !isAbsolute(cwd)) throw Error('cwd must be an absolute path on the server');
+  const checks = [];
+  try {
+    const directory = statSync(cwd).isDirectory();
+    checks.push({ name: 'workspace', ok: directory, detail: directory ? cwd : `${cwd} is not a directory` });
+  } catch (error) { checks.push({ name: 'workspace', ok: false, detail: `${cwd}: ${error.code ?? 'unavailable'}` }); }
+  try {
+    const providers = ctx.get('llm')?.listProviders() ?? [];
+    checks.push({ name: 'models', ok: providers.length > 0, detail: `${providers.length} registered provider adapters; credentials and model calls not checked` });
+  } catch { checks.push({ name: 'models', ok: false, detail: 'could not read the provider adapter registry' }); }
+  for (const [name, service] of [['tools', 'tools'], ['sessions', 'sessionPersistence']]) {
+    const mounted = ctx.get(service) !== undefined;
+    checks.push({ name, ok: mounted, detail: mounted ? 'service mounted' : 'service not mounted' });
+  }
+  return { checks };
+}
 
 export const STREAM_PATH = '/stream';
 /** Unary DSCODE operations (packages/tui/src/host/registry.ts): POST /dscode/<name> with {args}. */
@@ -231,12 +252,13 @@ export async function apply(ctx, config = {}) {
   ctx.inject(['dscodeRemote'], scoped => scoped.effect(() => {
     const offs = [
       scoped.dscodeRemote.method('host/status', () => ({
-        version: VERSION, pid: process.pid, ...(launchId ? { launchId } : {}), startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
+        version: VERSION, protocol: RUNTIME_PROTOCOL, pid: process.pid, ...(launchId ? { launchId } : {}), ...(process.env.DSCODE_SERVER_SERVICE_ID ? { serviceId: process.env.DSCODE_SERVER_SERVICE_ID } : {}), startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
         sessions: (ctx.get('agents')?.list() ?? []).length, running: running(), idleExitMs: config.idleExitMs ?? 0,
         defaultCwd: config.defaultCwd || homedir(),
         ...(config.tcp?.port ? { tcp: { port: config.tcp.port, bind: config.tcp.bind } } : {}),
       })),
       scoped.dscodeRemote.method('host/shutdown', () => { exit(0); return { stopping: true }; }),
+      scoped.dscodeRemote.method('host/diagnostics', ({ cwd } = {}) => hostDiagnostics(ctx, cwd ?? config.defaultCwd ?? homedir())),
     ];
     return () => { for (const off of offs) off(); };
   }, 'local carrier: Host methods'));

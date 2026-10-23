@@ -22,7 +22,7 @@ Connect a client with:
   dscode config --runtime 10.0.0.5:8080 --token dsk_… --alias devbox --set-default
 ```
 
-`dscode server` runs in the foreground and never exits by idling; keep it in `tmux`, `screen` or a service manager. Stop it with Ctrl+C. Turns that are running stop with it, and sessions can be resumed after a restart.
+`dscode server` runs in the foreground and never exits by idling. It prints its connection command only after the authenticated TCP listener answers. Stop it with Ctrl+C. Turns that are running stop with it, and sessions can be resumed after a restart. For unattended use, install a user service as below.
 
 | Option | Meaning |
 |---|---|
@@ -35,6 +35,34 @@ Connect a client with:
 The token is stored in `run/server-token` in the server's state directory (`~/.local/share/dscode-state/run/` for a self-contained installation), readable only by you, and reused on the next start.
 
 A terminal on the server itself still works: plain `dscode` there attaches to the same runtime through its local socket, so you can share a session between the server and your machine. If a background host is already running when you start the server, it is stopped first when it has no attached terminal and no running turn; otherwise the server refuses to start until you exit those terminals.
+
+## Run as a user service
+
+On macOS, DSCODE uses a LaunchAgent in your GUI login session. On Linux it uses your systemd user manager. Run these commands on the server, with the same state directory and user account used for provider login:
+
+```bash
+dscode server install --port 8080 --bind 127.0.0.1 --cwd /absolute/project/path
+dscode server start
+dscode server connect
+```
+
+This example uses loopback for an SSH tunnel. Choose your VPN address for direct VPN access. Installation enables startup at user login; it does not start the server immediately. This is a user service, not a system-wide boot service. A Linux machine needs a running systemd user manager; keeping that manager alive after logout requires system configuration outside these commands. A macOS account without a GUI login session cannot start this LaunchAgent.
+
+| Command | Result |
+|---|---|
+| `dscode server start` | Start the installed service and wait for both the local Host and authenticated TCP listener |
+| `dscode server status [--json]` | Report installation, manager state and authenticated readiness; exit 0 when ready, 3 when stopped, 1 on a manager or readiness error |
+| `dscode server logs --lines 100 --follow` | Follow the service log; omit `--follow` for a snapshot |
+| `dscode server connect` | Explicitly print the client configuration command, including its token; replace `<server-address>` when listening on all interfaces |
+| `dscode server stop` | Stop the service; it remains configured for the next login |
+| `dscode server restart` | Stop it, start it and wait for readiness |
+| `dscode server uninstall` | Stop it and remove its service registration, retaining sessions, credentials and logs |
+
+Stop, restart and uninstall refuse while a terminal is attached or a turn is running. `--force` interrupts that work. These commands never stop an unrelated manually started Host; stop that Host before starting the service. Use `server stop` for a managed server instead of `host stop`. Reinstalling identical settings is harmless; to change the port, address or folder, stop and uninstall before installing again.
+
+The service definition contains paths and a small environment (`HOME`, `PATH` and DSCODE state/service identifiers). It does not copy API keys from the installing shell or contain the bearer token. Sign in on the server or put environment settings in its local `config/.env`; foreground and managed servers both read that file. Service logs omit the token-bearing connection command. macOS logs live in `run/server.log`; Linux logs use the user journal. The saved installation metadata is `run/server-service.json` in the state directory.
+
+A standalone `dscode update` refuses attached terminals and running turns, pauses an idle managed server, then restarts it after either a successful update or a failed update attempt. A stopped service stays stopped. Source checkouts and Homebrew upgrades do not use this update lifecycle: stop the service before changing the installation and start it afterward. If the executable path changes (including a Homebrew Cellar path), uninstall and reinstall the service from the new installation.
 
 ## On your machine
 
@@ -54,6 +82,12 @@ It saves the runtime and reports whether it answers. Then:
 | `dscode runtime` | List the configured runtimes; `*` marks the default |
 | `dscode runtime devbox --resume <id>` | Every terminal option works after the alias |
 | `dscode runtime devbox --cwd /srv/other` | Start the new session in another folder **on the server** |
+| `dscode runtime status devbox` | Check the connection, version, server PID, session activity and effective default folder |
+| `dscode runtime doctor devbox` | Also inspect the server-side folder and mounted model, tool and persistence services, without executing a model or tool |
+
+Both inspection commands accept `--json` and exit with status 1 if a check fails. They do not start a local Host or change the default runtime. `doctor` checks registered provider adapters and mounted services; it does not validate provider credentials, execute tools, or prove that every MCP server is usable. An incompatible protocol is reported before additional diagnostic calls; servers without the diagnostic capability report that limitation. For this machine, use `dscode server status`, `dscode host status` or `dscode doctor --local`.
+
+The terminal footer always identifies the remote runtime and its connection state, followed by the session's server-side path when space permits. These facts remain visible when other `/statusline` items are disabled. Narrow terminals truncate the path and session details after the connection identity.
 
 Managing the list:
 
@@ -62,7 +96,12 @@ Managing the list:
 | `dscode config --list` | Same listing as `dscode runtime` (tokens are never shown) |
 | `dscode config --default devbox` | Make `devbox` the default; `--default local` goes back to this machine |
 | `dscode config --remove devbox` | Forget it; if it was the default, the default becomes `local` |
-| `dscode config --runtime … --alias devbox --cwd /srv/app` | Re-adding an alias replaces it; `--cwd` gives it its own default folder |
+| `dscode config --alias devbox --cwd /srv/app` | Update the alias's default folder without re-entering its address or token |
+| `dscode config --alias devbox --token …` | Update the token, retaining the address and folder; restart attached terminals to use it |
+| `dscode config --alias devbox --runtime host:8080` | Update the address, retaining the token and folder |
+| `dscode config --alias devbox --clear-cwd` | Remove the alias's folder override and use the server's default |
+
+Updates preserve every unspecified field. Adding a new alias still requires both `--runtime` and `--token`. `--cwd` and `--clear-cwd` are mutually exclusive. Saving configuration does not require the server to be online; the command reports separately whether it can connect.
 
 The list is stored in `runtimes.json` in your state directory, readable only by you, because it holds the tokens.
 
@@ -86,6 +125,16 @@ Pasted screenshots and dropped files are read on your machine and uploaded with 
 
 The terminal says `lost the connection to runtime devbox; reconnecting…` and keeps trying, then `reconnected to runtime devbox`. Work on the server continues meanwhile. After reconnecting, the transcript is filled in with everything committed while you were away; text that was streaming at that moment appears once its message is committed. An approval or question that was still open closes when the connection drops; the server offers it again after reconnecting, and you answer it there.
 
+Only connection failures retry automatically. A refused token stops retries and marks the footer `token refused`; update the alias's token and restart the terminal. After a server restart, the terminal checks compatibility before announcing recovery or replaying approvals. An incompatible protocol marks the footer `version mismatch`, stops the client's streams and prevents further requests through that client. Update the incompatible side and restart the terminal. Neither failure stops the server or its running tasks.
+
+New servers advertise a protocol revision and the exact Harness version they use. Matching contracts allow different DSCODE application versions to connect, including after a compatible server upgrade. An older server without this declaration still requires the same application version as the terminal. This does not promise compatibility between different Harness versions or migrate session data between them.
+
+## Session recovery and safe mutations
+
+After a server restart, reading a session shows persisted history; the first message or queue edit restores its Agent through the same owner used by native session commands. Concurrent requests share that recovery. The terminal identifies each submission with a request ID so retransmitting that request does not enqueue it twice. Typing the text again is a new submission. A failed send is not automatically replayed; API clients should preserve their request ID when retrying an uncertain result.
+
+Interrupts target the turn the terminal observed and refuse if a newer turn has started. Deleting a session locks the observed subtree against writers and restores before removing logs, and refuses if any member is already owned. Disk errors can still cause partial deletion and are reported with progress. Invalid history pages stop the affected follow stream with an error instead of silently truncating history or paging forever. See the [session mutation contract](runtime-protocol.md#session-mutation-guarantees) for API details and persistence limits.
+
 ## Refusals
 
 DSCODE never falls back to this machine when you asked for a remote runtime:
@@ -94,7 +143,7 @@ DSCODE never falls back to this machine when you asked for a remote runtime:
 |---|---|
 | `runtime devbox refused the token` | The server's token changed (`--new-token`); copy the new `dscode config` line from the server's output |
 | `runtime devbox (…) did not answer` | The server is not running, the address or port is wrong, or a firewall blocks it |
-| `runtime devbox runs DSCODE x, this terminal is y` | Update one side so both run the same version |
+| `runtime devbox: incompatible runtime: …` | Match the required protocol and Harness versions; an older server requires equal DSCODE versions |
 | `no runtime named devbox` | `dscode config --list` shows the configured names |
 
 ## Limits

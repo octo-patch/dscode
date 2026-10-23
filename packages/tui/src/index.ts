@@ -69,6 +69,7 @@ import { createTypertRuntime, type CarrierTarget } from './runtime/typert.ts'
 import { describeTarget, targetFromEnv } from '../../../plugins/local-carrier/client.mjs'
 import type { RuntimeClient, RuntimeSession, SelectionCell } from './runtime/types.ts'
 import { remoteWatch } from './runtime/watch.ts'
+import { connectionStatus, type ConnectionStatus } from './runtime/connection.ts'
 import {
   attachmentClient, beginAuthorization, customClient, followNotices, mirrorStatusSources, remoteMentions, subscribeRevisions, watchRemoteSkills,
   workspaceClient, type RemoteSkillsView,
@@ -479,6 +480,8 @@ export interface RunnerEnvironment {
   readonly detached: boolean
   /** Receives the protocol runtime's asynchronous failures. */
   readonly errors?: RuntimeErrorSink
+  /** Persistent remote identity, including when no session is open. */
+  readonly connection?: ConnectionStatus
   /**
    * Folder for new sessions and `--continue` when it is not this process's
    * own: a remote runtime's folder is a path on the server.
@@ -856,6 +859,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
   )
 
   env.errors?.attach((text, tone) => bridge.notify(text, tone))
+  let offConnection: (() => void) | undefined
   // Host notices (for example the background capability sync's warnings).
   const offNotices = followNotices(runtime, (text, tone) => bridge.notify(text, tone))
   // A separate terminal mirrors the Host's footer sources for the active session.
@@ -1048,6 +1052,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
     epoch += 1
     off()
     offNotices()
+    offConnection?.()
     statusMirror?.dispose()
     const currentSession = session
     const currentActive = active
@@ -1109,7 +1114,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
         // No command owns this line: send it verbatim so a user-invocable
         // skill gesture (`/skill-name`) reaches the host's tool-skill
         // pre-step injection — the web composer's same fall-through.
-        void runtime.call('session/deliver', { sessionId: currentSession.id, content: [{ type: 'text', text: line }], mode: 'followup' }).catch((error: unknown) => {
+        void runtime.call('session/deliver', { requestId: randomUUID(), sessionId: currentSession.id, content: [{ type: 'text', text: line }], mode: 'followup' }).catch((error: unknown) => {
           bridge.notify(t('notice.commandFallbackFailed', { message: error instanceof Error ? error.message : String(error) }), 'error')
         })
       }
@@ -1166,7 +1171,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
         ...images,
       ]
       try {
-        await runtime.call('session/deliver', { sessionId: currentSession.id, content, mode, ...(context === undefined ? {} : { context }) })
+        await runtime.call('session/deliver', { requestId: randomUUID(), sessionId: currentSession.id, content, mode, ...(context === undefined ? {} : { context }) })
       } catch (error: unknown) {
         bridge.notify(`${mode === 'steer' ? 'steering' : 'message'} failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
       }
@@ -1360,7 +1365,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
    */
   const interrupt = (): boolean => {
     if (session === undefined || session.status !== 'running') return false
-    void runtime.call<{ cancelled: boolean; preserved: number }>('session/interrupt', { sessionId: session.id }).then(result => {
+    void runtime.call<{ cancelled: boolean; preserved: number }>('session/interrupt', { sessionId: session.id, expectedTurnSeq: session.snapshotEvents().findLast(event => event.type === 'turn/start')?.seq }).then(result => {
       if (result.cancelled) bridge.notify(t(result.preserved > 0 ? 'notice.turnCancelledKeepQueue' : 'notice.turnCancelled'))
     }, (error: unknown) => {
       bridge.notify(`cancel failed: ${error instanceof Error ? error.message : String(error)}`, 'error')
@@ -1888,6 +1893,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
       model,
       effort,
       cwd: basename(sessionCwd),
+      runtimeConnection: env.connection?.value,
       workspaceRoot: sessionCwd,
       branch: branchOf(sessionCwd),
       sessionId: session === undefined ? '' : session.id.slice(-8),
@@ -1991,6 +1997,7 @@ async function run(env: RunnerEnvironment, startup: TuiStartup, io: TuiIo): Prom
   // launch folder says so once, on the first window that can show it.
   if (startupFolderWarning !== undefined) pendingNotices.push({ text: startupFolderWarning, tone: 'warning' })
   mountRef.current = io.mount(appElement())
+  offConnection = env.connection?.subscribe(renderCurrent)
 
   // Startup prompt/images use the same durable delivery path as composer
   // submissions. Image bytes are committed before the user/message event, and
@@ -2074,18 +2081,27 @@ export interface TerminalClientOptions {
  */
 export async function runTerminalClient(options: TerminalClientOptions): Promise<void> {
   if (options.startup.theme !== undefined) setTheme(options.startup.theme)
-  const io: TuiIo = { mount: element => internals.mount(element), exit: options.exit ?? (code => process.exit(code)) }
+  const lifetime = new AbortController()
+  const io: TuiIo = { mount: element => internals.mount(element), exit: code => { lifetime.abort(); (options.exit ?? (code => process.exit(code)))(code) } }
   const errors = runtimeErrorSink()
   const name = options.label ?? describeTarget(options.target)
+  const connection = typeof options.target === 'string' ? undefined : connectionStatus(name)
+  let hasConnected = false
   const runtime = createTypertRuntime({
     target: options.target,
+    signal: lifetime.signal,
     onError: errors.report,
-    onConnection: state => state === 'lost'
-      ? errors.announce(`lost the connection to runtime ${name}; reconnecting…`, 'warning')
-      : errors.announce(`reconnected to runtime ${name}`, 'info'),
+    onConnection: state => {
+      connection?.set(state)
+      if (state === 'reconnecting') errors.announce(`lost the connection to runtime ${name}; reconnecting…`, 'warning')
+      if (state === 'connected') {
+        if (hasConnected) errors.announce(`reconnected to runtime ${name}`, 'info')
+        hasConnected = true
+      }
+    },
   })
   try {
-    await run({ runtime, detached: true, errors, ...(options.cwd === undefined ? {} : { cwd: options.cwd }) }, options.startup, io)
+    await run({ runtime, detached: true, errors, ...(connection === undefined ? {} : { connection }), ...(options.cwd === undefined ? {} : { cwd: options.cwd }) }, options.startup, io)
   } catch (error: unknown) {
     fail(io, error)
   }

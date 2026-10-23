@@ -2,6 +2,53 @@
 
 Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
 
+## 0.7.50 release gate — 2026-10-23
+
+The three source passes below are included in the 0.7.50 candidate. On macOS arm64, `env -u DSCODE_RUNTIME npm run check` passed: lint, both TypeScript configurations, 1,304 unit/component tests, 80.08% first-party `.mjs` line coverage, all fifteen integration verifiers, package checks and 63 offline evaluations. `node scripts/check-docs.mjs`, `make version-check` and `git diff --check` passed. Release notes, the manifest and lockfile, the changelog and both READMEs agree on 0.7.50.
+
+This records the local source gate before publication. Native standalone qualification on all four platforms and public artifact delivery are separate release-workflow stages. The earlier pass-specific limits still apply, including the lack of live OS service registration and multi-machine network/provider acceptance.
+
+## Session management hardening — 2026-10-23 (unreleased, third pass)
+
+Status: implemented in the current source; no release was cut. This pass covers DSCODE session extensions and the terminal protocol client's history recovery, while retaining upstream creation/resume ownership. Protocol revision 2 advertises structured mutation failures, delivery deduplication and guarded interrupts.
+
+Validation on macOS:
+
+- `npm run test:unit`: 1,304 passing tests. New cases cover concurrent duplicate submissions, conflicting payloads, canceled-message receipts after reload, partial context admission, failed flush retries, stale-turn refusal, queue restoration and concurrent edits, invalid arguments, aborted recovery, and missing/owned-session errors. Deletion tests use two real JSONL backend instances sharing a temporary root: writer contention prevents partial subtree removal, cancellation releases handles, concurrent deletions have one winner, and successful removal retains the lock inodes.
+- `tests/runtime-history.test.mjs` drives the real protocol client against a controlled HTTP server. It verifies multi-page reconnect catch-up, duplicate live-event suppression, rejection of non-progressing pages, follow cleanup, and cancellation during pagination and the shared handshake. Session-domain errors are not retried as network failures.
+- `env -u DSCODE_RUNTIME node scripts/verify-host.mjs`: passed with a real Host and fixture model, adding concurrent explicit-ID creation, cold reads followed by shared Agent recovery, and repeated delivery after a Host restart. The first run exposed that upstream `session/follow` is read-only and does not restore an Agent; DSCODE writes now use the upstream Session Controller's recovery owner. Persisted receipts prevented a second user message after restart.
+- `node scripts/verify-remote.mjs` and `env -u DSCODE_RUNTIME node scripts/verify-tui-runner.mjs`: passed, including all sixteen interaction steps and resume in the three terminal modes, plus remote restart, attachment, diagnostics and refusal paths.
+- `node scripts/check-docs.mjs`, `npm run lint`, `npm run typecheck`, `npm run typecheck:strict`, `git diff --check` and `npm run test:package`: passed. Documentation and both README descriptions were updated.
+
+Limits: JSONL deletion is not a multi-session transaction; an I/O failure can leave a partially removed subtree, and independent forks created after its observed snapshot are not globally serialized with it. Request receipts rely on the retained session log and successful persistence; they do not guarantee exactly-once behavior across disk loss, external rollback or a storage-free process restart. The terminal does not automatically resend uncertain writes. OS service registration, multi-machine networking, real-provider calls, platform CI and the full release gate were not exercised in this pass.
+
+## Server services and compatibility — 2026-10-22 (unreleased, second pass)
+
+The source adds launchd/systemd user-service management, authenticated readiness, a declared remote protocol contract, and standalone update pause/resume for idle managed servers. Different application versions can communicate when the protocol revision and pinned Harness version match; legacy servers still require equal application versions. No version was bumped and no package was published.
+
+Validation on macOS:
+
+- `npm run test:unit`: 1,289 passing tests. Service tests use injected managers and temporary unit directories, covering lifecycle, busy refusal, forced stop, ownership, readiness failures, private files, selected environment, path quoting, command arguments and update recovery. macOS property lists also pass `/usr/bin/plutil -lint`. Protocol tests cover incompatible/malformed declarations, the legacy fallback, compatible upgrades and absent diagnostic capabilities.
+- `tests/standalone-runtime.test.mjs` executes the real standalone entry with fixture updater and service modules. It checks success, download failure, combined download/restart failure, busy refusal and that installation gates are released before the resume callback acquires them. Actual archive replacement and rollback remain covered by the separate updater unit tests.
+- `node scripts/verify-server-service.mjs`: passed with real Host subprocesses and authenticated loopback TCP in isolated state directories. It checks managed identity, quiet logs, attached-client refusal, restart with the same token, service recovery after a simulated update failure, stop and uninstall. It injects a process manager and never registers a service with the developer's OS. This verifier is now part of the integration group.
+- `node scripts/verify-remote.mjs` and `env -u DSCODE_RUNTIME node scripts/verify-tui-runner.mjs`: passed, including remote restart/reconnect, diagnosis, sessions, attachments and all sixteen interaction steps plus resume in each of the three terminal modes.
+- `node scripts/check-docs.mjs`, `npm run lint`, `npm run typecheck`, `npm run typecheck:strict`, `git diff --check` and `npm run test:package`: passed. Package checks cover archive integrity, exports, syntax, runtime dependencies and absence of local state/build paths.
+
+These checks do not establish launchd/systemd registration, automatic crash recovery or login/logout behavior on a deployed machine. Linux service syntax and commands have fixture coverage, not a live systemd run. The service verifier's update failure is simulated; a running OS-managed standalone server has not been upgraded through a downloaded release end to end. Separate machines, real NAT/VPN outages, live provider authentication, release CI and the full release gate were not rerun. Encryption, remote downloads and browser-login forwarding remain outside this pass.
+
+## Remote runtime usability — 2026-10-22 (unreleased)
+
+The source now supports partial runtime configuration updates, remote `status` and `doctor` inspection, persistent remote identity in the footer, and terminal connection states that distinguish retryable outages from token refusal and incompatible server versions. The same-process local carrier remains usable without Host management methods. No release version was changed.
+
+Validation on macOS:
+
+- `npm run test:unit`: 1,276 passing tests. New cases cover preserving omitted configuration fields, explicit folder clearing, diagnostic results and exit codes, token omission from output, mounted-service checks, narrow remote footers, network recovery, approval withdrawal on disconnect, token rotation, incompatible restart before approval replay, and already-aborted transports. The connection regressions use a controlled HTTP fixture.
+- `node scripts/verify-remote.mjs`: passed with a real Host and terminal in separate state directories over loopback TCP. The verifier now also exercises both inspection commands, JSON output, partial configuration updates and the rendered remote machine label. Existing session, server-folder/export, restart/reconnect, attachment and refusal scenarios passed.
+- `env -u DSCODE_RUNTIME node scripts/verify-tui-runner.mjs`: all sixteen interaction steps and resume passed in `in-process`, `typert` and `split` modes. An earlier invocation inherited `DSCODE_RUNTIME=in-process`, forced the split scenario into a normal terminal with non-TTY stdin, and failed with Ink's raw-mode error. Removing that test-process override resolved it.
+- `node scripts/check-docs.mjs`, `npm run lint`, `npm run typecheck`, `npm run typecheck:strict` and `npm run test:package`: passed. Package checks verified tarball integrity, exports, syntax, runtime dependencies and absence of local state/build paths; no artifacts were published.
+
+These checks do not establish behavior across two physical machines, real NAT or VPN outages, or live provider authentication/model execution. `runtime doctor` intentionally checks server configuration and service presence only. Service installation, encryption, protocol-version negotiation, remote downloads and browser-login forwarding are outside this change. The full release gate, platform release CI and installed standalone acceptance were not rerun.
+
 ## Remote runtime — 2026-10-15
 
 Version 0.7.48 adds `dscode server` (TCP with a bearer token, unencrypted), `dscode config --runtime` and `dscode runtime` (docs/remote-runtime.md). New verifier `verify-remote.mjs`: a real server and a terminal with separate state directories over loopback, covering token refusal on every route, config, the full terminal scenario through the default runtime, `/export` and git in the server folder, a server restart with the terminal reconnecting, content attachments, and refused launches. `/reload` adds a scenario to `verify-host.mjs`: an MCP server, an ancestor skill folder and an ancestor `AGENTS.md` created after a live session started become active, visible and part of the model request, and the server is removed again. `npm run check` passed on macOS arm64: 1,267 unit cases (80.27% first-party `.mjs` line coverage), every integration verifier, package checks and 63 evaluations. Its earlier runs failed and found three defects in the change itself: the optional `tcp` config with required fields broke every local Host, reconnect timers kept a quitting terminal alive, and `/reload` reconciled through a second copy of `dsh-app-boot` that did not know the root Include entry. Separate machines, real NAT, approvals across a reconnect, live models and Intel or Linux runs of the new verifier have no automated case; `npm run doctor`, `verify-standalone.mjs` and `test:e2e` were not rerun.

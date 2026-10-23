@@ -18,6 +18,7 @@ import { singleLineText, truncateColumns, formatTokens } from './text.ts'
 // Re-exported for the callers that have always read the formatter here.
 export { formatTokens }
 import { t } from '../i18n.ts'
+import type { ConnectionIdentity } from '../runtime/connection.ts'
 
 
 /**
@@ -372,6 +373,9 @@ const RANK2_TELEMETRY = 95
 
 /** Identity facts the runner resolves once at mount; empty strings drop out. */
 export interface StatusFacts {
+  runtimeConnection?: ConnectionIdentity
+  /** Full path on the remote machine; the local footer still uses a basename. */
+  remoteCwd?: string
   /** 'provider/model' selection serving this session. */
   model: string
   /** Agent preset composing this session. */
@@ -481,6 +485,12 @@ function buildCandidates(
     identity.push(span)
   }
   const model = safe(facts.model).split('/').at(-1) ?? ''
+  const remote = facts.runtimeConnection
+  if (remote !== undefined) {
+    push({ text: t(`runtime.connection.${remote.state}`) + ' ' + truncateColumns(safe(remote.label), 24), tone: remote.state === 'connected' ? 'accent' : 'warn' })
+    const path = safe(facts.remoteCwd ?? facts.cwd)
+    if (path !== '') push({ text: path, tone: 'path' })
+  }
   // dscode: row 1 names the session (title, else its id) and then the model with
   // its effort, so row 2 stays free for the live figures.
   if ((model !== '' && enabled.has('model')) || enabled.has('title')) {
@@ -494,7 +504,7 @@ function buildCandidates(
     if (speed) push({ text: speed, tone: speed.includes('→') ? 'warn' : 'meta' })
   }
   const cwd = safe(facts.cwd)
-  if (cwd !== '' && enabled.has('cwd')) push({ text: cwd, tone: 'path' })
+  if (remote === undefined && cwd !== '' && enabled.has('cwd')) push({ text: cwd, tone: 'path' })
   const mode = safe(facts.mode ?? '')
   if (mode !== '' && enabled.has('mode')) {
     push({ text: t('status.label.mode') + ' ', tone: 'label' })
@@ -800,7 +810,7 @@ export function layoutStatusBar(
       if (identityBudget > 0 && visibleColumns(identityText) > identityBudget) {
         leftKept[0] = {
           ...identity,
-          group: { spans: [{ text: truncateColumns(identityText, identityBudget), tone: 'model' }] },
+          group: { spans: [{ text: truncateColumns(identityText, identityBudget), tone: facts.runtimeConnection && facts.runtimeConnection.state !== 'connected' ? 'warn' : 'model' }] },
         }
         continue
       }
@@ -848,7 +858,7 @@ export function layoutStatusBar(
     const identity = leftKept[0].group
     const joined = identity.spans.map(span => span.text).join('')
     leftKept[0] = {
-      group: { spans: [{ text: truncateColumns(joined, budget), tone: 'model' }] },
+      group: { spans: [{ text: truncateColumns(joined, budget), tone: facts.runtimeConnection && facts.runtimeConnection.state !== 'connected' ? 'warn' : 'model' }] },
       rank: RANK_IDENTITY,
       id: 'identity',
     }

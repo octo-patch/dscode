@@ -200,6 +200,21 @@ test('the footer keeps skills and the complete financial group when narrow width
   }
 });
 
+test('remote identity and connection failures remain visible with customized and narrow footers', async () => {
+  for (const [state, label] of [['connected', 'remote'], ['reconnecting', 'reconnecting'], ['unauthorized', 'token refused'], ['incompatible', 'version mismatch']]) {
+    for (const columns of [40, 80, 120]) {
+      const facts = { model: 'fixture/model', title: 'A session title', cwd: 'app', remoteCwd: '/srv/app', branch: '', sessionId: '', sandbox: '', permission: 'ask', fullSessionId: '', runtimeConnection: { label: 'devbox', state } };
+      const ui = await mount(StatusLine, { facts, stats: createTranscriptView().stats, busy: false, columns, items: ['permission'], animated: false }, { columns });
+      try {
+        assertFits(ui);
+        assert(ui.frame().includes(label), ui.frame());
+        assert(ui.frame().includes('devbox'), ui.frame());
+        if (columns >= 80) assert(ui.frame().includes('/srv/app'), ui.frame());
+      } finally { ui.close(); }
+    }
+  }
+});
+
 test('balance, peak/off-peak and cache move together while a third footer row reduces the transcript budget', () => {
   const facts = {
     model: 'deepseek-official/deepseek-flash', title: '', cwd: '', branch: '', sessionId: '', sandbox: '', permission: 'auto', fullSessionId: '', skills: 28,

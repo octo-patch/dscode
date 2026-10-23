@@ -101,6 +101,18 @@ try {
   assert(!listed.output.includes(server.target.token), 'the listing never prints the token');
   report.configured = true;
 
+  const inspected = await launch(['runtime', 'status', 'probe-server', '--json']);
+  assert.equal(inspected.code, 0, inspected.output);
+  assert.equal(JSON.parse(inspected.output).status.version, version);
+  const diagnosed = await launch(['runtime', 'doctor', 'probe-server', '--json']);
+  assert.equal(diagnosed.code, 0, diagnosed.output);
+  assert(JSON.parse(diagnosed.output).checks.some(check => check.name === 'workspace' && check.ok));
+  assert(!diagnosed.output.includes(server.target.token));
+  const edited = await launch(['config', '--alias', 'probe-server', '--cwd', serverWorkspace]);
+  assert.equal(edited.code, 0, edited.output);
+  report.diagnostics = true;
+  report.partialConfig = true;
+
   // 3. The full terminal scenario over TCP through bare `dscode`.
   const full = await launch([], 'session');
   assert(full.code === 0 && full.output.includes('TUI_RUNNER_PROBE_PASSED session'), full.output.slice(-6000));

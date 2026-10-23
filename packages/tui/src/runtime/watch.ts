@@ -34,7 +34,7 @@ export function pause(ms: number, signal: AbortSignal): Promise<void> {
  */
 export function retryable(error: unknown): boolean {
   const failure = error as { remote?: unknown; code?: unknown } | undefined
-  return failure?.remote === undefined && !String(failure?.code ?? '').startsWith('dscode/')
+  return failure?.remote === undefined && !String(failure?.code ?? '').includes('/')
 }
 
 /**

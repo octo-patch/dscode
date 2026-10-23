@@ -64,18 +64,29 @@ function terminal(socketPath, scenario, args) {
 }
 
 const report = {};
+async function sessionSnapshot(socket, sessionId) {
+  const controller = new AbortController();
+  const stream = openStream(socket, 'session/follow', { args: { request: { address: { kind: 'session', sessionId }, maxMessages: 1000 } } }, controller.signal);
+  try { const first = await stream.next(); assert.equal(first.value.type, 'snapshot'); return first.value; }
+  finally { controller.abort(); await stream.return(); }
+}
 try {
   const socket = await ensureHost();
   const first = await hostStatus();
   assert(first.pid > 0 && first.pid !== process.pid);
 
   // 1. Two clients on one session.
-  const { sessionId } = value(await call(socket, 'session/create', { request: { cwd: workspace, agentPreset: 'dscode' } }));
+  const created = await Promise.all(Array.from({ length: 3 }, () => call(socket, 'session/create', { request: { sessionId: 'session-concurrent-create', cwd: workspace, agentPreset: 'dscode' } }).then(value)));
+  assert.equal(new Set(created.map(item => item.sessionId)).size, 1);
+  const { sessionId } = created[0];
+  report.concurrentCreate = true;
   const viewer = terminal(socket, 'attach', ['--resume', sessionId]);
   await until('terminal attached', () => viewer.state.output.includes('TUI_PROBE_READY') || viewer.state.code !== undefined);
   assert.equal(viewer.state.code, undefined, viewer.state.output.slice(-3000));
   await until('both clients attached', async () => (await hostStatus())?.clients >= 1);
-  await callDscode(socket, 'session/deliver', { sessionId, content: [{ type: 'text', text: 'from the second client' }], mode: 'followup' });
+  const delivery = { requestId: 'shared-host-delivery', sessionId, content: [{ type: 'text', text: 'from the second client' }], mode: 'followup' };
+  await Promise.all(Array.from({ length: 3 }, () => callDscode(socket, 'session/deliver', delivery)));
+  await assert.rejects(callDscode(socket, 'session/deliver', { ...delivery, mode: 'steer' }), error => error.code === 'dscode/idempotency-conflict');
   assert.equal(await viewer.exited, 0, viewer.state.output.slice(-3000));
   report.multiClient = true;
 
@@ -110,6 +121,15 @@ try {
   const pids = new Set((await Promise.all([hostStatus(), hostStatus()])).map(status => status.pid));
   assert.equal(pids.size, 1);
   report.singleHost = true;
+  // Concurrent cold follows read the persisted log; the first writes share
+  // Agent recovery. Delivery receipts survive the Host restart.
+  const restored = await Promise.all([sessionSnapshot(sockets[0], sessionId), sessionSnapshot(sockets[0], sessionId)]);
+  assert(restored.every(frame => frame.header.id === sessionId));
+  await Promise.all(Array.from({ length: 3 }, () => callDscode(sockets[0], 'session/deliver', delivery)));
+  const replayed = await sessionSnapshot(sockets[0], sessionId);
+  assert.equal(replayed.records.filter(record => record.event.type === 'user/message' && record.event.data.content?.some(block => block.text === 'from the second client')).length, 1);
+  report.concurrentResume = true;
+  report.durableDeliveryRetry = true;
 
   // 4. Idle exit, but never while a terminal is attached.
   assert.equal(await stop(), true);

@@ -20,16 +20,19 @@
 import type { AgentStatus, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import { SessionId, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
-import { call, callDscode, isRemoteTarget, openDscodeStream, openStream, VERSION } from '../../../../plugins/local-carrier/client.mjs'
+import { call, callDscode, isRemoteTarget, openDscodeStream, openStream } from '../../../../plugins/local-carrier/client.mjs'
+import { requireCompatibleRuntime } from '../../../../plugins/local-carrier/protocol.mjs'
 import type {
   ApprovalAnswerer, OpenSessionRequest, QuestionAnswerer, RequestConfig, RuntimeClient, RuntimeSession,
 } from './types.ts'
-import { pause, retryDelay } from './watch.ts'
+import { pause, retryDelay, retryable } from './watch.ts'
+import { connectionFailure, failureCode, type ConnectionState } from './connection.ts'
+import { historyFailure, historyPage } from './history.ts'
 
 type RemoteResult<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
 function value<T>(result: RemoteResult<T>): T {
-  if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
+  if (!result.ok) throw Object.assign(new Error(`${result.error.code}: ${result.error.message}`), { code: result.error.code })
   return result.value
 }
 
@@ -38,6 +41,16 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void; reject(e
   let resolve!: (value: T) => void, reject!: (error: unknown) => void
   const promise = new Promise<T>((ok, fail) => { resolve = ok; reject = fail })
   return { promise, resolve, reject }
+}
+
+/** Cancel one waiter without canceling the shared client handshake. */
+function waitFor<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted()
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => { signal.removeEventListener('abort', abort); reject(signal.reason) }
+    signal.addEventListener('abort', abort, { once: true })
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
+  })
 }
 
 type Listener<A extends unknown[]> = (...args: A) => void
@@ -65,13 +78,23 @@ export interface TypertRuntimeOptions {
   /** Receives failures of asynchronous writes (prompt, cancel, model selection). */
   readonly onError: (error: unknown) => void
   /** Told when the connection to the Host drops and when it is back. */
-  readonly onConnection?: (state: 'lost' | 'restored') => void
+  readonly onConnection?: (state: ConnectionState) => void
+  /** Ends all client transports when the terminal exits. */
+  readonly signal?: AbortSignal
 }
 
 /** Create a RuntimeClient that reaches the Host through its carrier. */
 export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClient {
   const { target, onError, onConnection } = options
-  const rpc = async <T>(method: string, args: Record<string, unknown>): Promise<T> => value<T>(await call(target, method, args))
+  const lifetime = new AbortController()
+  const signal = options.signal === undefined ? lifetime.signal : AbortSignal.any([lifetime.signal, options.signal])
+  let terminalFailure: Error | undefined
+  const ensureAvailable = (): void => { if (terminalFailure) throw terminalFailure; signal.throwIfAborted() }
+  const rpc = async <T>(method: string, args: Record<string, unknown>, requestSignal: AbortSignal = signal): Promise<T> => {
+    ensureAvailable()
+    try { return value<T>(await call(target, method, args, AbortSignal.any([signal, requestSignal]))) }
+    catch (error) { if (failureCode(error) === 'dscode/unauthorized') failConnection(error); throw error }
+  }
   const sessionEvents = emitter<[{ readonly id: string; readonly header: SessionHeader }, SessionEvent]>()
   const assistantStream = emitter<[string, AssistantStreamFrame]>()
   const approvals: ApprovalAnswerer[] = []
@@ -93,7 +116,11 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
   }
 
   let connected = true
-  const lost = (): void => { if (connected) { connected = false; onConnection?.('lost') } }
+  const lost = (): void => {
+    for (const withdraw of pending.values()) withdraw.abort()
+    pending.clear()
+    if (connected) { connected = false; onConnection?.('reconnecting') }
+  }
   // Session streams back off on their own; once the event stream is back they
   // retry at once instead of finishing a long wait.
   let reconnected = new AbortController()
@@ -101,15 +128,30 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
 
   // One forwarded-event stream per client: approvals and questions arrive as
   // Agent-scoped waterfalls and are answered by event id.
-  const events = new AbortController()
+  const events = { signal }
   let clientId: string | undefined
   const pending = new Map<string, AbortController>()
   // Answers that could not be delivered (the connection was down); the Host
   // replays the waterfall after a reconnect and the answer is sent then.
   const unsent = new Map<string, Record<string, unknown>>()
+  const failConnection = (error: unknown): void => {
+    if (terminalFailure || signal.aborted) return
+    terminalFailure = connectionFailure(error)
+    for (const withdraw of pending.values()) withdraw.abort()
+    pending.clear()
+    unsent.clear()
+    clientId = undefined
+    connected = false
+    lifetime.abort(terminalFailure)
+    ready.reject(terminalFailure)
+    const code = failureCode(error)
+    onConnection?.(code === 'dscode/unauthorized' ? 'unauthorized' : code === 'dscode/version-mismatch' ? 'incompatible' : 'failed')
+    onError(terminalFailure)
+  }
   const answer = (eventId: string, outcome: Record<string, unknown>): void => {
     if (clientId === undefined) { unsent.set(eventId, outcome); return }
-    void call(target, '$events/result', { clientId, eventId, outcome }).then(value, (error: unknown) => {
+    void rpc('$events/result', { clientId, eventId, outcome }).catch((error: unknown) => {
+      if (signal.aborted) return
       unsent.set(eventId, outcome)
       if (connected) onError(error)
     })
@@ -160,13 +202,16 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
     connected = true
     reconnected.abort()
     reconnected = new AbortController()
-    onConnection?.('restored')
-    void callDscode(target, 'host/status', {}).then((status: { version?: string }) => {
-      if (status?.version !== VERSION) onError(new Error(`the runtime now runs DSCODE ${status?.version ?? 'unknown'}, this terminal is ${VERSION}; restart dscode`))
-    }, () => {})
+    onConnection?.('connected')
     for (const sessionId of running.keys()) void refreshRunning(sessionId)
   }
   const ready = deferred<void>()
+  signal.addEventListener('abort', () => {
+    ready.reject(terminalFailure ?? signal.reason)
+    for (const withdraw of pending.values()) withdraw.abort()
+    pending.clear()
+  }, { once: true })
+  if (signal.aborted) ready.reject(signal.reason)
   void (async () => {
     let attached = false
     for (let attempt = 0; !events.signal.aborted;) {
@@ -174,10 +219,16 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
         for await (const raw of openStream(target, '$events', { args: {} }, events.signal)) {
           const frame = raw as { type: string; event?: string; args?: unknown[]; eventId?: string; clientId?: string }
           if (frame.type === 'ready') {
+            // A restarted Host may have upgraded. Do not replay approvals or
+            // announce recovery until this authenticated handshake passes.
+            if (isRemoteTarget(target)) {
+              const status: { version?: string } = await callDscode(target, 'host/status', {}, AbortSignal.any([signal, AbortSignal.timeout(5000)]))
+              requireCompatibleRuntime(status)
+            }
             clientId = frame.clientId
             attempt = 0
             if (attached) restored()
-            else { attached = true; ready.resolve() }
+            else { attached = true; onConnection?.('connected'); ready.resolve() }
             continue
           }
           if (frame.type === 'waterfall') { dispatch(raw as WaterfallFrame); continue }
@@ -198,7 +249,7 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
         if (events.signal.aborted) return
         // The launcher checked the Host before starting this client, so a
         // first attach that fails is a real error, not a blip to wait out.
-        if (!attached) { ready.reject(error); onError(error); return }
+        if (!attached || !retryable(error)) { failConnection(error); return }
       }
       if (events.signal.aborted) return
       clientId = undefined
@@ -213,21 +264,23 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
     kind: 'protocol',
     sharesFilesystem: !isRemoteTarget(target),
     async open(request: OpenSessionRequest): Promise<RuntimeSession> {
+      ensureAvailable()
       if (request.seed !== undefined) throw new Error('forking is not carried over the protocol yet')
-      await eventsReady
+      await waitFor(eventsReady, AbortSignal.any([signal, request.signal]))
       const sessionId = SessionId(request.sessionId)
-      if (!request.resume) await rpc('session/create', { request: { sessionId, cwd: request.cwd, agentPreset: request.preset } })
+      if (!request.resume) await rpc('session/create', { request: { sessionId, cwd: request.cwd, agentPreset: request.preset } }, request.signal)
       const picked = request.selection.picked
       if (picked !== undefined) await rpc('session/selectModel', { request: { sessionId, ...picked } })
-      if (!request.resume && request.permission !== undefined) await callDscode(target, 'permissions/select', { sessionId, id: request.permission })
+      if (!request.resume && request.permission !== undefined) await client.call('permissions/select', { sessionId, id: request.permission })
 
       const follow = new AbortController()
-      request.signal.addEventListener('abort', () => follow.abort(), { once: true })
+      const followSignal = AbortSignal.any([follow.signal, signal, request.signal])
       const address = { kind: 'session', sessionId }
       const log: SessionEvent[] = []
       let header: SessionHeader | undefined
       const lastSeq = (): number => log.at(-1)?.seq ?? -1
       const append = (event: SessionEvent): void => {
+        if (event.seq !== lastSeq() + 1) throw historyFailure('live event skipped a sequence')
         log.push(event)
         if (event.type === 'turn/start') setRunning(sessionId, true)
         if (event.type === 'turn/end') setRunning(sessionId, false)
@@ -238,13 +291,13 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
       // than the last event seen, and replay the missed events in order.
       const catchUp = async (records: readonly HistoryRecord[], cursor: number, hasMore: boolean): Promise<void> => {
         const known = lastSeq()
-        const missed = records.map(record => record.event).filter(event => event.seq > known)
+        if (cursor < known) throw historyFailure('server history moved backwards')
+        const missed = historyPage({ records, hasMore }, cursor + 1).filter(event => event.seq > known)
         let oldest = records[0]?.event.seq
         let more = hasMore
         while (more && oldest !== undefined && oldest > known + 1) {
-          const page = await rpc<{ records: HistoryRecord[]; hasMore: boolean }>('session/page', { request: { address, throughSeq: cursor, beforeSeq: oldest, maxMessages: HISTORY_PAGE } })
-          if (page.records.length === 0) break
-          missed.unshift(...page.records.map(record => record.event).filter(event => event.seq > known))
+          const page = await rpc<{ records: HistoryRecord[]; hasMore: boolean }>('session/page', { request: { address, throughSeq: cursor, beforeSeq: oldest, maxMessages: HISTORY_PAGE } }, followSignal)
+          missed.unshift(...historyPage(page, oldest).filter(event => event.seq > known))
           oldest = page.records[0]!.event.seq
           more = page.hasMore
         }
@@ -254,21 +307,23 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
       let cursor = -1
       let hasMore = false
       const snapshot = deferred<void>()
+      if (followSignal.aborted) throw terminalFailure ?? followSignal.reason
       void (async () => {
         let opened = false
-        for (let attempt = 0; !follow.signal.aborted;) {
+        for (let attempt = 0; !followSignal.aborted;) {
           try {
-            const stream = openStream(target, 'session/follow', { args: { request: { address, assistantStream: true, maxMessages: HISTORY_PAGE } } }, follow.signal)
+            const stream = openStream(target, 'session/follow', { args: { request: { address, assistantStream: true, maxMessages: HISTORY_PAGE } } }, followSignal)
             for await (const raw of stream) {
               const frame = raw as { type: string; header?: SessionHeader; cursor?: number; hasMore?: boolean; records?: HistoryRecord[]; event?: SessionEvent; frame?: AssistantStreamFrame }
               if (frame.type === 'snapshot') {
+                if (frame.header?.id !== sessionId) throw historyFailure('snapshot belongs to another session')
                 header = frame.header
                 attempt = 0
                 if (!opened) {
                   opened = true
                   cursor = frame.cursor ?? -1
                   hasMore = frame.hasMore === true
-                  log.push(...(frame.records ?? []).map(record => record.event))
+                  log.push(...historyPage({ records: frame.records!, hasMore: frame.hasMore! }, cursor + 1))
                   snapshot.resolve()
                 } else {
                   await catchUp(frame.records ?? [], frame.cursor ?? -1, frame.hasMore === true)
@@ -280,46 +335,55 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
               }
             }
           } catch (error: unknown) {
-            if (follow.signal.aborted) return
-            if (!opened) { snapshot.reject(error); onError(error); return }
+            if (followSignal.aborted) { snapshot.reject(terminalFailure ?? followSignal.reason); return }
+            if (failureCode(error) === 'dscode/unauthorized') { snapshot.reject(error); failConnection(error); return }
+            if (!opened || !retryable(error)) { snapshot.reject(error); onError(error); follow.abort(error); return }
           }
-          if (follow.signal.aborted) return
-          await retry(attempt++, follow.signal)
+          if (followSignal.aborted) { snapshot.reject(terminalFailure ?? followSignal.reason); return }
+          await retry(attempt++, followSignal)
         }
       })()
-      await snapshot.promise
-      // The opening frame carries the newest page; the terminal folds the whole
-      // log (transcript, fork points, cross-session history), so page back to
-      // the start before showing the session.
-      while (hasMore) {
-        const page = await rpc<{ records: HistoryRecord[]; hasMore: boolean }>('session/page', {
-          request: { address, throughSeq: cursor, ...(log[0] === undefined ? {} : { beforeSeq: log[0].seq }), maxMessages: HISTORY_PAGE },
-        })
-        if (page.records.length === 0) break
-        log.unshift(...page.records.map(record => record.event))
-        hasMore = page.hasMore
-      }
+      try {
+        await snapshot.promise
+        // The opening frame carries the newest page; the terminal folds the whole
+        // log (transcript, fork points, cross-session history), so page back to
+        // the start before showing the session.
+        while (hasMore) {
+          const before = log[0]?.seq ?? cursor + 1
+          const page = await rpc<{ records: HistoryRecord[]; hasMore: boolean }>('session/page', {
+            request: { address, throughSeq: cursor, beforeSeq: before, maxMessages: HISTORY_PAGE },
+          }, followSignal)
+          followSignal.throwIfAborted()
+          log.unshift(...historyPage(page, before))
+          hasMore = page.hasMore
+        }
+        followSignal.throwIfAborted()
+      } catch (error) { follow.abort(error); throw error }
       if (!running.has(sessionId)) await refreshRunning(sessionId)
+      followSignal.throwIfAborted()
       // Child sessions (subagents and /btw) reach the feeds through the Host's children stream.
       const children = new AbortController()
+      const childrenSignal = AbortSignal.any([children.signal, followSignal])
       follow.signal.addEventListener('abort', () => children.abort(), { once: true })
       void (async () => {
         let reported = false
-        for (let attempt = 0; !children.signal.aborted;) {
+        for (let attempt = 0; !childrenSignal.aborted;) {
           try {
-            for await (const raw of openDscodeStream(target, 'sessions/children', { sessionId }, children.signal)) {
+            for await (const raw of openDscodeStream(target, 'sessions/children', { sessionId }, childrenSignal)) {
               attempt = 0
               const item = raw as { kind: string; sessionId?: string; header?: SessionHeader; event?: SessionEvent; agentId?: string; frame?: AssistantStreamFrame }
               if (item.kind === 'event' && item.sessionId !== undefined && item.header !== undefined && item.event !== undefined) sessionEvents.emit({ id: item.sessionId, header: item.header }, item.event)
               else if (item.kind === 'stream' && item.agentId !== undefined && item.frame !== undefined) assistantStream.emit(item.agentId, item.frame)
             }
           } catch (error: unknown) {
-            if (children.signal.aborted) return
+            if (childrenSignal.aborted) return
+            if (failureCode(error) === 'dscode/unauthorized') { failConnection(error); return }
+            if (!retryable(error)) { onError(error); return }
             // An outage is announced once by the event stream; a failure while
             // connected is reported once, then retried quietly.
             if (connected && !reported) { reported = true; onError(error) }
           }
-          await retry(attempt++, children.signal)
+          await retry(attempt++, childrenSignal)
         }
       })()
 
@@ -361,14 +425,18 @@ export function createTypertRuntime(options: TypertRuntimeOptions): RuntimeClien
     isLive: sessionId => live.has(sessionId),
     onSessionEvent: listener => sessionEvents.add(listener),
     onAssistantStream: listener => assistantStream.add(listener),
-    call(name, args = {}, signal) {
-      return callDscode(target, name, args, signal)
+    async call(name, args = {}, requestSignal) {
+      ensureAvailable()
+      try { return await callDscode(target, name, args, requestSignal === undefined ? signal : AbortSignal.any([signal, requestSignal])) }
+      catch (error) { if (failureCode(error) === 'dscode/unauthorized') failConnection(error); throw error }
     },
-    stream(name, args = {}, signal, uplink) {
+    stream(name, args = {}, requestSignal, uplink) {
       return (async function* () {
+        ensureAvailable()
         try {
-          yield* openDscodeStream(target, name, args, signal, uplink)
+          yield* openDscodeStream(target, name, args, requestSignal === undefined ? signal : AbortSignal.any([signal, requestSignal]), uplink)
         } catch (error) {
+          if (failureCode(error) === 'dscode/unauthorized') failConnection(error)
           const remote = (error as { remote?: { code?: string; message?: string } }).remote
           throw remote === undefined ? error : Object.assign(new Error(remote.message ?? String(error)), { code: remote.code })
         }

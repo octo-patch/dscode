@@ -12,7 +12,7 @@ import { readdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { deriveTurnTokenUsage } from '@deepseek-ai/dsh-token-meter/client'
-import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionAlreadyOwnedError, SessionPersistenceNotFoundError, type SessionHandle, type SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-title'
 import { turnCostsFor } from '../../../../plugins/session-metrics/view.mjs'
@@ -71,38 +71,56 @@ export function registerSessions(ctx: Context, registry: DscodeRemoteRegistry): 
    * live, derive and layout-check every artifact directory before the first
    * rm, then remove children first.
    */
-  const remove = async (id: string, currentId: string | undefined): Promise<string> => {
+  const remove = async (id: string, currentId: string | undefined, signal: AbortSignal): Promise<string> => {
     const sessionQuery = query()
-    if (currentId !== undefined && currentId === id) return 'cannot delete the session you are using — switch or /new first'
-    const records = await sessionQuery.listSessions()
+    if (currentId === id) throw new RemoteFailure('dscode/conflict', 'cannot delete the session you are using — switch or /new first')
+    const records = await sessionQuery.listSessions(signal)
     const plan = planSessionDeletion(records, id)
-    if (!plan.ok) return plan.reason
-    const root = jsonlSessionRoot(persistence())
-    if (root === undefined) return 'session backend exposes no deletable artifact (deletion is unsupported on this backend)'
+    if (!plan.ok) throw new RemoteFailure(records.some(record => record.header.id === id) ? 'dscode/conflict' : 'dscode/not-found', plan.reason)
+    const backend = persistence()
+    const root = jsonlSessionRoot(backend)
+    if (root === undefined || backend === undefined) throw new RemoteFailure('dscode/unsupported', 'deletion is unsupported on this backend')
     const byId = new Map(records.map(record => [record.header.id as string, record]))
+    const handles: SessionHandle[] = []
     const dirs = new Map<string, string>()
-    for (const node of plan.nodes) {
-      const record = byId.get(node.id)
-      if (record === undefined) return `no persisted session matches "${node.id}"`
-      const dir = sessionArtifactDirectory(sessionDirectoryFor(root, record.header.cwd, node.id), node.id)
-      if (dir === undefined) return `refusing to delete: unexpected artifact layout for ${node.id.slice(-12)}`
-      dirs.set(node.id, dir)
-    }
     let removed = 0
-    for (const node of plan.nodes) {
-      const dir = dirs.get(node.id)!
-      try {
+    try {
+      // Use the backend's own write ownership, not a separate deletion mutex:
+      // create/resume in any process must contend on exactly the same lock.
+      // Acquire every member before deleting anything; never wait on contention.
+      for (const node of [...plan.nodes].sort((a, b) => a.id.localeCompare(b.id))) {
+        signal.throwIfAborted()
+        const handle = await backend.open(SessionId(node.id), 'write', { signal })
+        handles.push(handle)
+        const record = byId.get(node.id)!
+        if (handle.header.cwd !== record.header.cwd || handle.header.parentSession !== record.header.parentSession) {
+          throw new RemoteFailure('dscode/conflict', 'session metadata changed during deletion; refresh the session list')
+        }
+        const dir = sessionArtifactDirectory(sessionDirectoryFor(root, handle.header.cwd, node.id), node.id)
+        if (dir === undefined) throw new RemoteFailure('dscode/conflict', `unexpected artifact layout for ${node.id}`)
+        dirs.set(node.id, dir)
+      }
+      // Cancellation is honored before the first removal. Once destructive work
+      // begins, finish the subtree even if the HTTP caller disconnects.
+      signal.throwIfAborted()
+      for (const node of plan.nodes) {
+        const dir = dirs.get(node.id)!
         const entries = await readdir(dir, { withFileTypes: true })
         for (const entry of entries) {
           if (entry.isFile() && isSessionArtifactName(entry.name)) await rm(join(dir, entry.name), { force: true })
         }
-        await rm(dir, { force: true, recursive: false }).catch(() => {})
+        // Keep session.lock and its inode. Removing it defeats the writer lease.
         removed += 1
-      } catch (error: unknown) {
-        return `delete failed for ${node.id.slice(-12)} after ${removed} of ${plan.nodes.length}: ${error instanceof Error ? error.message : String(error)}`
       }
+      return `deleted ${removed} session${removed === 1 ? '' : 's'}`
+    } catch (error: unknown) {
+      if (error instanceof RemoteFailure || signal.aborted && removed === 0) throw error
+      if (error instanceof SessionAlreadyOwnedError) throw new RemoteFailure('dscode/conflict', 'cannot delete a live session; it was opened during deletion preflight', { cause: error })
+      if (error instanceof SessionPersistenceNotFoundError) throw new RemoteFailure('dscode/not-found', 'session disappeared during deletion preflight', { cause: error })
+      throw new RemoteFailure('dscode/delete-failed', `delete failed after ${removed} of ${plan.nodes.length}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+    } finally {
+      await closeHandles(handles)
     }
-    return `deleted ${removed} session${removed === 1 ? '' : 's'}`
   }
 
   const search = async (text: string, signal?: AbortSignal): Promise<readonly SearchRow[]> => {
@@ -130,7 +148,7 @@ export function registerSessions(ctx: Context, registry: DscodeRemoteRegistry): 
       const rows = await list({ sessions: 'all', cwd: 'all', sort: 'newest', currentCwd: cwd, query: '' })
       return rows.filter(row => row.parent === sessionId && row.subagent)
     }),
-    registry.method('sessions/delete', ({ id, currentId }: { id: string; currentId?: string }) => remove(id, currentId)),
+    registry.method('sessions/delete', ({ id, currentId }: { id: string; currentId?: string }, { signal }) => remove(id, currentId, signal)),
     registry.method('sessions/transcript', async ({ id }: { id: string }, { signal }) => {
       const snapshot = await query().readSession(id, signal)
       return buildExportMarkdown(createTranscriptStore(snapshot.events).getView(), snapshot.session.id)
@@ -146,16 +164,17 @@ export function registerSessions(ctx: Context, registry: DscodeRemoteRegistry): 
       return { totals: values?.tokenUsage, turns: turnUsages(events, deriveTurnTokenUsage, turnCostsFor(session.id, events)) }
     }),
     // A user title pins the session and stops automatic generation.
-    registry.method('sessions/rename', ({ sessionId, title }: { sessionId: string; title: string }) => {
+    registry.method('sessions/rename', async ({ sessionId, title }: { sessionId: string; title: string }) => {
       const service = ctx.get('sessionTitle')
-      if (service === undefined) return 'session titles are unavailable in this profile'
+      if (service === undefined) throw new RemoteFailure('dscode/session-title-unavailable', 'session titles are unavailable in this profile')
       const session = ctx.get('sessions')?.get(SessionId(sessionId))
-      if (session === undefined) return 'no session yet — submit a message to start'
+      if (session === undefined) throw new RemoteFailure('dscode/session-not-live', 'no live session to rename')
       try {
         service.rename(session, title)
+        await ctx.get('sessions')?.flush(session)
         return `title → ${title}`
       } catch (error: unknown) {
-        return `rename failed: ${error instanceof Error ? error.message : String(error)}`
+        throw new RemoteFailure('dscode/rename-failed', `rename failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
       }
     }),
     // `allowLive`: a protocol client attaches to a live Host session instead of
@@ -170,10 +189,17 @@ export function registerSessions(ctx: Context, registry: DscodeRemoteRegistry): 
       const matched = matches[0]
       // Same lineage gate as the CLI --resume path and the picker.
       if (isSubagentSession(matched.header)) throw new RemoteFailure('dscode/read-only', 'subagent conversations are read-only; resume a root session')
-      if (allowLive !== true && currentId !== undefined && ctx.get('agents')?.get(SessionId(matched.header.id)) !== undefined && matched.header.id !== currentId) {
+      if (allowLive !== true && ctx.get('agents')?.get(SessionId(matched.header.id)) !== undefined && matched.header.id !== currentId) {
         throw new RemoteFailure('dscode/live-elsewhere', 'that session is already live in another owner')
       }
       return matched.header.id
     }),
   ]
+}
+
+/** Close every acquired handle even when one release fails. */
+async function closeHandles(handles: readonly SessionHandle[]): Promise<void> {
+  const results = await Promise.allSettled([...handles].reverse().map(handle => handle.close()))
+  const errors = results.filter(result => result.status === 'rejected').map(result => result.reason)
+  if (errors.length > 0) throw new AggregateError(errors, 'failed to release session deletion ownership')
 }

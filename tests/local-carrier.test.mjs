@@ -4,9 +4,10 @@ import { mkdtempSync, rmSync, statSync, existsSync, writeFileSync } from 'node:f
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { apply, authorized, VERSION } from '../plugins/local-carrier/index.mjs';
+import { apply, authorized, hostDiagnostics, VERSION } from '../plugins/local-carrier/index.mjs';
 import { call, callDscode, openDscodeStream, openStream } from '../plugins/local-carrier/client.mjs';
-import { checkRemote } from '../scripts/runtimes.mjs';
+import { checkRemote, runtimeInspect, writeRuntimes } from '../scripts/runtimes.mjs';
+import { RUNTIME_PROTOCOL } from '../plugins/local-carrier/protocol.mjs';
 
 const freePort = () => new Promise(resolve => { const probe = createServer().listen(0, '127.0.0.1', () => { const { port } = probe.address(); probe.close(() => resolve(port)); }); });
 
@@ -35,7 +36,8 @@ async function carrier(t, extra = {}) {
     effect: fn => { const disposer = fn(); disposers.push(disposer); return disposer; },
     // A stand-in DSCODE registry: echoes its arguments, answers host/status.
     get: name => name === 'dscodeRemote' ? {
-      invoke: async (method, args) => method === 'host/status' ? { version: extra.version ?? VERSION, defaultCwd: '/srv/app' } : { method, args },
+      invoke: async (method, args) => method === 'host/status' ? { version: extra.version ?? VERSION, protocol: extra.protocol, defaultCwd: '/srv/app', pid: 123, clients: 2, sessions: 3, running: 1 }
+        : method === 'host/diagnostics' ? { checks: [{ name: 'workspace', ok: args.cwd === '/srv/project', detail: args.cwd }] } : { method, args },
       open: async function* (stream, args) { yield { stream, args }; },
     } : undefined,
   };
@@ -127,11 +129,61 @@ test('the local socket needs no token while the TCP listener runs beside it', as
   assert.deepEqual(await callDscode(socketPath, 'sessions/list', {}), { method: 'sessions/list', args: {} });
 });
 
-test('a terminal refuses a runtime of another release', async t => {
+test('a terminal refuses a legacy runtime of another release', async t => {
   const same = await tcpCarrier(t);
   assert.equal((await checkRemote({ alias: 'box', target: same.target }, VERSION)).defaultCwd, '/srv/app');
   await assert.rejects(checkRemote({ alias: 'box', target: same.wrong }, VERSION), /refused the token/);
   const other = await tcpCarrier(t, { version: '0.0.1' });
-  await assert.rejects(checkRemote({ alias: 'box', target: other.target }, VERSION), /runs DSCODE 0\.0\.1, this terminal is/);
+  await assert.rejects(checkRemote({ alias: 'box', target: other.target }, VERSION), /incompatible runtime: server 0\.0\.1, client/);
   await assert.rejects(checkRemote({ alias: 'gone', target: { url: 'http://127.0.0.1:1', token: 'x' } }, VERSION, 2000), /did not answer/);
+});
+
+test('remote launch accepts a compatible release and doctor respects optional capabilities', async t => {
+  const { target, home } = await tcpCarrier(t, { version: '99.0.0', protocol: { ...RUNTIME_PROTOCOL, capabilities: [] } });
+  assert.equal((await checkRemote({ alias: 'box', target }, VERSION)).version, '99.0.0');
+  writeRuntimes(home, { default: 'box', runtimes: { box: { ...target, cwd: '/srv/project' } } });
+  let output;
+  const options = { home, version: VERSION, log: value => { output = value; } };
+  assert.equal(await runtimeInspect(['status', 'box', '--json'], options), 0);
+  assert.equal(await runtimeInspect(['doctor', 'box', '--json'], options), 1);
+  const checks = JSON.parse(output).checks;
+  assert(checks.some(check => check.name === 'version' && check.ok));
+  assert(checks.some(check => check.name === 'diagnostics' && !check.ok));
+  assert(!checks.some(check => check.name === 'workspace'), 'unsupported diagnostics must not be called');
+});
+
+test('remote status and doctor report configured cwd, activity and failures without exposing a token', async t => {
+  const { target, wrong, home } = await tcpCarrier(t);
+  writeRuntimes(home, { default: 'box', runtimes: { box: { ...target, cwd: '/srv/project' }, wrong } });
+  let output;
+  const options = { home, version: VERSION, log: text => { output = text; } };
+  assert.equal(await runtimeInspect(['status', 'box', '--json'], options), 0);
+  const status = JSON.parse(output);
+  assert.equal(status.status.running, 1);
+  assert.equal(status.cwd, '/srv/project');
+  assert(!output.includes(target.token));
+  assert.equal(await runtimeInspect(['doctor', 'box', '--json'], options), 0);
+  assert(JSON.parse(output).checks.some(check => check.name === 'workspace' && check.ok));
+  assert.equal(await runtimeInspect(['doctor', 'wrong', '--json'], options), 1);
+  assert.match(output, /token refused/);
+  assert(!output.includes(wrong.token));
+  assert.equal(await runtimeInspect(['status', 'box', '--json'], { ...options, version: '99.0.0' }), 1);
+  assert(JSON.parse(output).checks.some(check => check.name === 'version' && !check.ok));
+  writeRuntimes(home, { default: 'box', runtimes: { box: { ...target, cwd: '/missing' } } });
+  assert.equal(await runtimeInspect(['doctor', 'box'], options), 1);
+  assert.match(output, /FAIL workspace/);
+  await assert.rejects(runtimeInspect(['status', 'box', '--unexpected'], options), /Usage/);
+});
+
+test('host diagnostics check server directories and mounted services without invoking models or tools', t => {
+  const home = mkdtempSync(join(tmpdir(), 'host-diagnostics-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const services = { llm: { listProviders: () => [{ id: 'fixture' }] }, tools: {}, sessionPersistence: {} };
+  const ctx = { get: key => services[key] };
+  assert(hostDiagnostics(ctx, home).checks.every(check => check.ok));
+  assert.equal(hostDiagnostics(ctx, join(home, 'missing')).checks[0].ok, false);
+  writeFileSync(join(home, 'file'), 'not a directory');
+  assert.equal(hostDiagnostics(ctx, join(home, 'file')).checks[0].ok, false);
+  assert.throws(() => hostDiagnostics(ctx, 'relative'), /absolute/);
+  assert(hostDiagnostics({ get: () => undefined }, home).checks.filter(check => check.name !== 'workspace').every(check => !check.ok));
 });

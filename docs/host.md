@@ -45,7 +45,7 @@ MCP servers and the overlays are shared by every session on the host, so `/reloa
 
 ## Updates
 
-`dscode update` stops a host that has no attached terminal before replacing the package. While a terminal is attached it refuses and asks you to exit first. The in-terminal `/update` runs after you quit, by which time your terminal has detached.
+`dscode update` stops a host that has no attached terminal or running turn before replacing the package. Otherwise it refuses and asks you to exit or wait first. For a running user-managed server, the standalone updater pauses the service and restores it after success or failure; a stopped service stays stopped. See [server service management](remote-runtime.md#run-as-a-user-service). The in-terminal `/update` runs after you quit, by which time your terminal has detached, but remaining turns still prevent an update.
 
 ## Limits
 

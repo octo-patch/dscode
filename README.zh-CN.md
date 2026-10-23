@@ -43,7 +43,7 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 |---|---|
 | **[编码循环](docs/dscode-ultra.md)** | 带行号的文件读取、精确编辑与原子写入，提供旧版本保护和 diff 元数据；持久 Shell 负责搜索、补丁和测试。项目指令、skills、plan、goal 与 hooks 已接入。 |
 | **[后台 Host](docs/host.md)** | 终端与 agent 运行时分成两个进程：第一个 `dscode` 会启动本地后台 Host 来持有会话，每个终端作为客户端接入。关闭终端不会中断工作，多个终端可接入同一会话，崩溃的终端可以重新接入。用 `dscode host status/stop` 管理；`--in-process` 保留单进程模式。 |
-| **[远程 Runtime](docs/remote-runtime.md)** | 运行时跑在服务器上（`dscode server --port 8080`），终端跑在本机：`dscode config --runtime host:8080 --token … --alias devbox --set-default`，之后用 `dscode` 或 `dscode runtime devbox` 连接。工具、文件和凭据都留在服务器上，连接断开后终端会自动重连。使用 token 认证但不加密，请在 VPN、内网或 SSH 隧道中使用。 |
+| **[远程 Runtime](docs/remote-runtime.md)** | 运行时跑在服务器上（`dscode server --port 8080`），终端跑在本机：`dscode config --runtime host:8080 --token … --alias devbox --set-default`，之后用 `dscode` 或 `dscode runtime devbox` 连接。长期运行可用 `dscode server install --port 8080`，再执行 `dscode server start`；用 `dscode server status/logs` 查看状态和日志。协议兼容时允许客户端与服务端应用版本不同。用 `dscode runtime status devbox` 或 `dscode runtime doctor devbox` 检查远端（均支持 `--json`）；用 `dscode config --alias devbox` 更新个别连接配置。底栏持续标识远端机器与连接状态；断网会自动重连，认证或版本错误则需要处理。服务重启后写入会自动恢复会话；请求 ID 防止重试重复投递，中断针对已观察到的 turn，删除前检查存储写入所有权。工具、文件和凭据都留在服务器上。使用 token 认证但不加密，请在 VPN、内网或 SSH 隧道中使用。 |
 | **[会话接入](docs/session-bridge.md)** | 在 TUI 开始任务后，可从另一个终端补充要求、读取输出或订阅进展（`dscode sessions`、`send`、`read`、`watch`）。所有来源进入同一个运行时和上下文，读取和订阅不需要取得 session 写锁。 |
 | **[Agent 间任务](docs/session-communication.md)** | Agent 通过 `list_sessions`、`read_session`、`send_session` 与 `reply_session` 查找、读取并联系其他会话，投递方式可选 `queue`、`steer` 或 `defer`。持久化邮箱、重试去重和有限预算约束消息丢失、重复处理和互相唤醒。 |
 | **[会话名片](docs/session-cards.md)** | 每个 session 展示项目、工作区与最近 5 条用户请求 topic，选协作对象时不必先读它的记录。名片描述用户让它做过什么，不放任务结论。 |
@@ -56,6 +56,8 @@ DSCODE 是基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | **[Agent 邮件](docs/email.md)** | 所有 session 共用的本地 `[ToAgent]` 收件箱：Enter 把邮件作为用户选择的上下文 steer 进当前会话；配置 Gmail 后 agent 可走同一审批流程发信。 |
 
 ## 🆕 最新变化
+
+**0.7.50** — 远端 server 支持作为 macOS 或 Linux 用户服务运行，启动时验证鉴权就绪，更新时安全暂停并恢复服务。新增远端状态、诊断与持续可见的连接身份。server 重启后会话写入可自动恢复，投递请求 ID 防止重试重复，打断可锁定观察到的轮次，删除操作检查存储写入归属。两端需要使用相同的协议修订版和固定 Harness 版本。详见[发布说明](docs/releases/0.7.50.md)。
 
 **0.7.49** — 终端升级到 Harness `0.2.1-rc.2`，这是 DeepSeek 为 DeepSeek-V4.1-Flash-1017 推荐的版本；Desktop 组合包仍为 `0.2.0-rc.2`。子 agent 现在一律在后台启动，结束后再向父 agent 汇报。在 OpenRouter 和 OpenCode Go 上，`deepseek-flash` 会切到 V4.1 Flash，而不是已退役的 V4 Flash。后台记忆不再因自身的输出上限而失败。详见[发布说明](docs/releases/0.7.49.md)。
 

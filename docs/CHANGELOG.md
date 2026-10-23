@@ -10,6 +10,24 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.50] - 2026-10-23
+
+### Added
+
+- `dscode server install/start/stop/restart/uninstall/status/logs/connect` manages a macOS LaunchAgent or Linux systemd user service. Start and status check authenticated TCP readiness; lifecycle changes refuse attached terminals or running turns unless explicitly forced. Service definitions and ordinary logs do not contain the bearer token.
+- Remote servers declare their protocol revision, pinned Harness version and optional diagnostic capability. Compatible application releases can connect and recover after a server upgrade; older servers retain the exact application-version check.
+- `dscode runtime status <alias>` and `dscode runtime doctor <alias>` inspect a remote server without starting a local Host. Both support `--json` and nonzero exit status on failed checks. Doctor inspects the server folder and mounted services; it does not execute models or tools or validate provider credentials.
+- The remote terminal footer keeps the machine alias, connection state and server-side session folder visible, subject to terminal width, independently of `/statusline` customization.
+
+### Fixed
+
+- Session delivery and queue editing restore cold Agents through the shared upstream owner after a server restart. Optional delivery request IDs deduplicate accepted messages across retries and persisted restarts, reject conflicting payloads, and flush before acknowledgment. Interrupts can guard the observed turn.
+- Session deletion holds every observed subtree member's storage write ownership before removing logs, retains lock inodes, and reports structured failures. Session extension arguments are validated before mutation; resume ownership checks also apply when no current session is supplied.
+- The protocol client validates history sequence and page progress, closes failed initial follows, and cancels pending history requests when switching sessions. Upstream session errors no longer trigger network retries. Protocol revision 2 records the structured mutation-error contract.
+- Standalone updates refuse running turns as well as attached terminals, pause an idle managed server before replacement, and restore it after either success or failure. Foreground servers announce readiness only after their authenticated TCP interface responds.
+- Updating a configured runtime preserves omitted address, token and folder fields. `dscode config --alias <name>` can update individual fields; `--clear-cwd` explicitly removes a folder override. New aliases still require an address and token.
+- Token refusal ends reconnection attempts and blocks further client requests. Reconnecting terminals verify the server version before announcing recovery or replaying approvals; incompatible versions stop the client streams. Open approval prompts are withdrawn when the connection drops.
+
 ## [0.7.49] - 2026-10-18
 
 ### Changed

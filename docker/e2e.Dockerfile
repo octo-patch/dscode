@@ -5,8 +5,10 @@
 # roll back) can never run there, and nothing verified the harness on Linux at all.
 # The Docker Official Images mirror avoids Docker Hub's anonymous pull quota on
 # shared CI runners while retaining the same Node/Debian image. Node 24 matches the
-# macOS checks and the private runtime the self-contained packages ship.
-FROM public.ecr.aws/docker/library/node:24-bookworm-slim
+# macOS checks and the private runtime the self-contained packages ship. CI can
+# select the official Docker Hub image when this mirror is rate-limited.
+ARG DSCODE_E2E_BASE_IMAGE=public.ecr.aws/docker/library/node:24-bookworm-slim
+FROM ${DSCODE_E2E_BASE_IMAGE}
 
 # git: verify:hub initialises a repository and the worktree probe creates its own.
 # curl: install.sh needs it on the piped path, and its unit tests run it for real.

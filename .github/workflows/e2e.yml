@@ -34,7 +34,14 @@ jobs:
       # docker/e2e.Dockerfile and the image's own CMD runs scripts/e2e.mjs --inside,
       # so the step list lives in exactly one place.
       - name: Build the Linux end-to-end image
-        run: docker build -t dscode-e2e:local -f docker/e2e.Dockerfile .
+        run: |
+          base_image=public.ecr.aws/docker/library/node:24-bookworm-slim
+          if ! docker pull "$base_image"; then
+            echo 'Official image mirror unavailable; trying Docker Hub.'
+            base_image=node:24-bookworm-slim
+            docker pull "$base_image"
+          fi
+          docker build --build-arg "DSCODE_E2E_BASE_IMAGE=$base_image" -t dscode-e2e:local -f docker/e2e.Dockerfile .
       # No bind mount: the container writes its own artifacts, and mounting a host
       # directory over artifacts/local makes the packaging steps race the host's
       # leftovers. Every assertion is in this job's log either way.

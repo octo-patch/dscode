@@ -61,7 +61,25 @@ const exec=(entry,args,extra={},program=false)=>new Promise((resolve,reject)=>{
  const timeout=setTimeout(()=>child.kill('SIGTERM'),180000);
  child.on('error',reject);child.on('close',code=>{clearTimeout(timeout);code===0?resolve(output):reject(Error(`Child exit ${code}:\n${output}`));});
 });
-const execute=async command=>{const output=await exec(command.command,command.args,{},true); if(/patch: .*skipping/.test(output)) throw Error(output);};
+const execute = async command => {
+  let output;
+  try { output = await exec(command.command, command.args, {}, true); }
+  catch (error) {
+    // The retained external-executor fixture uses rc.3's plugin-manager gate.
+    // Exercise its rejection, then explicitly approve only this reviewed tuple
+    // in the disposable staging profile. The native launcher above needs no grant.
+    if (!String(error).includes('Plugin @anionex/dsh-computer-use@0.3.4 is incompatible with dsh 0.2.1-rc.3')) throw error;
+    assert.equal(release.dsh, '0.2.1-rc.3');
+    const add = command.args.indexOf('add'), profile = command.args.indexOf('--profile');
+    assert(add > profile && profile >= 0);
+    assert.match(command.args[profile + 1], /^\.hub-dscode-/);
+    await exec(command.command, [...command.args.slice(0, add), 'allow-version',
+      '@anionex/dsh-computer-use@0.3.4', '--dsh-version', '0.2.1-rc.3', '--accept-risk'], {}, true);
+    output = await exec(command.command, command.args, {}, true);
+    console.log('PASS external installer rejects undeclared compatibility; exact fixture-only approval permits retry');
+  }
+  if (/patch: .*skipping/.test(output)) throw Error(output);
+};
 const options={profile:'dscode',dshHome:home,hubProfileSlug:'dscode',release,resolved:{profileVersion:release.version,bundles:release.bundles},execute,validate:execute};
 try {
   // Exercise the native locked installer used by the launcher, not only the

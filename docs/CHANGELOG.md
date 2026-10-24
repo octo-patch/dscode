@@ -21,6 +21,8 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ### Changed
 
+- The retained external Hub installer regression now exercises rc.3 compatibility rejection and an explicit fixture-only approval for Computer Use 0.3.4 before installation/rollback checks. User profiles receive no automatic exemption.
+
 - Terminal/server file tools add `edit_many` for one guarded atomic write per batch, and stop range reads after the requested window with a bounded session/version cache. Exact line totals are returned only at EOF; the terminal supports partial windows without a total. Existing read-before-edit, stale-version and sandbox checks remain in force.
 - Persistent Bash saves large captured results before inline truncation and returns a path for later reads/searches, including nonzero-exit and timeout output. The 4 MiB capture bound remains; larger complete logs require explicit redirection. The separate Desktop runtime, PowerShell and `shell_retry` capture limits are unchanged.
 - The terminal and server run on Harness `0.2.1-rc.3`. The official DeepSeek API-key route now follows the authenticated `/models` listing, including supported new models and their declared capabilities, while preserving DSCODE's Ultra effort. Initial listing failures fall back to the bundled catalog and failed refreshes retain the last successful listing; custom endpoints or explicit model catalogs keep their configured models. The Desktop package remains on `0.2.0-rc.2`.

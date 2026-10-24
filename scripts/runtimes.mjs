@@ -221,6 +221,7 @@ export async function runtimeInspect(argv, { home, version, log = console.log, t
     log([
       `Runtime ${alias} (${report.address})`,
       ...(status ? [`DSCODE ${status.version}; PID ${status.pid ?? '?'}; ${report.latencyMs} ms`,
+        ...(status.yolo ? ['YOLO: enabled (server-wide full access and automatic approval)'] : []),
         `Folder: ${report.cwd}`, `Clients: ${status.clients ?? '?'}; sessions: ${status.sessions ?? '?'}; running: ${status.running ?? '?'}`] : []),
       ...report.checks.map(check => `${check.ok ? 'OK' : 'FAIL'} ${check.name}: ${check.detail}`),
       ...(command === 'doctor' ? ['Checks inspect server configuration only; no model or tool execution is performed.'] : []),

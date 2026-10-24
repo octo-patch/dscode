@@ -16,11 +16,12 @@ export function formatStatus(status) {
   if (config.url) lines.push(`Chrome: ${line(config.url)}`);
   if (config.webmcp !== undefined) lines.push(`WebMCP: ${config.webmcp ? 'enabled' : 'disabled'}`);
   if (status.permissions) {
+    if (status.permissions.yolo) lines.push('Server YOLO: all HTTP(S) sites and developer tools allowed. Stored site rules are inactive until restart without --yolo.');
     lines.push(`Developer mode: ${status.permissions.developerMode ? 'on' : 'off'}`);
-    lines.push('Sites (HTTP(S) scheme, host and port; unknown sites require permission):');
+    lines.push(status.permissions.yolo ? 'Stored sites (inactive):' : 'Sites (HTTP(S) scheme, host and port; unknown sites require permission):');
     for (const [origin, rule] of Object.entries(status.permissions.sites)) lines.push(`  ${line(origin)}: ${rule.access}${rule.developer ? ' · developer allowed' : ''}`);
     for (const origin of status.permissions.sessionSites) lines.push(`  ${line(origin)}: allowed until this browser stops`);
-    lines.push('Grant: /browser site once <origin> · Block: /browser site block <origin>');
+    if (!status.permissions.yolo) lines.push('Grant: /browser site once <origin> · Block: /browser site block <origin>');
   }
   if (handoff) {
     lines.push(`Your step on tab ${handoff.pageId}: ${line(handoff.reason)}`);

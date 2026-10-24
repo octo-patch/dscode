@@ -29,12 +29,42 @@ Connect a client with:
 | `--port PORT` | TCP port (required) |
 | `--bind ADDRESS` | Address to listen on; default `0.0.0.0` (every interface). Use the VPN interface's address, or `127.0.0.1` with an SSH tunnel |
 | `--cwd DIR` | Default folder for new sessions; default the folder you start it in |
+| `--yolo` | Full access and automatic approval for every session on this server, including local attachments and delegated agents |
 | `--token TOKEN` | Use this token (at least 16 characters) instead of the stored one |
 | `--new-token` | Replace the stored token; clients configured with the old one are refused |
 
 The token is stored in `run/server-token` in the server's state directory (`~/.local/share/dscode-state/run/` for a self-contained installation), readable only by you, and reused on the next start.
 
 A terminal on the server itself still works: plain `dscode` there attaches to the same runtime through its local socket, so you can share a session between the server and your machine. If a background host is already running when you start the server, it is stopped first when it has no attached terminal and no running turn; otherwise the server refuses to start until you exit those terminals.
+
+## Unattended YOLO server
+
+On Linux, add `--desktop` to run in a supervised private Xvfb session. The same
+option is supported by `server install`. Launch applications with
+`dscode desktop exec -- COMMAND`; see [Linux desktop control](computer-use.md#desktop-control-and-recovery)
+for dependencies, recovery and shutdown behavior.
+
+
+Start an explicitly unrestricted server with:
+
+```bash
+dscode server --port 8080 --bind 127.0.0.1 --cwd /absolute/project/path --yolo
+```
+
+YOLO applies to new, resumed, spawned and forked sessions on this Host. File and shell tools run without DSCODE sandbox confinement under the server's OS account. Tool approvals are automatically allowed and still recorded in session history. Browser access and developer tools are enabled for every HTTP(S) origin, overriding stored site blocks, and browser uploads/downloads can use absolute paths across the server filesystem. Native Computer Use grants access to all applications; `computer_confirm` automatically returns its normal single-use, action-bound token.
+
+The startup banner, `dscode server status` and its JSON `runtime.yolo` field identify this mode. `/permission` reports `server-yolo` for an active session; `/browser status` identifies the override and marks saved site rules inactive. YOLO is a server launch setting, not a client-side toggle. The bearer token remains required; anyone attached to this server shares these permissions. Use a trusted connection as described above.
+
+OS permissions and account authentication still apply. On macOS, Accessibility and Screen Recording must already be granted to the relevant runtime/helper; unattended desktop control also requires an available GUI session. YOLO does not bypass website login, CAPTCHA, application availability or file ownership. Cancellation, browser handoff, live page identity, fresh desktop observations and file-version conflict checks still apply.
+
+Stop the foreground server and restart without `--yolo` to restore ordinary session and browser policies. YOLO does not write elevated session permissions or change saved browser grants. To keep YOLO across service restarts, include it at installation:
+
+```bash
+dscode server install --port 8080 --bind 127.0.0.1 --cwd /absolute/project/path --yolo
+dscode server start
+```
+
+Changing an installed service's YOLO setting requires stopping and uninstalling that service, then reinstalling with or without `--yolo`. Sessions and credentials are retained. This mode belongs to the terminal/server runtime; it does not configure the separately packaged experimental Desktop Host.
 
 ## Run as a user service
 
@@ -58,7 +88,7 @@ This example uses loopback for an SSH tunnel. Choose your VPN address for direct
 | `dscode server restart` | Stop it, start it and wait for readiness |
 | `dscode server uninstall` | Stop it and remove its service registration, retaining sessions, credentials and logs |
 
-Stop, restart and uninstall refuse while a terminal is attached or a turn is running. `--force` interrupts that work. These commands never stop an unrelated manually started Host; stop that Host before starting the service. Use `server stop` for a managed server instead of `host stop`. Reinstalling identical settings is harmless; to change the port, address or folder, stop and uninstall before installing again.
+Stop, restart and uninstall refuse while a terminal is attached or a turn is running. `--force` interrupts that work. These commands never stop an unrelated manually started Host; stop that Host before starting the service. Use `server stop` for a managed server instead of `host stop`. Reinstalling identical settings is harmless; to change the port, address, folder or YOLO mode, stop and uninstall before installing again.
 
 The service definition contains paths and a small environment (`HOME`, `PATH` and DSCODE state/service identifiers). It does not copy API keys from the installing shell or contain the bearer token. Sign in on the server or put environment settings in its local `config/.env`; foreground and managed servers both read that file. Service logs omit the token-bearing connection command. macOS logs live in `run/server.log`; Linux logs use the user journal. The saved installation metadata is `run/server-service.json` in the state directory.
 

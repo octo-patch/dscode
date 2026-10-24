@@ -62,7 +62,7 @@ export interface ToolWebSource {
 /** The expansion payload a verbose tool card renders; a discriminated union. */
 export type ToolDetail =
   | { kind: 'diff'; diffs: readonly ToolDiff[] }
-  | { kind: 'read'; path: string; offset: number; lines: readonly ToolReadLine[]; totalLines: number; truncated: boolean }
+  | { kind: 'read'; path: string; offset: number; lines: readonly ToolReadLine[]; totalLines?: number; truncated: boolean }
   | { kind: 'web-search'; sources: readonly ToolWebSource[]; truncated: boolean }
   | { kind: 'web-fetch'; url: string; statusCode: number }
   | { kind: 'raw'; text: string; truncated: boolean }
@@ -189,7 +189,7 @@ export function toolResultDetail(meta: unknown, rawText: string): ToolDetail | u
 
     const { path, offset, lines, totalLines } = record
     if (typeof path === 'string' && Number.isInteger(offset) && (offset as number) >= 1
-      && Number.isInteger(totalLines) && (totalLines as number) >= 0
+      && ((Number.isInteger(totalLines) && (totalLines as number) >= 0) || (totalLines === undefined && record['hasMore'] === true))
       && Array.isArray(lines)) {
       // Validate the bounded window only: lines beyond the display cap are
       // dropped anyway, so a giant persisted window cannot force a full-array
@@ -202,7 +202,7 @@ export function toolResultDetail(meta: unknown, rawText: string): ToolDetail | u
           path,
           offset: offset as number,
           lines: window.map(line => ({ number: line.number, text: clipLine(line.text) })),
-          totalLines: totalLines as number,
+          ...(totalLines === undefined ? {} : { totalLines: totalLines as number }),
           truncated,
         }
       }

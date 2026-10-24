@@ -26,7 +26,7 @@ report unsupported tools and do not bypass the refusal with another transport.
 Switching modes is a user command and requires stopping this browser.
 Never imply that the dedicated profile already has the user's personal logins.
 
-Site access is user-controlled and defaults to ask, independently of tool-action
+Unless the runtime supplies an explicit server YOLO override, site access is user-controlled and defaults to ask, independently of tool-action
 approvals. On a permission error, name the exact HTTP(S) origin and the user
 command from the error. `/browser site once <origin>` grants access until this
 connection stops or the user blocks/forgets that origin in any session; `allow`

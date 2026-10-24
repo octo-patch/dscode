@@ -34,6 +34,14 @@ Set `DSCODE_ACCOUNT_LOGIN=0` to remove the listener entirely. `/account login` t
 - **A grant is scoped to one origin.** If you point the DeepSeek route at a proxy or another base URL, the account token is deliberately not sent there; use an API key for that route.
 - **Identity and balance come from the platform**, not from DSCODE: `/account` prints the account name and masked contact, the recharge wallets and — separately — bonus wallets, and links to the platform's usage and top-up pages. Either read can fail on its own; the stored grant is kept when it does.
 
+## Model discovery
+
+In the terminal and server, both account login and the official API-key route follow DeepSeek's authenticated `/models` listing. The model picker includes supported listed models and uses their declared capabilities; DSCODE's Ultra effort remains available. Models that explicitly require a newer Harness are hidden and requests for them report an upgrade requirement.
+
+With an API key, the first lookup waits for the listing for up to five seconds. Later lookups use the cached result and refresh it in the background after ten minutes. A failed initial lookup uses the bundled catalog; a failed refresh keeps the last successful listing. Changing or removing the key invalidates its cached listing. An exported `DEEPSEEK_API_KEY` still takes precedence over a stored key.
+
+The API-key route follows the listing only at the official API origin with the built-in model configuration. A custom endpoint or an explicit model catalog keeps its configured models. The separate Desktop package remains on its older runtime and does not gain this API-key discovery behavior.
+
 ## Limits worth knowing
 
 - **No expiry or refresh.** Upstream stores the grant without an expiry and has no refresh flow, so `credential-stored` means "this machine has a grant", not "the server still accepts it". A grant the platform has revoked surfaces as an authentication failure on the next model request; `/account logout` then `/account login` replaces it.

@@ -6,6 +6,8 @@ import { patchAcpStatus } from './patch-acp-status.mjs';
 import { patchMacStdin } from './patch-mac-stdin.mjs';
 import { patchStdinStall } from './patch-stdin-stall.mjs';
 import { patchShellCapture, patchTerminalCapture } from './patch-shell-capture.mjs';
+import { patchFileTools, patchLocalFileIO } from './patch-file-io.mjs';
+import { patchPersistentSpill } from './patch-output-spill.mjs';
 import { ULTRA_POLICY, ultraSystem, FLASH_POLICY, flashSystem } from '../plugins/ultra/policy.mjs';
 
 /**
@@ -61,7 +63,7 @@ export function patchPersistent(text) {
       if (liveId !== undefined && !ctx.terminals.list(owner).some(s => s.sessionId === liveId && s.status.kind !== "exited")) { pending.delete(owner); live.delete(owner); }
       const existing = pending.get(owner);`);
   }
-  return patchStdinStall(patchShellCapture(text));
+  return patchPersistentSpill(patchStdinStall(patchShellCapture(text)));
 }
 
 export { STDIN_STALL_MS, STDIN_STALL_NOTE, patchStdinStall } from './patch-stdin-stall.mjs';
@@ -257,7 +259,7 @@ export function patchAppBoot(text) {
  * package cannot carry its own copy of that package.
  */
 /** The upstream DSH release every runtime patch in this file was validated against. */
-export const RUNTIME_VERSION = '0.2.1-rc.2';
+export const RUNTIME_VERSION = '0.2.1-rc.3';
 
 /**
  * dscode: the round cap is a goal field the model-facing tools can set, and the
@@ -288,7 +290,7 @@ export function patchGoalCommand(text) {
 }
 
 export function patchRuntime(root, { requireMacStdin = true } = {}) {
-  for (const [pkg, patch] of [['dsh-acp', text => patchAcpStatus(patchAcpErrors(text))], ['dsh-tool-subagent', patchSubagent], ['dsh-subagent', patchSubagentCore], ['dsh-llm-deepseek', patchDeepSeek], ['dsh-tool-bash', patchBash], ['dsh-tool-bash-persistent', patchPersistent], ['dsh-terminal-bash', patchTerminalBash], ['dsh-command-goal', patchGoalCommand], ['dsh-agent-instructions', patchAgentInstructions]]) {
+  for (const [pkg, patch] of [['dsh-acp', text => patchAcpStatus(patchAcpErrors(text))], ['dsh-tool-subagent', patchSubagent], ['dsh-subagent', patchSubagentCore], ['dsh-llm-deepseek', patchDeepSeek], ['dsh-tool-bash', patchBash], ['dsh-tool-bash-persistent', patchPersistent], ['dsh-terminal-bash', patchTerminalBash], ['dsh-command-goal', patchGoalCommand], ['dsh-agent-instructions', patchAgentInstructions], ['dsh-tool-fs', patchFileTools], ['dsh-fs-local', patchLocalFileIO]]) {
     const dir = join(root, 'node_modules/@deepseek-ai', pkg);
     if (JSON.parse(readFileSync(join(dir, 'package.json'))).version !== RUNTIME_VERSION) throw new Error('Revalidate runtime patches before upgrading ' + pkg);
     const path = join(dir, 'lib/index.js');

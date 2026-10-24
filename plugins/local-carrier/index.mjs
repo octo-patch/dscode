@@ -20,6 +20,7 @@ export const inject = ['connection', 'typertGateway'];
 export const Config = z.object({
   socketPath: z.string().description('Absolute socket path; defaults to $DSH_HOME/run/host.sock'),
   host: z.boolean().default(false).description('Serve as the shared Host: hold the Host lock and offer host/status and host/shutdown'),
+  yolo: z.boolean().default(false).description('Explicit server-wide automatic approval mode'),
   idleExitMs: z.number().min(0).default(0).description('Exit after this long with no attached terminal and no running turn; 0 never exits'),
   defaultCwd: z.string().description('Working directory a remote client uses when it names none; defaults to the home directory'),
   // Optional as a whole: the schema fills an absent object, so serving TCP is keyed on the port.
@@ -255,6 +256,7 @@ export async function apply(ctx, config = {}) {
         version: VERSION, protocol: RUNTIME_PROTOCOL, pid: process.pid, ...(launchId ? { launchId } : {}), ...(process.env.DSCODE_SERVER_SERVICE_ID ? { serviceId: process.env.DSCODE_SERVER_SERVICE_ID } : {}), startedAt: activity.startedAt, socketPath, clients: activity.clients, streams: activity.streams,
         sessions: (ctx.get('agents')?.list() ?? []).length, running: running(), idleExitMs: config.idleExitMs ?? 0,
         defaultCwd: config.defaultCwd || homedir(),
+        yolo: config.yolo === true && ctx.get('approval')?.serverYolo === true,
         ...(config.tcp?.port ? { tcp: { port: config.tcp.port, bind: config.tcp.bind } } : {}),
       })),
       scoped.dscodeRemote.method('host/shutdown', () => { exit(0); return { stopping: true }; }),

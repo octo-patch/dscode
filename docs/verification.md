@@ -1,6 +1,124 @@
 # Current checks — 2026-09-22
 
-Status: living verification record. The maintained gates below include installed terminal imports, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
+Status: living verification record. The maintained gates below include installed terminal imports, Linux desktop fixtures, real-browser checks and experimental upstream Desktop Host, shared Web UI and macOS Electron probes; dated sections retain the evidence and limits of their original runs.
+
+## Linux Computer Use — 2026-10-23 (unreleased)
+
+The Linux helper supports window/name/role/subtree reads, scope-specific deltas,
+explicit postconditions with accessibility event waits, cross-Host desktop leases,
+manual pause/resume and session-generation invalidation. The upstream Service
+still owns app grants, observations, sensitive-action tokens and target rebinding.
+A private Xvfb/Openbox supervisor and `server --desktop` support unattended use.
+Wayland adds combined RemoteDesktop/ScreenCast sessions, stream-local pointer
+commands and a bounded latest-frame PipeWire reader. Stream IDs survive both the
+tool wrapper and sensitive confirmation schemas; invalid postcondition deadlines
+are rejected before input. No action is automatically replayed after uncertainty.
+
+The real GTK/X11 helper passed Unicode editing, button actions, private PNG output,
+password omission, stale/restarted-helper rejection, keyboard/pointer dispatch and
+EOF cleanup. The actual Harness Host passed activation, grant denial, scoped reads,
+delta output, event postconditions, timeouts and desktop control leases. An unchanged
+eight-element observation shrank from 2,657 to 949 model-facing JSON bytes. The actual
+`server --yolo --desktop` CLI passed authenticated readiness, private display startup
+and `desktop exec -- xdpyinfo`. Killing the window manager caused a new desktop
+generation; a wrong Xauthority cookie was refused. Kernel leases were tested across
+processes, including expiry, pause and SIGKILL release.
+
+Six scripted real-application tasks passed with zero action retries. Five fresh
+reads per view measured the following on local Linux ARM64 containers. P95 here is
+the largest of five samples, not a production latency SLA. Backend JSON bytes
+include private traversal metadata and differ from model-facing projection bytes.
+
+| Application | Task | Visited nodes, full → subtree | Backend bytes, full → subtree | Read P95 ms, full → subtree |
+| --- | --- | --- | --- | --- |
+| gtk-large | edit-and-click | 310 → 1 | 94,333 → 1,090 | 94.37 → 9.53 |
+| qt | edit-and-click | 5 → 1 | 1,847 → 1,083 | 18.54 → 8.04 |
+| chromium | click-and-verify | 195 → 1 | 50,855 → 1,193 | 138.52 → 7.75 |
+| electron | click-and-verify | 23 → 1 | 7,482 → 1,201 | 38.47 → 12.24 |
+| mousepad | edit-document | 322 → 1 | 66,795 → 1,140 | 179.62 → 11.52 |
+| thunar | find-file | 175 → 1 | 45,056 → 1,234 | 110.03 → 8.1 |
+
+GTK, Qt and Mousepad exercised Unicode editing. Chromium/Electron exercised
+accessible button activation and its resulting label; their HTML fields do not
+provide EditableText in this fixture. Thunar switched to List View and located a
+file through accessibility. This is not evidence of general application coverage.
+The JSON report (`artifacts/local/linux-computer-benchmark.json`) includes task and
+action latency; model tokens are null because no model inference was used.
+
+Reproduce the automated CPU fixtures from the repository root:
+
+```bash
+docker build -t dscode-linux-computer:local -f tests/fixtures/linux-computer-use/Dockerfile .
+docker run --rm --network none --mount type=bind,source="$PWD",target=/work,readonly dscode-linux-computer:local sh tests/fixtures/linux-computer-use/run.sh
+docker run --rm --mount type=bind,source="$PWD",target=/work,readonly dscode-linux-computer:local sh tests/fixtures/linux-computer-use/host.sh
+docker run --rm --network none --mount type=bind,source="$PWD",target=/work,readonly dscode-linux-computer:local sh tests/fixtures/linux-computer-use/benchmark.sh
+docker run --rm --network none --mount type=bind,source="$PWD",target=/work,readonly dscode-linux-computer:local sh tests/fixtures/linux-computer-use/pipewire.sh
+```
+
+The Host fixture installs locked dependencies into a disposable writable source
+copy without personal configuration or credentials. A repeat encountered npm
+registry DNS failure; the subsequent run passed. The new `Linux computer use`
+workflow runs helper, Host, benchmark and PipeWire fixtures and uploads benchmark
+logs; remote CI has not been run for these uncommitted changes.
+
+Validation passed: 1,338 unit/component cases, all sixteen integration verifiers,
+the real Linux helper/Host/private-desktop fixtures, all six application tasks,
+package checks, lint and the documentation checker. Integration used
+`env -u DSCODE_RUNTIME npm run test:integration`; removing the inherited override
+lets the split-client TTY fixture run in split mode.
+
+The actual PipeWire/GStreamer fixture passed nonblank 320-by-200 PNG capture,
+private output permissions, repeated latest-frame reads and source-removal refusal.
+Its source is `videotestsrc` with explicit fixture port links, not a compositor or
+Portal consent UI. Older PipeWire can pause a removed source without EOS, so the
+reader now expires cached frames after two seconds without fresh data. A completely
+static desktop can also hit this limit; first-frame capture has a three-second
+wait after pipeline startup. Neither timeout replays input.
+
+Wayland qualification remains limited. Portal contract tests cover tokens, refusal,
+revocation, button/key release, stream dimensions and out-of-bounds rejection.
+KWin 5.27 in Docker established an actual Portal session, but its virtual display
+produced first-frame timeouts or black frames; those are **not** accepted screenshot
+results. KWin 6.3 requires a DRM render device for its virtual OpenGL compositor:
+without `/dev/dri` it falls back to QPainter and does not expose screencasting.
+This matches the [upstream virtual-backend implementation](https://github.com/KDE/kwin/blob/Plasma/6.3/src/backends/virtual/virtual_backend.cpp).
+The optional `Dockerfile.wayland`/`wayland.sh` fixture requires a GPU render device
+and exits 77 when none is present. Its full desktop round trip has not passed here.
+Native GNOME/KDE consent UI, visual pointer placement, mixed-DPI/multiple monitors,
+real logind lock/unlock transitions and deployed systemd login recovery remain
+unqualified. The macOS experimental Desktop adapter retains its separate boundary.
+
+## Server YOLO mode — 2026-10-23 (unreleased)
+
+`dscode server --yolo` adds a process-local adapter over the shared sandbox, approval and permission-preset services. Browser grants and native application configuration are overridden in the explicit server overlay. Ordinary Hosts do not mount that adapter; session policy events and saved browser grants retain their original values. This also avoids interpreting upstream approval policy `never` as automatic approval: upstream uses it to reject requests before answerers run.
+
+The real-Host verifier `node scripts/verify-server-yolo.mjs` passes four stages: create a restricted session, resume it under YOLO, restart normally, and launch the actual foreground CLI. It checks outside-workspace file and Bash writes, spawned and forked child writes, restoration of old/new/child policies, automatic audited approval, cancellation, native single-use confirmation-token consumption, all-app configuration, authenticated status and refusal of a wrong token. Its model is a local scripted adapter. The child fixture waits for completion after rc.3's asynchronous activation response.
+
+Validation passed: 1,325 unit/component cases, all sixteen integration verifiers, lint, package checks, the documentation checker and `git diff --check`. The focused real-Host verifier also passed again after tightening the temporary preset adapter. Browser fixtures verify unknown/blocked-site and Developer access, filesystem roots, unchanged saved rules, live page identity and handoff. Service-manager fixtures cover macOS/Linux installation arguments, restart persistence and mode reporting.
+
+No real website interaction, macOS window input, OS permission grant, live model inference or real launchd/systemd registration was performed for this mode. The native confirmation manager and configuration are exercised without issuing desktop input. No release was cut and no user service was enabled.
+
+## File I/O optimization — 2026-10-23 (unreleased)
+
+The terminal/server's pinned runtime patches add single-file `edit_many`, bounded range reads with a session/version page cache, and persistent Bash spill before inline truncation. The bundle vendors both the patched file tools and the filesystem sandbox's patched local backend; standalone installs apply the same patches. The separately pinned Desktop runtime is unchanged. The numbered terminal read renderer accepts windows with no exact total.
+
+Focused cases exercise one atomic publication for multiple replacements, validation before any write, original-file matching, overlap/ambiguity rejection, concurrent stale-version rejection, external-change invalidation, cross-session observation isolation, CRLF, symlinks, preserved mode bits, aborts, cache size/entry limits and stream closure on early return. Persistent-shell cases cover complete/nonzero-exit output, timeout partial output, missing/unwritable spill storage and honest labeling when the capture lost a prefix. The shared real-Host file-tools probe additionally calls `edit_many` through the tool registry, checks read-only denial and failed-batch preservation, and retrieves a middle/end sentinel from saved Bash output using `read`.
+
+Validation passed: lint, both TypeScript configurations, 1,320 unit/component cases, all fifteen integration verifiers, package checks, 63 offline evaluations, the documentation checker and `git diff --check`. The initial full gate recorded 80.24% first-party `.mjs` line coverage, then stopped because the new integration fixture attempted to switch sandbox modes with a persistent shell still open. After adding the required shell reset, the failed verifier and all remaining integration verifiers passed. The final partial-capture labeling adjustment also passed the seven persistent-shell cases. Offline evaluations needed execution outside the nested sandbox for their loopback HTTP fixtures. Local dependency patches were applied after validation; an already running Host must restart to load them.
+
+A macOS arm64 fixture containing 4,194,304 UTF-8 bytes in 65,536 lines was read with `limit: 100`. The previous whole-file read path returned all 4,194,304 bytes to its scanner. The optimized cold call consumed one 65,536-byte decoded stream chunk; the identical second call consumed no additional chunks and returned the cached page. Both calls still check file metadata. These are application-level decoded-byte counts, not physical-device I/O counters or end-to-end latency measurements. The scan still starts at the beginning for a previously uncached late-file range; no persistent line index is claimed.
+
+Limitations: batch editing still reads and rewrites the full file once; cache entries are process/session-local and do not survive resume; unscanned file tails are not UTF-8-validated. Persistent Bash retains at most 4 MiB before spill, and neither content-addressed deduplication nor disk compression is implemented. Larger complete logs require command-level redirection. PowerShell and `shell_retry` capture limits are unchanged. Live provider latency, Windows/Linux execution and a public downloaded release are outside this pass.
+
+## Harness 0.2.1-rc.3 adaptation — 2026-10-23 (unreleased)
+
+The terminal and server dependency family and runtime-patch guard move from `0.2.1-rc.2` to `0.2.1-rc.3`; all 300 installed DSH packages agree on the new version. The separate Desktop runtime remains on `0.2.0-rc.2`. The browser MCP image adapter now admits rc.3: the published `dsh-mcp-client/lib/index.js` is byte-identical between rc.2 and rc.3, and the large-image, canonical-byte and cancellation cases pass against the new package.
+
+The API-key adapter now follows the official authenticated model listing. Five new cases exercise the real patched transport, credentials service and terminal model directory: signed-out discovery, supported new models, declared capabilities and Ultra, shared listing caching, key replacement/removal, unavailable-listing fallback, exported-key precedence, incompatible-model refusal, unlisted saved routes, and custom endpoints/catalogs. The isolated runtime copies the API-key adapter alongside the patched transport so it cannot accidentally import the developer installation's transport. The login integration fixture intercepts official listing requests before network I/O and checks the directory and Ultra after saving a key and after a fresh Host starts.
+
+On macOS arm64, `env -u DSCODE_RUNTIME npm run check` passed: lint, both TypeScript configurations, 1,309 unit/component cases with 80.06% first-party `.mjs` line coverage, all fifteen integration verifiers, package checks and 63 offline evaluations. Integration coverage includes three terminal modes, Host ownership and restart recovery, durable delivery retries, remote reconnection, service lifecycle fixtures, session messaging, memory, provider login, execution, ACP and triggers. `node scripts/check-docs.mjs` and `git diff --check` also passed. The initial sandboxed unit run hit local-listener and nested-sandbox restrictions; the complete gate ran outside that sandbox.
+
+This is a source upgrade, with no application-version bump, tag or publication. Remote clients and servers must use the same Harness version. Live DeepSeek account/API inference, a real browser screenshot, the official Desktop app, Linux/Intel qualification and downloaded standalone installation were not exercised in this pass; model HTTP responses and service management use fixtures.
 
 ## 0.7.50 release gate — 2026-10-23
 

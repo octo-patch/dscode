@@ -26,8 +26,10 @@ export const hostSocket = (home = runtimeHome) => join(ensureSocketDirectory(hom
 const hostLog = home => join(hostDirectory(home), 'host.log');
 
 /** The profile overlay that turns the terminal composition into a shared Host. */
-export function hostOverlay(home = runtimeHome, idleExitMs = idleMs(), { tcp, defaultCwd } = {}) {
+export function hostOverlay(home = runtimeHome, idleExitMs = idleMs(), { tcp, defaultCwd, yolo = false } = {}) {
+  if (yolo && !tcp) throw Error('YOLO requires an explicit server TCP listener');
   const remote = [
+    ...(yolo ? ['        yolo: true'] : []),
     ...(defaultCwd ? [`        defaultCwd: ${JSON.stringify(defaultCwd)}`] : []),
     ...(tcp ? [`        tcp:\n          port: ${tcp.port}\n          bind: ${JSON.stringify(tcp.bind)}\n          tokenFile: ${JSON.stringify(tcp.tokenFile)}`] : []),
   ];
@@ -40,6 +42,12 @@ export function hostOverlay(home = runtimeHome, idleExitMs = idleMs(), { tcp, de
     '- id: tui-startup\n  disabled: true',
     '- id: tui-runner\n  disabled: true',
     '- id: dscode-hooks\n  disabled: true',
+    ...(yolo ? [
+      '- id: dscode-auto-review\n  disabled: true',
+      '- id: dscode-browser\n  config:\n    yolo: true',
+      '- id: dscode-computer-use\n  config:\n    allowAllApps: true',
+      `- insert:\n    - id: dscode-server-yolo\n      name: ${JSON.stringify(join(root, 'plugins/server-yolo/index.mjs'))}`,
+    ] : []),
     `- insert:\n    - id: api-remotes\n      name: '@deepseek-ai/dsh-api-remotes'\n    - id: dscode-session-workspaces\n      name: ${JSON.stringify(join(root, 'plugins/desktop-workspace/index.mjs'))}\n    - id: local-carrier\n      name: ${JSON.stringify(join(root, 'plugins/local-carrier/index.mjs'))}\n      config:\n        socketPath: ${JSON.stringify(hostSocket(home))}\n        host: true\n        idleExitMs: ${idleExitMs}${remote.map(line => '\n' + line).join('')}`,
   ].join('\n') + '\n', { mode: 0o600 });
   return path;
@@ -68,7 +76,7 @@ export const HOST_RUNNING_EXIT = 3;
  * Host that lost a concurrent start therefore exits at once instead of booting, and
  * cannot take the lock over once the winner stops.
  */
-export async function serve({ home = runtimeHome, args = [], idleExitMs = idleMs(), tcp, defaultCwd, onReady } = {}) {
+export async function serve({ home = runtimeHome, args = [], idleExitMs = idleMs(), tcp, defaultCwd, yolo = false, onReady } = {}) {
   provision(home, { cwd: home });
   const lock = openSync(join(ensureSocketDirectory(home), 'host.lock'), 'a', 0o600);
   try { await tryLockExclusive(lock); } catch {
@@ -76,7 +84,7 @@ export async function serve({ home = runtimeHome, args = [], idleExitMs = idleMs
     console.error('another DSCODE Host already serves this state directory');
     return HOST_RUNNING_EXIT;
   }
-  const overlay = hostOverlay(home, idleExitMs, { tcp, defaultCwd });
+  const overlay = hostOverlay(home, idleExitMs, { tcp, defaultCwd, yolo });
   // DSCODE_HOST_PATCH adds one trusted overlay after the Host's own (verification fixtures).
   const extra = process.env.DSCODE_HOST_PATCH ? ['--patch', process.env.DSCODE_HOST_PATCH] : [];
   const lockFd = dshStdio('inherit', [lock]).length - 1;
@@ -100,7 +108,7 @@ export async function serve({ home = runtimeHome, args = [], idleExitMs = idleMs
         const address = ['0.0.0.0', '::'].includes(tcp.bind) ? (tcp.bind === '::' ? '[::1]' : '127.0.0.1') : tcp.bind.includes(':') ? `[${tcp.bind}]` : tcp.bind;
         try {
           const remote = await callDscode({ url: `http://${address}:${tcp.port}`, token: readFileSync(tcp.tokenFile, 'utf8').trim() }, 'host/status', {}, AbortSignal.timeout(1000));
-          if (remote.launchId === launchId) { onReady(remote); ready = true; break; }
+          if (remote.launchId === launchId && Boolean(remote.yolo) === yolo) { onReady(remote); ready = true; break; }
         } catch { /* the local socket can appear before the TCP listener */ }
       }
       await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 100))]);
@@ -225,6 +233,8 @@ export function parseServerArgs(argv) {
     } else if (flag === '--bind') options.bind = next();
     else if (flag === '--token') options.token = next();
     else if (flag === '--new-token') options.rotate = true;
+    else if (flag === '--yolo') options.yolo = true;
+    else if (flag === '--desktop') options.desktop = true;
     else if (flag === '--cwd') options.cwd = resolve(next());
     else if (flag === '--help' || flag === '-h') return { help: true };
     else throw Error(`unknown option ${flag}\n${SERVER_USAGE}`);
@@ -233,7 +243,7 @@ export function parseServerArgs(argv) {
   return options;
 }
 
-const SERVER_USAGE = 'Usage: dscode server --port PORT [--bind ADDRESS] [--cwd DIR] [--token TOKEN | --new-token]';
+const SERVER_USAGE = 'Usage: dscode server --port PORT [--bind ADDRESS] [--cwd DIR] [--yolo] [--desktop] [--token TOKEN | --new-token]';
 
 /** Addresses a remote client could use to reach `bind`. */
 function reachableAddresses(bind) {
@@ -251,6 +261,11 @@ export async function server(argv, { home = runtimeHome } = {}) {
   loadLocalEnvironment();
   const options = parseServerArgs(argv);
   if (options.help) { console.log(SERVER_USAGE); return 0; }
+  if (options.desktop) {
+    const { ensureDesktop } = await import('./desktop-session.mjs');
+    const desktop = await ensureDesktop(home);
+    Object.assign(process.env, desktop.env);
+  }
   const running = await hostStatus(home);
   if (running !== undefined) {
     // An idle background Host would hold the lock; one with work is the user's to stop.
@@ -262,6 +277,7 @@ export async function server(argv, { home = runtimeHome } = {}) {
   const alias = hostname().split('.')[0].toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'server';
   const banner = () => console.log([
     `DSCODE server on ${options.bind}:${options.port} (default folder ${defaultCwd})`,
+    ...(options.yolo ? ['YOLO enabled: all sessions have full access and automatic approval under this OS account.'] : []),
     'Traffic is NOT encrypted: use it on a trusted network (VPN, Tailscale, LAN) or through an SSH tunnel.',
     ...(process.env.DSCODE_SERVER_SERVICE_ID ? ['Use `dscode server connect` to print the client configuration command.'] : [
       'Connect a client with:',
@@ -269,7 +285,7 @@ export async function server(argv, { home = runtimeHome } = {}) {
       `The token is stored in ${serverTokenFile(home)}; --new-token replaces it.`,
     ]),
   ].join('\n'));
-  return serve({ home, idleExitMs: 0, defaultCwd, tcp: { port: options.port, bind: options.bind, tokenFile: serverTokenFile(home) }, onReady: banner });
+  return serve({ home, idleExitMs: 0, defaultCwd, yolo: options.yolo, tcp: { port: options.port, bind: options.bind, tokenFile: serverTokenFile(home) }, onReady: banner });
 }
 
 export async function main(argv = process.argv.slice(2)) {

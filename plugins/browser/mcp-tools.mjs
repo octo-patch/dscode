@@ -11,7 +11,7 @@ export function patchMcpImageValidation(source) {
 // global RegExp behavior is changed; every other MCP admission rule is upstream.
 const entry = import.meta.resolve('@deepseek-ai/dsh-mcp-client');
 const version = JSON.parse(readFileSync(new URL('../package.json', entry), 'utf8')).version;
-if (!['0.1.7-alpha.2', '0.2.0-rc.2', '0.2.1-alpha.1', '0.2.1-rc.2'].includes(version)) throw Error(`Unsupported browser MCP client version: ${version}`);
+if (!['0.1.7-alpha.2', '0.2.0-rc.2', '0.2.1-alpha.1', '0.2.1-rc.2', '0.2.1-rc.3'].includes(version)) throw Error(`Unsupported browser MCP client version: ${version}`);
 const source = patchMcpImageValidation(readFileSync(new URL(entry), 'utf8'))
   .replace(/^import (.+) from (["'])([^"']+)\2;$/gm, (_line, bindings, _quote, specifier) => {
     const resolved = specifier.startsWith('.') ? new URL(specifier, entry).href : import.meta.resolve(specifier);

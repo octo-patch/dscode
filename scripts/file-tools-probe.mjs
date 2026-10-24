@@ -47,6 +47,8 @@ export async function probeFileTools(ctx, verifyPresentation = () => {}) {
     const agent = await create();
     ctx.permissionPresets.apply(agent.session, 'workspace-write');
     for (const name of ['read', 'edit', 'write', 'bash']) assert(ctx.tools.schemas(agent).some(tool => tool.name === name), `Missing ${name}`);
+    // Older Desktop runtimes remain supported by this shared verifier.
+    const optimized = ctx.tools.schemas(agent).some(tool => tool.name === 'edit_many');
     const file = join(cwd, 'sample.txt');
     writeFileSync(file, 'one\ntarget\ntarget\nfour\n');
     const edit = { file_path: 'sample.txt', old_string: 'one', new_string: 'ONE' };
@@ -58,7 +60,7 @@ export async function probeFileTools(ctx, verifyPresentation = () => {}) {
     assert.match(text(read), /target/);
     assert.match(text(read), /offset=4/);
     assert.deepEqual(read.meta.lines.map(line => line.number), [2, 3]);
-    assert.equal(read.meta.totalLines, 4);
+    assert.equal(read.meta.totalLines, optimized ? undefined : 4);
     assert.equal(read.meta.offset, 2);
     fails(await run(agent, 'edit', { ...edit, old_string: 'target' }), /FS_AMBIGUOUS_EDIT/);
     fails(await run(agent, 'edit', { ...edit, old_string: 'missing' }), /not found|no match/i);
@@ -81,6 +83,34 @@ export async function probeFileTools(ctx, verifyPresentation = () => {}) {
     const overwritten = ok(await run(agent, 'write', { file_path: 'created.txt', content: 'replaced\n' }));
     assert(overwritten.meta.diffs.some(diff => diff.oldText.includes('edited') && diff.newText.includes('replaced')));
     assert.equal(readFileSync(join(cwd, 'created.txt'), 'utf8'), 'replaced\n');
+
+    if (optimized) {
+      const batchFile = join(cwd, 'batch.txt');
+      writeFileSync(batchFile, 'alpha\nbeta\ngamma\n');
+      const batch = { file_path: batchFile, edits: [{ old_string: 'alpha', new_string: 'ALPHA' }, { old_string: 'gamma', new_string: 'GAMMA' }] };
+      fails(await run(agent, 'edit_many', batch), /not been read/);
+      ok(await run(agent, 'read', { file_path: batchFile, limit: 1 }));
+      const bad = { ...batch, edits: [batch.edits[0], { old_string: 'missing', new_string: 'x' }] };
+      fails(await run(agent, 'edit_many', bad), /not found/);
+      assert.equal(readFileSync(batchFile, 'utf8'), 'alpha\nbeta\ngamma\n');
+      const result = ok(await run(agent, 'edit_many', batch));
+      assert(result.meta.diffs.some(diff => diff.newText.includes('GAMMA')));
+      assert.equal(readFileSync(batchFile, 'utf8'), 'ALPHA\nbeta\nGAMMA\n');
+      writeFileSync(batchFile, 'external\n');
+      fails(await run(agent, 'edit_many', { ...batch, edits: [{ old_string: 'external', new_string: 'x' }] }), /re-read/);
+      assert.match(text(ok(await run(agent, 'read', { file_path: batchFile, limit: 1 }))), /external/);
+      const resetForPolicy = await ctx.commands.execute(agent, '/shell reset', [], AbortSignal.timeout(10000));
+      assert.equal(resetForPolicy.result.kind, 'success');
+      ctx.permissionPresets.apply(agent.session, 'read-only');
+      fails(await run(agent, 'edit_many', { ...batch, edits: [{ old_string: 'external', new_string: 'x' }] }), /sandbox|denied/i);
+      ctx.permissionPresets.apply(agent.session, 'workspace-write');
+      const output = text(ok(await run(agent, 'bash', { command: "printf 'START\\n'; printf '%030000d\\n' 0; printf 'RETRIEVAL_SENTINEL\\n'" })));
+      const path = /Full captured output: ([^\n]+?)\. Use read/.exec(output)?.[1];
+      assert(path, output);
+      const retrieved = text(ok(await run(agent, 'read', { file_path: path, offset: 3, limit: 2 })));
+      assert.match(retrieved, /RETRIEVAL_SENTINEL/);
+      assert(output.length < 18000, 'large shell output stays bounded in context');
+    }
 
     const peer = await create({ origin: 'subagent', parentSession: agent.session.id });
     fails(await run(peer, 'edit', { ...edit, old_string: 'updated' }), /not been read/);
@@ -129,7 +159,7 @@ export async function probeFileTools(ctx, verifyPresentation = () => {}) {
     writeFileSync(join(otherCwd, 'sample.txt'), 'other workspace\n');
     const other = await create({ cwd: otherCwd });
     assert.match(text(ok(await run(other, 'read', { file_path: 'sample.txt' }))), /other workspace/);
-    return { fileTools: 'read windows, literal edits, replace-all, create and overwrite, diff metadata, shell cwd independence, stale rejection and recovery, session and workspace isolation, resume, read-only and rejected escalation passed' };
+    return { optimized, fileTools: 'read windows, literal edits, replace-all, create and overwrite, diff metadata, shell cwd independence, stale rejection and recovery, session and workspace isolation, resume, read-only and rejected escalation passed', ...(optimized ? { optimizedIO: 'batch edits, failed-batch rollback, stale/read-only rejection, saved shell output and read-back passed' } : {}) };
   } finally {
     for (const handle of handles.reverse()) await handle.dispose();
     rmSync(cwd, { recursive: true, force: true });

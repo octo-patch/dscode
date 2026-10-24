@@ -12,9 +12,9 @@ import { hostStatus, parseServerArgs, serverTokenFile } from './host.mjs';
 
 export const SERVICE_USAGE = [
   'Usage:',
-  '  dscode server --port PORT [--bind ADDRESS] [--cwd DIR]  run in the foreground',
+  '  dscode server --port PORT [--bind ADDRESS] [--cwd DIR] [--yolo] [--desktop]  run in the foreground',
   '    [--token TOKEN | --new-token]  choose or rotate the foreground server token',
-  '  dscode server install --port PORT [--bind ADDRESS] [--cwd DIR]',
+  '  dscode server install --port PORT [--bind ADDRESS] [--cwd DIR] [--yolo] [--desktop]',
   '  dscode server start',
   '  dscode server stop|restart|uninstall [--force]',
   '  dscode server status [--json]',
@@ -62,11 +62,16 @@ export function servicePlan(options, { home = runtimeHome, platform = process.pl
   const launcher = env.DSCODE_CLI_PATH;
   const command = launcher ? [launcher] : [process.execPath, join(root, 'bin/dscode.mjs')];
   command.push('server', '--port', String(options.port), '--bind', options.bind, '--cwd', cwd);
+  if (options.yolo) command.push('--yolo');
+  if (options.desktop) {
+    if (platform !== 'linux') throw Error('--desktop requires Linux.');
+    command.push('--desktop');
+  }
   const environment = { HOME: userHome, PATH: env.PATH ?? '/usr/local/bin:/usr/bin:/bin', DSCODE_HOME: resolve(home), DSCODE_SOURCE_HOME: resolve(home), DSCODE_SERVER_SERVICE_ID: id };
   // Reject line breaks/control characters before generating either manager's syntax.
   for (const value of [...command, ...Object.values(environment), directory]) if (/[\x00-\x1f\x7f]/.test(value)) throw Error('service paths and environment must not contain control characters');
   if (!isAbsolute(directory) || !isAbsolute(command[0])) throw Error('service executable and unit directory must be absolute');
-  return { format: 1, id, platform, command, environment, cwd, port: options.port, bind: options.bind,
+  return { format: 1, id, platform, command, environment, cwd, port: options.port, bind: options.bind, ...(options.yolo ? { yolo: true } : {}), ...(options.desktop ? { desktop: true } : {}),
     servicePath: join(directory, platform === 'darwin' ? `${id}.plist` : `${id}.service`), logFile: serviceLogFile(home) };
 }
 
@@ -142,7 +147,7 @@ export async function readyService(config, { home = runtimeHome, status = hostSt
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const live = await status(home);
-    if (live && live.serviceId === config.id && live.tcp?.port === config.port && live.tcp.bind === config.bind) {
+    if (live && live.serviceId === config.id && live.tcp?.port === config.port && live.tcp.bind === config.bind && Boolean(live.yolo) === Boolean(config.yolo)) {
       try {
         const address = ['0.0.0.0', '::'].includes(config.bind) ? (config.bind === '::' ? '[::1]' : '127.0.0.1') : config.bind.includes(':') ? `[${config.bind}]` : config.bind;
         const target = { url: `http://${address}:${config.port}`, token: readFileSync(serverTokenFile(home), 'utf8').trim() };
@@ -187,7 +192,7 @@ export async function serverService(argv, options = {}) {
     let ready = false;
     if (live?.tcp && (!config || live.serviceId === config.id)) {
       try {
-        await readyService(config ?? { id: live.serviceId, ...live.tcp }, { ...options, home, status, timeoutMs: options.timeoutMs ?? 2500 });
+        await readyService(config ?? { id: live.serviceId, ...live.tcp, yolo: live.yolo }, { ...options, home, status, timeoutMs: options.timeoutMs ?? 2500 });
         ready = true;
       } catch (cause) { error ??= cause.message; }
     }
@@ -195,6 +200,7 @@ export async function serverService(argv, options = {}) {
       registered: managed, ready, ...(config ? { servicePath: config.servicePath } : {}), ...(live?.tcp ? { runtime: live } : {}), ...(error ? { error } : {}) };
     log(args.includes('--json') ? JSON.stringify(report, null, 2) : [
       `DSCODE server: ${ready ? 'running' : 'stopped or starting'}${config ? ` (${report.manager})` : ' (no installed service)'}`,
+      `YOLO: ${live?.yolo ? 'enabled' : 'disabled'}${!live && config?.yolo ? ' (configured for next start)' : ''}`,
       ...(live?.tcp ? [`PID ${live.pid}; ${live.tcp.bind}:${live.tcp.port}; ${live.clients} clients; ${live.running} running turns`] : []),
       ...(config ? [`Service: ${config.servicePath}`] : []), ...(error ? [error] : []),
     ].join('\n'));

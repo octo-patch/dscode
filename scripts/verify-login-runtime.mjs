@@ -23,6 +23,20 @@ import { loadProviderSettings, saveProviderCredential, loadModelDirectory } from
 import { ensureProviderRoute, waitForModels, pickModel } from ${JSON.stringify(catalog)};
 export const inject = ['credentials', 'llm', 'settings'];
 const row = async (ctx, provider) => (await loadProviderSettings(ctx)).rows.find(row => row.provider === provider);
+// rc.3 discovers official models over HTTP. Keep synthetic credentials inside
+// this fixture while exercising the real adapter, registry and terminal picker.
+const networkFetch = globalThis.fetch;
+const officialListings = [];
+globalThis.fetch = async (input, init) => {
+  const request = new Request(input, init);
+  if (request.url !== 'https://api.deepseek.com/models') return networkFetch(input, init);
+  officialListings.push(request.headers.get('x-api-key'));
+  return Response.json({ object: 'list', data: [{
+    id: 'deepseek-flash', name: 'Fixture Flash', context_window: 1048576,
+    input_modalities: ['text', 'image'], output_modalities: ['text'],
+    api_capabilities: { anthropic_messages: { system_prompt_update: 'in-history', tool_update: 'addition-only' } },
+  }] });
+};
 export function apply(ctx) {
   void (async () => {
     await ctx.get('loader').await();
@@ -32,6 +46,11 @@ export function apply(ctx) {
     assert.equal(official.credential.writable, true);
     if (save) await saveProviderCredential(ctx, official, 'synthetic-runtime-key');
     assert.equal((await ctx.credentials.resolve('DEEPSEEK_API_KEY')).value, 'synthetic-runtime-key');
+    const officialDirectory = await loadModelDirectory(ctx);
+    const officialModels = officialDirectory.rows.filter(row => row.provider === 'deepseek-official');
+    assert.deepEqual(officialModels.map(row => row.model), ['deepseek-flash']);
+    assert(officialModels[0].reasoning.efforts.some(effort => effort.id === 'ultra'));
+    assert.deepEqual(officialListings, ['synthetic-runtime-key'], 'official discovery uses the saved credential and shares one cached listing');
 
     // /provider openrouter: DSCODE's own adapter is always registered, serving the cached listing.
     assert.equal(await ensureProviderRoute(ctx.settings, 'openrouter'), false, 'the OpenRouter route needs no declaration');
@@ -168,5 +187,5 @@ export function apply(ctx) {
     assert(output.includes('LOGIN_RUNTIME_PASSED'), output);
     if (code !== 0) assert(code === 13 && output.includes('unsettled top-level await'), output);
   }
-  console.log('Login runtime passed: real provider directory and native TUI save callback for DeepSeek, OpenRouter and the read-only Grok CLI login; the OpenRouter route, its Ultra-capable models and both keys survive a fresh Host; the OpenRouter wire request is captured before network I/O; the OpenCode Go route is login-only, lists its catalog, and sends its own request shape to the endpoint its login names.');
+  console.log('Login runtime passed: real provider directory and native TUI save callback for DeepSeek, OpenRouter and the read-only Grok CLI login; the official model listing and OpenRouter catalog retain Ultra and both keys survive a fresh Host; official discovery and OpenRouter wire requests are captured before network I/O; the OpenCode Go route is login-only, lists its catalog, and sends its own request shape to the endpoint its login names.');
 } finally { rmSync(home, { recursive: true, force: true }); rmSync(uiEntry, { force: true }); }

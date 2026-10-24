@@ -35,6 +35,10 @@ The default state directory is `~/.local/share/dscode-hub`, overridable with `DS
 
 A user who already has dsh-hub installed can apply directly, but must use pnpm 10.15.1, set a dedicated `DSH_HOME` and `DSH_AGENTS_HOME`, and set `npm_config_ignore_scripts=true` on the install command. The launcher is recommended because it unifies those conditions.
 
+### Legacy external installers on rc.3
+
+Computer Use `0.3.4` declares compatibility through Harness `0.2.1-rc.2`. A direct `dsh plugin add` on rc.3 rejects that undeclared combination and rolls the installation back. The error identifies the profile and an explicit `allow-version @anionex/dsh-computer-use@0.3.4 --dsh-version 0.2.1-rc.3 --accept-risk` command. This is an exact-version opt-in, not a general compatibility override. DSCODE does not grant it automatically in user profiles. Its retained external-executor integration fixture checks rejection and then approves only this pair in a disposable staging profile before testing installation, upgrade and rollback. The native locked Hub launcher and standalone terminal follow their own verified installation paths.
+
 ### Desktop users
 
 Install the official Harness Desktop application with embedded runtime

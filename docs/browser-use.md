@@ -230,6 +230,13 @@ old tab IDs.
 
 ### Site access and Developer mode
 
+An explicitly started [`dscode server --yolo`](remote-runtime.md#unattended-yolo-server)
+overrides the site and Developer gates below for all HTTP(S) origins, including
+stored blocked sites. `/browser status` identifies the override. Saved grants
+stay unchanged and resume after restarting without `--yolo`; use handoff or stop
+to pause browser control while YOLO is active. Browser file operations in this
+mode may use absolute paths across the server filesystem, subject to OS access.
+
 Unknown HTTP(S) sites require a user decision before page content can be read or
 operated. `/browser permissions` lists decisions. An origin includes its scheme,
 host and port: `http://localhost:3000`, `http://127.0.0.1:3000` and

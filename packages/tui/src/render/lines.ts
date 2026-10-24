@@ -260,7 +260,7 @@ export function toolDetailLines(detail: ToolDetail, columns: number): readonly S
     case 'read':
       return [
         ...prefixedTextLines(
-          `${detail.path} · lines ${detail.offset}-${detail.lines.length > 0 ? detail.lines[detail.lines.length - 1].number : detail.offset - 1} of ${detail.totalLines}${detail.truncated ? ' (window truncated)' : ''}`,
+          `${detail.path} · lines ${detail.offset}-${detail.lines.length > 0 ? detail.lines[detail.lines.length - 1].number : detail.offset - 1}${detail.totalLines === undefined ? ' (more available)' : ` of ${detail.totalLines}`}${detail.truncated ? ' (window truncated)' : ''}`,
           columns,
           '    ── ',
           'dim',

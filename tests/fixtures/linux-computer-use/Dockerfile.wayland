@@ -1,0 +1,11 @@
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-gi python3-gi-cairo gir1.2-atspi-2.0 gir1.2-gtk-3.0 at-spi2-core \
+    dbus-x11 xvfb libcap2-bin \
+    gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gstreamer1.0-pipewire gstreamer1.0-plugins-base \
+    pipewire wireplumber kwin-wayland kwin-style-breeze xdg-desktop-portal xdg-desktop-portal-kde \
+    qt6-wayland libgl1-mesa-dri \
+    && (setcap -r /usr/bin/kwin_wayland || true) \
+    && rm -rf /var/lib/apt/lists/*
+ENV NO_AT_BRIDGE=0 GTK_MODULES=gail:atk-bridge
+WORKDIR /work

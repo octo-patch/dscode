@@ -2,6 +2,7 @@
 import ComputerUseBundle from '@anionex/dsh-computer-use';
 
 export const name = 'dscode-computer-use';
-export function apply(ctx, config = {}) {
-  ctx.plugin(ComputerUseBundle, config);
+export async function apply(ctx, config = {}) {
+  if (process.platform === 'linux') await ctx.plugin(await import('./linux/index.mjs'), config);
+  else ctx.plugin(ComputerUseBundle, config);
 }

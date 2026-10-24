@@ -1,0 +1,35 @@
+name: Linux computer use
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: linux-computer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  desktop-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build desktop fixture
+        run: docker build -t dscode-linux-computer:local -f tests/fixtures/linux-computer-use/Dockerfile .
+      - name: Verify helper and desktop recovery
+        run: docker run --rm --network none --mount type=bind,source="$PWD",target=/work,readonly dscode-linux-computer:local sh tests/fixtures/linux-computer-use/run.sh
+      - name: Verify real Host and dedicated desktop CLI
+        run: docker run --rm --mount type=bind,source="$PWD",target=/work,readonly dscode-linux-computer:local sh tests/fixtures/linux-computer-use/host.sh
+      - name: Benchmark six real applications
+        run: |
+          set -o pipefail
+          docker run --rm --network none --mount type=bind,source="$PWD",target=/work,readonly dscode-linux-computer:local sh tests/fixtures/linux-computer-use/benchmark.sh | tee linux-computer-benchmark.log
+      - name: Verify real PipeWire capture
+        run: docker run --rm --network none --mount type=bind,source="$PWD",target=/work,readonly dscode-linux-computer:local sh tests/fixtures/linux-computer-use/pipewire.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-computer-benchmark
+          path: linux-computer-benchmark.log
+          if-no-files-found: ignore

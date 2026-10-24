@@ -87,7 +87,8 @@
           * When invoking this tool, the contents of the "command" parameter does NOT need to be XML-escaped.
           * Network access depends on the task environment. Prefer configured mirrors/proxies when they are available.
           * State is persistent across command calls and discussions with the user.
-          * Use read for text files, edit for targeted replacements, and write for creating files. Use this shell for rg/rg --files searches, builds, tests and batch operations.
+          * Use read for text files, edit for a single replacement, edit_many when available for multiple changes to one file, and write for creating files. Use this shell for rg/rg --files searches, builds, tests and batch operations.
+          * When a large command result includes a saved output path, read that file in pages or search it with rg instead of repeating the command. A lost-prefix notice means the saved capture is partial; redirect commands to a file when you need a larger complete log.
           * Please avoid commands that may produce a very large amount of output.
           * Please run long lived commands in the background, e.g. 'sleep 10 &' or start a server in the background.
 

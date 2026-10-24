@@ -41,6 +41,10 @@ try {
       assert.match(readFileSync(join(destination, 'vendor/acp/index.js'), 'utf8'), /dscode-acp-errors-v1/);
       assert.match(readFileSync(join(destination, 'vendor/acp/index.js'), 'utf8'), /dscode-acp-status-v1/);
       assert(existsSync(join(destination, 'plugins/status/index.mjs')));
+      for (const file of ['index.mjs', 'client.mjs', 'backend.mjs', 'projection.mjs', 'conditions.mjs', 'helper.py', 'portal.py', 'capture.py', 'seat.py', 'session.py', 'desktop.py', 'SKILL.md']) {
+        assert(existsSync(join(destination, 'plugins/computer-use/linux', file)), `Linux Computer Use asset missing: ${file}`);
+      }
+      assert(!existsSync(join(destination, 'plugins/computer-use/linux/__pycache__')), 'Python build cache must not ship');
       assert.match(readFileSync(join(destination, 'vendor/deepseek/index.js'), 'utf8'), /dscode-transport-diagnostics-v1/);
       for (const dependency of Object.keys(terminal.dependencies)) {
         const version = lock.packages['node_modules/' + dependency]?.version;
@@ -53,6 +57,12 @@ try {
       assert(existsSync(join(destination, 'extensions/browser/manifest.json')), 'browser extension must ship in the published bundle');
       assert.equal(pkg.dependencies.ws, lock.packages['node_modules/ws'].version, 'extension relay WebSocket transport must be a pinned production dependency');
       assert.match(readFileSync(join(destination, 'vendor/terminal/index.js'), 'utf8'), /dscode-no-history-expansion-v1/);
+      assert.match(readFileSync(join(destination, 'vendor/persistent/index.js'), 'utf8'), /dscode-persistent-spill-v1/);
+      assert.match(readFileSync(join(destination, 'vendor/file-tools/index.js'), 'utf8'), /dscode-file-tools-v1/);
+      assert.match(readFileSync(join(destination, 'vendor/fs-local/index.js'), 'utf8'), /dscode-batch-edit-v1/);
+      assert.match(readFileSync(join(destination, 'vendor/fs-sandbox/index.js'), 'utf8'), /from "\.\.\/fs-local\/index\.js"/);
+      assert.match(readFileSync(join(destination, 'cordis.patch.yml'), 'utf8'), /dscode-bundle\/file-tools/);
+      assert.match(readFileSync(join(destination, 'cordis.patch.yml'), 'utf8'), /dscode-bundle\/fs-sandbox/);
       // The preset is a declaration row inside the bundle's own composition patch since
       // DSH 0.1.7 retired preset discovery from directories.
       assert(!existsSync(join(destination, 'presets')), 'the bundle ships no preset directory');

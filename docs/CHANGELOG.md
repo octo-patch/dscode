@@ -10,6 +10,25 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.51] - 2026-10-23
+
+### Added
+
+- Linux Computer Use adds scoped AT-SPI reads, compact observations, event-driven postconditions, per-desktop control leases and manual pause/resume. `server --desktop` supervises a private authenticated Xvfb/Openbox desktop, including display/window-manager recovery.
+- Experimental Wayland RemoteDesktop/ScreenCast support adds stream-local pointer commands and bounded PipeWire screenshot capture. Real compositor visual/input acceptance, OS consent UI and mixed-DPI monitors remain unqualified; source-only PipeWire and Portal contract tests do not establish those paths.
+- Linux desktop CI fixtures cover GTK, Qt, Chromium, Electron, Mousepad, Thunar, the actual Host and dedicated-desktop startup.
+- `dscode server --yolo` enables server-wide unrestricted file/shell access and automatic audited approval, browser site/developer access, and native application grants. It covers resumed sessions and delegated agents without persisting elevated session policies or browser grants. Service installation accepts `--yolo` and preserves it across restarts; startup and status identify the active mode. OS permissions, authentication, cancellation and action-validity checks remain in force.
+
+### Changed
+
+- The retained external Hub installer regression now exercises rc.3 compatibility rejection and an explicit fixture-only approval for Computer Use 0.3.4 before installation/rollback checks. User profiles receive no automatic exemption.
+
+- Terminal/server file tools add `edit_many` for one guarded atomic write per batch, and stop range reads after the requested window with a bounded session/version cache. Exact line totals are returned only at EOF; the terminal supports partial windows without a total. Existing read-before-edit, stale-version and sandbox checks remain in force.
+- Persistent Bash saves large captured results before inline truncation and returns a path for later reads/searches, including nonzero-exit and timeout output. The 4 MiB capture bound remains; larger complete logs require explicit redirection. The separate Desktop runtime, PowerShell and `shell_retry` capture limits are unchanged.
+- The terminal and server run on Harness `0.2.1-rc.3`. The official DeepSeek API-key route now follows the authenticated `/models` listing, including supported new models and their declared capabilities, while preserving DSCODE's Ultra effort. Initial listing failures fall back to the bundled catalog and failed refreshes retain the last successful listing; custom endpoints or explicit model catalogs keep their configured models. The Desktop package remains on `0.2.0-rc.2`.
+- The browser MCP image adapter accepts rc.3 after verifying its upstream implementation is unchanged. Large screenshots retain the bounded base64 validation and canonical-byte checks.
+- Remote clients and servers must both move to the rc.3 runtime: the compatibility handshake requires an equal Harness version even when the application version is unchanged.
+
 ## [0.7.50] - 2026-10-23
 
 ### Added

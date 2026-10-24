@@ -7,10 +7,12 @@ import { patchRuntime, patchAppBootPackage } from './patch-runtime.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
-export const upstreamPackages = ['dsh-code', ...['dsh-acp', 'dsh-tool-subagent', 'dsh-subagent', 'dsh-subagent-spawn-in-process', 'dsh-subagent-fork-in-process', 'dsh-llm-deepseek', 'dsh-tool-bash', 'dsh-tool-bash-persistent', 'dsh-terminal-bash', 'dsh-compaction-basic', 'dsh-command-goal', 'dsh-app-boot', 'dsh-agent-instructions'].map(name => '@deepseek-ai/' + name)];
+export const upstreamPackages = ['dsh-code', ...['dsh-acp', 'dsh-tool-subagent', 'dsh-subagent', 'dsh-subagent-spawn-in-process', 'dsh-subagent-fork-in-process', 'dsh-llm-deepseek', 'dsh-tool-bash', 'dsh-tool-bash-persistent', 'dsh-terminal-bash', 'dsh-compaction-basic', 'dsh-command-goal', 'dsh-app-boot', 'dsh-agent-instructions', 'dsh-tool-fs', 'dsh-fs-local'].map(name => '@deepseek-ai/' + name)];
 // The macOS process inspector is patched inside a content-hashed runner chunk
 // rather than lib/index.js, so fixtures need it without joining the index-only list.
-export const fixturePackages = [...upstreamPackages, '@deepseek-ai/dsh-subprocess-local'];
+// Keep the API-key adapter beside the patched transport, so its imports use the
+// fixture's Ultra mapping rather than the developer installation's module.
+export const fixturePackages = [...upstreamPackages, '@deepseek-ai/dsh-subprocess-local', '@deepseek-ai/dsh-llm-deepseek-api-key', '@deepseek-ai/dsh-fs-sandbox'];
 const cache = join(root, 'artifacts/local/test-upstream');
 
 // Keep exact upstream tarballs, verified against the checked-in lock. An

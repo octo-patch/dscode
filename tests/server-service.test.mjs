@@ -20,7 +20,7 @@ function fixture(t, platform = 'darwin') {
     managerFactory: config => ({
       registered: async () => state.registered,
       install: async () => { state.events.push('install'); },
-      start: async () => { state.events.push('start'); state.registered = true; state.live = { serviceId: config.id, pid: ++state.sequence, tcp: { port: config.port, bind: config.bind }, clients: 0, running: 0 }; },
+      start: async () => { state.events.push('start'); state.registered = true; state.live = { serviceId: config.id, pid: ++state.sequence, tcp: { port: config.port, bind: config.bind }, yolo: config.yolo, clients: 0, running: 0 }; },
       stop: async () => { state.events.push('stop'); state.registered = false; state.live = undefined; },
       uninstall: async () => { state.events.push('uninstall'); },
       reload: async () => { state.events.push('reload'); },
@@ -63,6 +63,20 @@ for (const platform of ['darwin', 'linux']) test(`${platform} server install/sta
   assert(!existsSync(config.servicePath));
   assert.equal(readService(f.home), undefined);
   assert.equal(readFileSync(join(f.home, 'run', 'server-token'), 'utf8'), 'private-fixture-token-123456');
+});
+
+for (const platform of ['darwin', 'linux']) test(`${platform} service retains YOLO through restart and reports the active mode`, async t => {
+  const f = fixture(t, platform);
+  await f.run(['install', '--port', '8080', '--bind', '127.0.0.1', '--cwd', f.cwd, '--yolo']);
+  assert.equal(readService(f.home).yolo, true);
+  await f.run(['start']); await f.run(['restart']);
+  assert.equal(f.state.live.yolo, true);
+  assert.equal(await f.run(['status', '--json']), 0);
+  assert.equal(JSON.parse(f.state.output.at(-1)).runtime.yolo, true);
+  await f.run(['status']); assert.match(f.state.output.at(-1), /YOLO: enabled/);
+  await f.run(['uninstall']); await f.install(); await f.run(['start']);
+  assert.equal(Boolean(f.state.live.yolo), false);
+  await f.run(['status']); assert.match(f.state.output.at(-1), /YOLO: disabled/);
 });
 
 test('service definitions quote paths and carry only selected ordinary environment', t => {
@@ -136,4 +150,13 @@ test('launchd and systemd commands use argument arrays and surface manager error
     const broken = serviceManager(config, { uid: 501, exec: async () => ({ code: 1, output: 'no user manager' }) });
     await assert.rejects(broken.registered(), /no user manager/);
   }
+});
+
+test('Linux managed servers persist dedicated-desktop mode and reject it on macOS', t => {
+  const f = fixture(t);
+  const options = { port: 8080, bind: '127.0.0.1', cwd: f.cwd, desktop: true, yolo: true };
+  const config = servicePlan(options, { ...f.options, platform: 'linux' });
+  assert.equal(config.desktop, true); assert(config.command.includes('--desktop')); assert(config.command.includes('--yolo'));
+  assert.throws(() => servicePlan(options, { ...f.options, platform: 'darwin' }), /Linux/);
+  assert(!servicePlan({ ...options, desktop: false }, { ...f.options, platform: 'linux' }).command.includes('--desktop'));
 });

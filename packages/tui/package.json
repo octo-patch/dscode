@@ -46,10 +46,10 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/dsh-authorization": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-tool-session-query": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-util-values": "0.2.1-rc.2",
-    "@deepseek-ai/dsh-web-fetch-http": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-authorization": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-tool-session-query": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-util-values": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-web-fetch-http": "0.2.1-rc.3",
     "@deepseek-ai/schemastery": "^3.18.5",
     "chalk": "^5.6.2",
     "commander": "^15.0.0",

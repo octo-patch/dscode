@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { createMcpToolDefinition } from './mcp-tools.mjs';
@@ -22,6 +22,8 @@ const jsonTool = (name, description, parameters, execute) => defineTool({ name, 
 
 /** Register lazily: a normal coding session never starts Chrome or its MCP. */
 export function apply(ctx, options = {}) {
+  const yolo = options.yolo === true;
+  const runtimeInstructions = yolo ? `${instructions}\n\n## Active server permission override\nThis server was explicitly started with --yolo. Site access and developer access are preauthorized for every HTTP(S) origin, including stored blocked sites. Do not request /browser permission commands. File uploads and downloads may use absolute paths anywhere on the server filesystem accessible to its OS account. The stored permission file is unchanged and becomes effective again after restart without --yolo. User handoff, cancellation and live page identity checks still apply.` : instructions;
   const home = options.home ?? browserHome();
   const states = new Map();
   const pending = new Map();
@@ -63,7 +65,7 @@ export function apply(ctx, options = {}) {
     if (!agent) throw Error('Browser use requires an agent session.');
     if (disposed) throw Error('Browser plugin has been disposed.');
     if (pending.has(agent)) return pending.get(agent).promise;
-    if (states.has(agent)) return { ...current(agent).status(), instructions };
+    if (states.has(agent)) return { ...current(agent).status(), instructions: runtimeInstructions };
     const startup = { controller: new AbortController() };
     const activeSignal = AbortSignal.any([startup.controller.signal, ...(signal ? [signal] : [])]);
     const work = (async () => {
@@ -72,13 +74,14 @@ export function apply(ctx, options = {}) {
       const relay = pairings.get(agent);
       if (config.mode === 'extension' && !relay?.ready) throw Error('Use /browser pair, connect the DSCODE extension and share a tab, then start the browser.');
       const artifacts = join(home, 'artifacts', agent.session.id.replace(/[^a-zA-Z0-9_-]/g, '_'));
-      const fileRoots = [agent.session.header.cwd ?? process.cwd(), artifacts];
-      const browser = new BrowserConnection({ home, sessionId: agent.session.id, config, connect, relay, fileRoots });
+      const workspace = agent.session.header.cwd ?? process.cwd();
+      const fileRoots = yolo ? [parse(workspace).root] : [workspace, artifacts];
+      const browser = new BrowserConnection({ home, sessionId: agent.session.id, config, connect, relay, fileRoots, access: new BrowserAccess(home, { yolo }) });
       const state = { browser, bindings: new Map(), disposers: [registerBrowserReview(agent, browser)] };
       states.set(agent, state);
       try {
         await mkdir(artifacts, { recursive: true, mode: 0o700 });
-        browser.args.push('--filesystem-root', agent.session.header.cwd ?? process.cwd(), '--filesystem-root', artifacts);
+        browser.args.push(...fileRoots.flatMap(root => ['--filesystem-root', root]));
         await browser.start(activeSignal);
         activeSignal.throwIfAborted();
         if (states.get(agent) !== state) throw Error('Browser startup was cancelled.');
@@ -93,7 +96,7 @@ export function apply(ctx, options = {}) {
           });
           state.disposers.push(agent.ctx.tools.register(definition));
         }
-        return { ...browser.status(), artifacts, tools: browser.tools.map(t => `mcp__browser__${t.name}`), instructions };
+        return { ...browser.status(), artifacts, tools: browser.tools.map(t => `mcp__browser__${t.name}`), instructions: runtimeInstructions };
       } catch (error) {
         if (states.get(agent) === state) {
           states.delete(agent);
@@ -107,7 +110,7 @@ export function apply(ctx, options = {}) {
     pending.set(agent, startup);
     try { return await work; } finally { pending.delete(agent); }
   }
-  ctx.skills.register({ name: 'browser-use', source: 'runtime', description: 'Operate websites and test local web apps with session-scoped Chrome, persistent login profiles, DOM snapshots, screenshots and DevTools.', content: instructions });
+  ctx.skills.register({ name: 'browser-use', source: 'runtime', description: 'Operate websites and test local web apps with session-scoped Chrome, persistent login profiles, DOM snapshots, screenshots and DevTools.', content: runtimeInstructions });
   ctx.systemPrompt.section({ name, order: 1073, text: 'For website interaction or local web UI verification, load the browser-use skill and call browser_start. Browser tools load for this agent only. Prefer purpose-built APIs/CLIs when available. Web search and desktop Computer Use are separate capabilities. Browser mode is selected by the user with /browser; never switch modes or bypass a browser denial through shell.' });
   ctx.tools.register(jsonTool('browser_start', 'Start or inspect this session browser and load its operating instructions and tools. Uses the user-selected profile; default is a dedicated persistent Chrome.', {}, (_args, exec) => start(exec.agent, exec.signal)));
   ctx.tools.register(jsonTool('browser_stop', 'Stop this session browser connection before a deliberate restart. Closes managed Chrome windows, retaining persistent login data; attached Chrome stays open. Do not stop a tab awaiting user input.', {}, async (_args, exec) => {
@@ -141,7 +144,7 @@ export function apply(ctx, options = {}) {
       const [action = 'status', mode, value, extra] = tokens;
       if (extra) throw Error('Too many arguments.');
       let result;
-      const access = states.get(agent)?.browser.access ?? new BrowserAccess(home);
+      const access = states.get(agent)?.browser.access ?? new BrowserAccess(home, { yolo });
       if (action === 'status' && !mode) result = { config: await readConfig(home), extensionReady: pairings.get(agent)?.ready ?? false, permissions: await access.status(), home };
       else if (action === 'pair' && !mode) {
         if (!agent) throw Error('Extension pairing requires an agent session.');

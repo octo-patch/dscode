@@ -66,7 +66,7 @@ async function withWriteGuard(home, action) {
 
 /** User-owned grants, independent of tool-action approval and permission presets. */
 export class BrowserAccess {
-  constructor(home) { this.home = home; this.once = new Map(); }
+  constructor(home, { yolo = false } = {}) { this.home = home; this.once = new Map(); this.yolo = yolo === true; }
   async read() {
     try { return validate(JSON.parse(await readFile(join(this.home, 'permissions.json'), 'utf8'))); }
     catch (error) { if (error.code === 'ENOENT') return { developerMode: false, sites: {} }; throw error; }
@@ -78,9 +78,10 @@ export class BrowserAccess {
   }
   async status() {
     const policy = await this.read(); this.pruneTemporary(policy);
-    return { developerMode: policy.developerMode, sites: policy.sites, sessionSites: [...this.once.keys()] };
+    return { developerMode: this.yolo || policy.developerMode, sites: policy.sites, sessionSites: [...this.once.keys()], ...(this.yolo ? { yolo: true } : {}) };
   }
   async update(action, value) {
+    if (this.yolo) throw Error('Server YOLO overrides site permissions. Restart without --yolo to manage grants; use /browser handoff or /browser stop to pause automation.');
     const previous = updates.get(this.home) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(() => withWriteGuard(this.home, async () => {
       const policy = await this.read();
@@ -124,6 +125,7 @@ export class BrowserAccess {
   async checkUrl(value, developer = false) {
     if (value === 'about:blank' && !developer) return;
     const origin = siteOrigin(value);
+    if (this.yolo) return;
     const policy = await this.read(), rule = policy.sites[origin];
     this.pruneTemporary(policy);
     if (rule?.access === 'block') throw Error(`Browser site blocked: ${origin}. Only the user may change /browser site permissions.`);

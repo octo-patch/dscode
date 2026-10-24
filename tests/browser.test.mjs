@@ -339,16 +339,31 @@ test('a Chrome restart detected before an action invalidates old IDs without act
   await browser.close();
 });
 
-function fixture(dir, customConnect) {
+function fixture(dir, customConnect, options = {}) {
   const global = new Map(), scoped = new Map(), hooks = new Map(), commands = new Map(), skills = [], cleanups = [], connections = [];
   const register = map => definition => { map.set(definition.name, definition); return () => map.delete(definition.name); };
   const agent = { status: 'idle', session: { id: 'fixture', header: { cwd: dir } }, ctx: { tools: { register: register(scoped) } } };
   const ctx = { tools: { register: register(global) }, skills: { register: skill => skills.push(skill) }, commands: { register: cmd => commands.set(cmd.name, cmd) }, systemPrompt: { section() {} }, agents: { list: () => [agent] }, on: (event, hook) => hooks.set(event, hook), effect: fn => cleanups.push(fn()), logger: { warn() {} } };
-  apply(ctx, { home: dir, connect: customConnect ?? (async () => { const chrome = fakeChrome(); connections.push(chrome); return chrome.connect(); }) });
+  apply(ctx, { home: dir, ...options, connect: customConnect ?? (async () => { const chrome = fakeChrome(); connections.push(chrome); return chrome.connect(); }) });
   const exec = { agent, signal: new AbortController().signal };
   return { global, scoped, hooks, commands, skills, agent, connections, exec,
     command: rawInput => commands.get('browser').handler({ ...exec, rawInput }), dispose: () => cleanups[0]() };
 }
+
+test('YOLO browser dispatch allows ungranted sites and host files but still respects handoff', async t => {
+  const dir = await home(t), launches = [], chrome = fakeChrome();
+  const f = fixture(dir, async args => { launches.push([...args]); return chrome.connect(); }, { yolo: true });
+  t.after(() => f.dispose());
+  const started = await f.global.get('browser_start').execute({}, f.exec);
+  assert.match(JSON.stringify(started), /Active server permission override/);
+  assert.match(f.skills[0].content, /--yolo/);
+  assert.equal(launches[0][launches[0].indexOf('--filesystem-root') + 1], '/');
+  const browser = browserForAgent(f.agent);
+  await browser.call('click', { pageId: 1, filePath: '/tmp/dscode-yolo-upload-fixture' });
+  await browser.takeHandoff(1, 'User takes control');
+  await assert.rejects(browser.call('click', { pageId: 1 }), /handed to the user/i);
+  assert.match((await f.command('status')).text, /Server YOLO/);
+});
 
 test('managed browser mode and profile changes preserve custom launch settings', async t => {
   const dir = await home(t), executablePath = join(dir, 'Chrome for Testing', 'chrome'), launches = [];

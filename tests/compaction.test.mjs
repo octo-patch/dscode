@@ -163,6 +163,34 @@ test('pressure compaction waits for the priced threshold', async () => {
   } finally { setOpenRouterPrices({}, 0); }
 });
 
+test('all Anthropic models trigger pressure compaction at half their usable input window', async () => {
+  const { AnthropicAdapter } = await import('../plugins/anthropic/adapter.mjs');
+  const adapter = new AnthropicAdapter({});
+  for (const { id: model } of await adapter.listModels('anthropic')) {
+    let used = 435999, commits = 0, spec;
+    const summary = { compacted: true };
+    const engine = makeEngine({
+      ctx: {
+        get: () => undefined,
+        tokenMeter: { measure: () => ({ totalTokens: used }) },
+        llm: { resolveModelInfo: (...args) => adapter.resolveModel(...args) },
+      },
+      dscodePlanPrefetch: (_agent, _measurement, resolved) => { spec = resolved; },
+      dscodeCommitPrefetch: async () => { commits++; used = 100000; return summary; },
+    });
+    const agent = { session: { seq: 0, requestHeader: () => ({ config: { provider: 'anthropic', model } }) } };
+    assert.equal(await engine.compactIfNeeded(agent, 'pressure', signal), null, model);
+    assert.equal(commits, 0);
+    assert.equal(spec.thresholdRatio, 0.5);
+    assert.equal(spec.contextWindow, 872000);
+    assert.equal(spec.thresholdTokens, 436000);
+    assert.equal(prefetchThresholdTokens(spec.thresholdTokens, spec.contextWindow), 348800);
+    used = 436000;
+    assert.equal(await engine.compactIfNeeded(agent, 'pressure', signal), summary);
+    assert.equal(commits, 1);
+  }
+});
+
 test('overflow recovery lets its prune decide first', async () => {
   const attempt = async (totalTokens, replacesSurface = true) => {
     let generation = 0;

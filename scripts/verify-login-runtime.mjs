@@ -75,6 +75,42 @@ export function apply(ctx) {
     if (save) await saveProviderCredential(ctx, openrouter, 'synthetic-openrouter-key');
     assert.equal((await ctx.credentials.resolve('OPENROUTER_API_KEY')).value, 'synthetic-openrouter-key');
 
+    const anthropic = await row(ctx, 'anthropic');
+    assert(anthropic?.active, 'missing active Anthropic provider');
+    assert.equal(anthropic.credentialRef, 'ANTHROPIC_API_KEY');
+    assert.equal(anthropic.credential.writable, true);
+    if (save) await saveProviderCredential(ctx, anthropic, 'synthetic-anthropic-key');
+    assert.equal((await ctx.credentials.resolve('ANTHROPIC_API_KEY')).value, 'synthetic-anthropic-key');
+    const claudeModels = (await loadModelDirectory(ctx)).rows.filter(row => row.provider === 'anthropic');
+    assert.deepEqual(claudeModels.map(row => row.model).sort(), ['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5']);
+    const beforeAnthropic = globalThis.fetch;
+    let anthropicCalls = 0;
+    globalThis.fetch = async (url, init) => {
+      anthropicCalls++;
+      assert.equal(url, 'https://api.anthropic.com/v1/messages');
+      assert.equal(init.headers['x-api-key'], 'synthetic-anthropic-key');
+      const body = JSON.parse(init.body);
+      assert.equal(body.thinking.type, 'adaptive');
+      assert.equal(body.output_config.effort, 'high');
+      const events = [
+        { type: 'message_start', message: { id: 'anthropic-probe', usage: { input_tokens: 3 } } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: 'ok' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } },
+        { type: 'message_stop' },
+      ];
+      return new Response(events.map(event => 'data: ' + JSON.stringify(event) + '\\n\\n').join(''), { headers: { 'content-type': 'text/event-stream' } });
+    };
+    try {
+      for (const model of claudeModels) {
+        const chunks = [];
+        for await (const chunk of ctx.llm.stream({ provider: 'anthropic', model: model.model, reasoningEffort: 'high', messages: [{ role: 'user', content: [{ type: 'text', text: 'Hi.' }] }] })) chunks.push(chunk);
+        assert.equal(chunks.at(-1).reason.kind, 'stop');
+        assert.equal(chunks.find(chunk => chunk.type === 'block-end').block.text, 'ok');
+      }
+      assert.equal(anthropicCalls, 3);
+    } finally { globalThis.fetch = beforeAnthropic; }
+
     // The wire request OpenRouter would receive, captured before any network I/O.
     const requests = [];
     const original = globalThis.fetch;
@@ -175,6 +211,7 @@ export function apply(ctx) {
     const env = { ...environment(home), DSCODE_LOGIN_CHECK: mode };
     delete env.DEEPSEEK_API_KEY;
     delete env.OPENROUTER_API_KEY;
+    delete env.ANTHROPIC_API_KEY;
     const child = spawn(process.execPath, [dshEntry, '--profile', 'tui', '--patch', patch], { cwd: home, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
     child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });
@@ -187,5 +224,5 @@ export function apply(ctx) {
     assert(output.includes('LOGIN_RUNTIME_PASSED'), output);
     if (code !== 0) assert(code === 13 && output.includes('unsettled top-level await'), output);
   }
-  console.log('Login runtime passed: real provider directory and native TUI save callback for DeepSeek, OpenRouter and the read-only Grok CLI login; the official model listing and OpenRouter catalog retain Ultra and both keys survive a fresh Host; official discovery and OpenRouter wire requests are captured before network I/O; the OpenCode Go route is login-only, lists its catalog, and sends its own request shape to the endpoint its login names.');
+  console.log('Login runtime passed: real provider directory and native TUI save callback for DeepSeek, OpenRouter, Anthropic and the read-only Grok CLI login; API keys survive a fresh Host; all three Claude models stream through the Anthropic adapter with captured requests; official discovery, OpenRouter and OpenCode Go requests are also captured before network I/O.');
 } finally { rmSync(home, { recursive: true, force: true }); rmSync(uiEntry, { force: true }); }

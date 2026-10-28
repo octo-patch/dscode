@@ -46,14 +46,14 @@ test('command arguments name a provider or are refused without interpretation', 
   assert.equal(providerArgument('sk-or-v1-synthetic'), null);
   assert.equal(providerArgument('OpenCode'), 'opencode-go');
   assert.equal(providerArgument('opencode-go'), 'opencode-go');
-  assert.deepEqual(PROVIDERS.map(provider => provider.credentialRef), ['DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY', 'GROK_CLI_TOKEN', 'OPENCODE_OAUTH', 'ANTIGRAVITY_OAUTH', 'OPENAI_API_KEY']);
+  assert.deepEqual(PROVIDERS.map(provider => provider.credentialRef), ['DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY', 'GROK_CLI_TOKEN', 'OPENCODE_OAUTH', 'ANTIGRAVITY_OAUTH', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY']);
 });
 
 test('labels split at the first slash so OpenRouter model ids keep their vendor', () => {
   assert.deepEqual(splitModelLabel('openrouter/deepseek/deepseek-v4-flash'), { provider: 'openrouter', model: 'deepseek/deepseek-v4-flash' });
   assert.deepEqual(splitModelLabel('deepseek-flash'), { provider: '', model: 'deepseek-flash' });
   assert.equal(providerOfLabel('openrouter/deepseek/deepseek-v4-pro'), 'openrouter');
-  assert.equal(providerOfLabel('anthropic/claude'), 'deepseek-official');
+  assert.equal(providerOfLabel('anthropic/claude'), 'anthropic');
   assert.equal(providerOfHeader('openrouter: deepseek/deepseek-v4-flash @ high'), 'openrouter');
   assert.equal(providerOfHeader('deepseek-flash @ high'), undefined);
 });

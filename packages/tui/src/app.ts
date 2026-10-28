@@ -4652,7 +4652,7 @@ function Input({ effortSurface, ultraPulse, active, frozen, frozenHint, busy, de
   sessionKey: string
   interrupt: () => boolean
   quit: (fast?: boolean) => void
-  /** dscode: store a provider API key locally (/login [deepseek|openrouter]). */
+  /** dscode: store a provider API key locally (/login [deepseek|openrouter|anthropic]). */
   openLogin: (provider?: string) => void
   /** dscode: switch the session between DeepSeek and OpenRouter. */
   openProvider: (provider?: string) => void
@@ -5931,13 +5931,15 @@ function Input({ effortSurface, ultraPulse, active, frozen, frozenHint, busy, de
           clearTimeout(timer)
           pasteBracketCancelRef.current = undefined
         }
-        text = text.replaceAll(PASTE_START_MARKER, '')
       }
       if (text.includes(PASTE_END_MARKER)) {
         pasteBracketRef.current = false
         pasteBracketCancelRef.current?.()
-        text = text.replaceAll(PASTE_END_MARKER, '')
       }
+      // Ink removes only the leading ESC; the closing wrapper can retain
+      // its ESC. Strip complete wrappers before path detection, otherwise
+      // an invisible trailing ESC makes even a .png path fail recognition.
+      text = stripPasteMarkers(text)
       if (text === '') return
       if (text.length > 1) {
         // A path-list paste splits into images and files; prose falls through

@@ -30,7 +30,7 @@ const { App } = await import('../packages/tui/src/app.ts');
 hooks.deregister();
 const tick = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function terminalApp(columns, rows, splitInput = false) {
+async function terminalApp(columns, rows, splitInput = false, overrides = {}) {
   const work = mkdtempSync(join(tmpdir(), 'dscode-layout-'));
   const saved = { DSCODE_HOME: process.env.DSCODE_HOME, DSCODE_EMAIL_DIR: process.env.DSCODE_EMAIL_DIR };
   process.env.DSCODE_HOME = work;
@@ -69,6 +69,7 @@ async function terminalApp(columns, rows, splitInput = false) {
       mounted.rerender(createElement(App, { ...props, key: 'new-session', sessionKey: 'new-session' }));
     },
     loadMentions: async () => [], inspectImages: async () => [], inspectFiles: async () => [],
+    ...overrides,
   };
   setTheme('dark');
   mounted = render(createElement(App, props), { stdin: split?.stdin ?? stdin, stdout, stderr, patchConsole: false, exitOnCtrlC: false });
@@ -153,5 +154,40 @@ test('a long unbracketed input burst submits once without React update recursion
     assert.deepEqual(ui.submitted, [prompt]);
     assert.deepEqual(warnings, []);
     assertBottom(ui);
+  } finally { ui.close(); }
+});
+
+test('bracketed image pastes retain markers and deliver image blocks through the split terminal input', async () => {
+  const inspected = [], delivered = [];
+  const paths = ['/tmp/first.png', '/tmp/second image.png'];
+  const blocks = paths.map(path => ({ type: 'image', url: `attachment:${path}` }));
+  const ui = await terminalApp(120, 36, true, {
+    inspectImages: async paths => {
+      inspected.push(...paths);
+      return paths.map(path => ({ path, name: path.split('/').at(-1), mediaType: 'image/png', bytes: 100 }));
+    },
+    prepareImages: async selected => { assert.deepEqual(selected, paths); return blocks; },
+    dispatch: (...args) => delivered.push(args),
+    steer: (...args) => delivered.push(args),
+  });
+  try {
+    await ui.write(`\x1b[200~${paths[0]}\x1b[201~`);
+    assert.match(ui.screen().join('\n'), /\[Image 1\]/);
+    // A terminal may split the payload and the closing wrapper across reads.
+    await ui.write(`\x1b[200~"${paths[1]}`);
+    await ui.write('"\x1b[201~');
+    assert.deepEqual(inspected, paths);
+    assert.match(ui.screen().join('\n'), /\[Image 1\] \[Image 2\]/);
+    await ui.write('\r');
+    assert.deepEqual(delivered, [['[Image 1] [Image 2]', blocks, 'layout']], ui.screen().join('\n'));
+  } finally { ui.close(); }
+});
+
+test('bracketed text is submitted without leftover terminal escape bytes', async () => {
+  const ui = await terminalApp(120, 36, true);
+  try {
+    await ui.write('\x1b[200~explain this code\x1b[201~');
+    await ui.write('\r');
+    assert.deepEqual(ui.submitted, ['explain this code']);
   } finally { ui.close(); }
 });

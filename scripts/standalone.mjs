@@ -38,6 +38,8 @@ export async function standaloneMain(args = process.argv.slice(2)) {
   }
   if (args[0] === '--installation') { console.log(JSON.stringify({ ...metadata, root, home: env.DSCODE_HOME, node: process.execPath })); return; }
   if (args[0] === '--check') {
+    const { checkProfileCompatibility } = await import('./check-profile-compatibility.mjs');
+    checkProfileCompatibility(root);
     await import('dsh-code/startup');
     await import('dsh-code/client');
     await import('dsh-code/host');

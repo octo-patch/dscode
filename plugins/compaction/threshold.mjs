@@ -77,8 +77,9 @@ export function fitsInWindow(totalTokens, modelInfo) {
   return totalTokens + completionReserve(contextWindow, modelInfo) <= contextWindow;
 }
 
-/** The route's threshold ratio, waiting for the OpenRouter listing when it has not loaded yet. */
+/** Route defaults, waiting for the OpenRouter listing when it has not loaded yet. */
 export async function pricedThresholdRatio(provider, model, now = Date.now()) {
+  if (provider === 'anthropic') return 0.5;
   if (provider === 'openrouter') await ensureOpenRouterModels({ home: resolveDshHome(), now });
   return thresholdForCacheRatio(cacheReadRatio(provider, model, now));
 }

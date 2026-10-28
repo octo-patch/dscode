@@ -28,6 +28,7 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, { cwd: work, env, encoding: 'utf8', timeout: 60000, ...options });
   assert.equal(result.status, 0, `${command} ${args.join(' ')}: ${result.error ?? ''}\n${result.stderr}\n${result.stdout}`);
   assert(!`${result.stderr}${result.stdout}`.includes('FOREIGN_RUNTIME_EXECUTED'));
+  assert(!/skipping profile bundle|incompatible with dsh/.test(`${result.stderr}${result.stdout}`), 'a shipped profile bundle failed compatibility checks');
   return result.stdout;
 }
 try {

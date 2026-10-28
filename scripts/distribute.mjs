@@ -43,6 +43,7 @@ for (const platform of platforms) {
     // Linux packages are glibc builds: npm skips a native package that declares a libc it
     // cannot match on a foreign build host, so the target libc is named explicitly.
     run('npm', ['ci', '--ignore-scripts', '--no-audit', `--os=${os}`, `--cpu=${arch}`, ...(os === 'linux' ? ['--libc=glibc'] : []), '--cache', join(root, '.npm-cache')], stage);
+    run(process.execPath, ['scripts/check-profile-compatibility.mjs'], stage);
     run(process.execPath, ['scripts/build-tui.mjs'], stage);
     run(process.execPath, ['--input-type=module', '-e', `
       import { patchRuntime, patchAppBootPackage } from './scripts/patch-runtime.mjs';

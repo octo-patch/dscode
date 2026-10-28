@@ -32,6 +32,14 @@ export function requestBody(profile, model, options, images) {
   const system = [options.system, ...options.messages.filter(m => m.role === 'system').map(m => textOf(m.content))].filter(Boolean).join('\n\n');
   for (const message of options.messages.filter(m => m.role !== 'system')) {
     const native = nativeReasoning(message, profile, model.id);
+    // Dedicated Messages adapters can retain the exact content order, including
+    // interleaved thinking, instead of rebuilding it from display blocks.
+    const replay = message.source?.replayState?.response;
+    if (profile.replayKind && profile.api === 'anthropic' && message.role === 'assistant'
+      && message.source?.provider === profile.id && replay?.kind === profile.replayKind && Array.isArray(replay.nativeContent)) {
+      anthropic.push({ role: 'assistant', content: structuredClone(replay.nativeContent) });
+      continue;
+    }
     if (profile.api === 'responses') input.push(...native);
     const parts = [];
     if (profile.api === 'anthropic' && message.role === 'assistant') parts.push(...native);
@@ -89,7 +97,7 @@ function anthropicUsage(u) {
 }
 
 /** Normalize the two event protocols to the shared chat stream assembler. */
-export async function* normalizedEvents(payloads, api, replay) {
+export async function* normalizedEvents(payloads, api, replay, preserveContent = false) {
   if (api === 'chat-completions') { yield* payloads; return; }
   let usage = {}, finish = 'stop';
   const blocks = new Map(), emitted = new Set(), native = new Map();
@@ -154,8 +162,10 @@ export async function* normalizedEvents(payloads, api, replay) {
       }
       if (event.type === 'content_block_delta') {
         const d = event.delta, b = blocks.get(event.index);
-        if (d.type === 'text_delta') yield delta({ content: d.text });
-        if (d.type === 'input_json_delta') { emitted.add(`args:${event.index}`); yield toolDelta(event.index, undefined, undefined, d.partial_json); }
+        if (d.type === 'text_delta') { if (b) b.text = (b.text ?? '') + d.text; yield delta({ content: d.text }); }
+        // A no-argument tool can emit an empty delta. Keep the start block's
+        // input and let content_block_stop emit it unless actual JSON arrives.
+        if (d.type === 'input_json_delta' && d.partial_json !== '') { if (b) b.partialJson = (b.partialJson ?? '') + d.partial_json; emitted.add(`args:${event.index}`); yield toolDelta(event.index, undefined, undefined, d.partial_json); }
         if (d.type === 'thinking_delta') { if (b) b.thinking = (b.thinking ?? '') + d.thinking; yield delta({ reasoning_content: d.thinking }); }
         if (d.type === 'signature_delta' && b) b.signature = (b.signature ?? '') + d.signature;
       }
@@ -170,6 +180,14 @@ export async function* normalizedEvents(payloads, api, replay) {
       }
       if (event.type === 'message_stop') {
         replay.nativeReasoning = [...native.values()];
+        if (preserveContent) replay.nativeContent = [...blocks.values()].map(block => {
+          const { partialJson, ...content } = block;
+          if (partialJson !== undefined) {
+            try { content.input = JSON.parse(partialJson); }
+            catch { throw new LlmError('Invalid Messages tool arguments', 'MALFORMED_RESPONSE'); }
+          }
+          return content;
+        });
         yield JSON.stringify({ choices: [{ delta: {}, finish_reason: finish }], usage: anthropicUsage(usage) });
         yield '[DONE]'; return;
       }

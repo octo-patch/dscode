@@ -7,6 +7,11 @@ import { pathToFileURL } from 'node:url';
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 import { buildRelease } from '../scripts/release.mjs';
 import { root, manifest, alignHubCredentials } from '../scripts/harness.mjs';
+import { checkProfileCompatibility } from '../scripts/check-profile-compatibility.mjs';
+
+test('shipped profile bundles satisfy the runtime without compatibility exemptions', () => {
+  assert.doesNotThrow(() => checkProfileCompatibility(root));
+});
 
 test('all Harness modules in the lock use exactly the runtime release', () => {
   const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));

@@ -1,6 +1,6 @@
 {
   "name": "todd-dsh-tui-harness",
-  "version": "0.7.51",
+  "version": "0.7.52",
   "private": true,
   "type": "module",
   "bin": {
@@ -42,7 +42,7 @@
     "eval:browser": "node eval/browser/runner.mjs"
   },
   "dependencies": {
-    "@anionex/dsh-computer-use": "0.3.4",
+    "@anionex/dsh-computer-use": "0.3.6",
     "@deepseek-ai/cordis": "4.0.5",
     "@deepseek-ai/cordis-plugin-loader": "1.0.6",
     "@deepseek-ai/cosmokit": "1.8.6",

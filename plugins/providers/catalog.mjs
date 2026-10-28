@@ -14,6 +14,7 @@ export const PROVIDERS = Object.freeze([
   { id: 'opencode-go', name: 'OpenCode Go', aliases: ['opencode-go', 'opencode', 'go'], credentialRef: 'OPENCODE_OAUTH', login: '/opencode login', defaultModel: 'kimi-k3' },
   { id: 'antigravity', name: 'Antigravity', aliases: ['antigravity', 'google-antigravity', 'agy'], credentialRef: 'ANTIGRAVITY_OAUTH', login: '/antigravity login', defaultModel: 'gemini-3.8-flash' },
   { id: 'openai', name: 'OpenAI / ChatGPT', aliases: ['openai', 'codex', 'chatgpt'], credentialRef: 'OPENAI_API_KEY', defaultModel: 'gpt-6.1-sol' },
+  { id: 'anthropic', name: 'Anthropic', aliases: ['anthropic', 'claude'], credentialRef: 'ANTHROPIC_API_KEY', defaultModel: 'claude-opus-5-5' },
 ]);
 
 // The pi-ai adapter served OpenRouter until 0.7.6, from this settings section.

@@ -150,6 +150,8 @@ tar -xzf dscode-0.7.47-darwin-arm64-standalone.tar.gz -C dscode-app
 
 使用 [OpenAI / ChatGPT](docs/openai.md) 时，运行 `/openai login` 和 `/provider openai`；也可用 `/openai api-key` 选择 API Key 计费。通过 `/effort` 选择推理强度，通过 `/speed standard|fast|ultrafast` 选择速度。OpenAI 会话在估算输入达到 272,000 tokens 时压缩，小上下文模型会更早触发。
 
+使用 [Anthropic](docs/anthropic.md) 时，先运行 `/login anthropic`（或设置 `ANTHROPIC_API_KEY`），再运行 `/provider anthropic`。通过 `/model` 选择 Claude Opus 5.5、Sonnet 5.5 或 Fable 5.1，通过 `/effort` 设置推理强度。这条路由直接调用 Anthropic API，使用 API 计费。 默认在可用输入窗口达到 50% 时自动压缩（预留输出预算后为 436,000 tokens）。
+
 使用 `/provider custom` 添加自托管或私有 API，支持 Chat Completions、Responses 和 Anthropic Messages。配置地址及可选密钥，发现或手动添加模型，设置上下文窗口，并测试流式工具调用。支持视觉的模型可开启 **Input → Text and images** 来接收截图和图片附件；默认仅接收文本。已保存的服务会按名称显示在 `/provider` 中，按 Enter 即可切换到其模型。详见[自定义模型服务](docs/custom-providers.md)。
 
 **默认英文，界面支持 6 种语言。** `/language` 打开选择器，`/language ja` 可直接切换；也可以直接写「中文」「日本語」「한국어」。支持 English、简体中文、繁體中文、日本語、한국어、Español。选择按机器保存在 `$DSCODE_HOME/tui/language.json`（默认位于 `~/.local/share/dscode-state`），`DSCODE_LANGUAGE=es` 可覆盖单次运行。
@@ -246,7 +248,7 @@ node scripts/verify-standalone.mjs # 验证本机平台的完整发布包
 
 `make release` 运行版本校验、完整检查、单包构建、本机安装验证及候选包归档。CI 另外在 Intel runner 上验证 x64 包。`make publish` 将终端包上传至 GitHub Release；Desktop 继续独立构建、验证和发布。`node scripts/homebrew-formula.mjs` 根据同一批包及其 SHA-256 生成配方；配方仍需同步到 tap。
 
-DSH 固定为 `0.2.1-rc.3`（Desktop 组合包仍为 `0.2.0-rc.2`，即官方 Desktop 应用的运行时），内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-code@1.2.0`，Computer Use 为 `0.3.4`。运行时补丁在构建阶段应用。当前流程见[分发说明](docs/distribution.md)；旧 npm/Hub 构建流程保留在[旧分发指南](docs/hub-distribution.md)。上下文压缩评测位于 [`eval/`](eval/README.md)。
+DSH 固定为 `0.2.1-rc.3`（Desktop 组合包仍为 `0.2.0-rc.2`，即官方 Desktop 应用的运行时），内置 Node 固定为 `24.21.0`，TUI 基于 `dsh-code@1.2.0`，Computer Use 为 `0.3.6`。运行时补丁在构建阶段应用。当前流程见[分发说明](docs/distribution.md)；旧 npm/Hub 构建流程保留在[旧分发指南](docs/hub-distribution.md)。上下文压缩评测位于 [`eval/`](eval/README.md)。
 
 ## 📚 文档
 
@@ -269,6 +271,7 @@ DSH 固定为 `0.2.1-rc.3`（Desktop 组合包仍为 `0.2.0-rc.2`，即官方 De
 | [账号登录](docs/account-login.md) | 用浏览器账号代替 API key 给 DeepSeek 路由授权：流程、回环回调与限制 |
 | [Antigravity](docs/antigravity.md) | Google 账号登录、Gemini 模型、会话回放与连接限制 |
 | [OpenAI / ChatGPT](docs/openai.md) | ChatGPT 登录、API Key、Fast/Ultrafast 速度与 272k 压缩线 |
+| [Anthropic](docs/anthropic.md) | API key、Claude Opus 5.5、Sonnet 5.5、Fable 5.1 与思考块续接 |
 | [OpenCode Go](docs/opencode-go.md) | 用 OpenCode Go 订阅运行会话：账号登录、状态栏用量、模型及其推理强度、暂不支持的部分 |
 | [自定义模型服务](docs/custom-providers.md) | 接入自托管与私有 API：协议、模型发现、上下文窗口、密钥和工具调用测试 |
 | [Auto 审核](docs/auto-review.md) | 独立权限审核的范围、成本与限制 |

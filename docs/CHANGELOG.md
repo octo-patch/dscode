@@ -10,6 +10,22 @@ Per-release notes live in [`docs/releases/`](releases/); the entries below summa
 
 ## [Unreleased]
 
+## [0.7.52] - 2026-10-28
+
+### Added
+
+- Direct Anthropic API-key login and provider selection with Claude Opus 5.5, Sonnet 5.5 and Fable 5.1. The route supports streamed text, images, tools, adaptive thinking and signed thinking replay; model availability remains account-dependent.
+
+### Changed
+
+- Anthropic models default to compaction at 50% of the usable input window, with background summary prefetch starting at 80% of that threshold. Explicit threshold settings still take precedence.
+- Computer Use is pinned to 0.3.6, which declares compatibility with the shipped Harness rc.3. Build and standalone preflight checks reject incompatible profile bundles without granting version exemptions.
+
+### Fixed
+
+- Empty argument deltas in Anthropic Messages streams retain the initial tool input, allowing no-argument tools to complete correctly.
+- Bracketed image pastes remove the complete terminal wrapper before path detection, restoring `[Image 1]` and subsequent attachment markers. Terminals still need to supply image paths; macOS Ctrl+V reads clipboard images directly.
+
 ## [0.7.51] - 2026-10-23
 
 ### Added
